@@ -1,0 +1,5 @@
+---,DisplayName,Description,MonumentType,WorshipRule,bIneligibleStillAnimate,WorshipRequired,ProgressPerWorshipperPerSec,MaxWorshippers,DefaultRewardType,DefaultRewardCount,ChargesPerCycle,bPersistsAcrossMaps,bSinksWhenDepleted,bRare,SegmentRotationDegrees
+VaultOfKnowledge,Vault of Knowledge,"Worship (Shaman only) to gain permanent knowledge: a new spell or building plan that carries to future maps.",VaultOfKnowledge,ShamanOnly,false,30,1,1,UnlockSpell,1,1,true,false,false,0
+StoneHead,Stone Head,"Shaman or Braves worship it to generate charges of a specific spell. Sinks into the ground when its charges are used up.",StoneHead,ShamanAndBraves,false,10,1,8,GrantCharges,3,1,false,true,false,0
+Obelisk,Obelisk,"Shaman only. When fully worshipped the segments spin 90 degrees and trigger a world event or unique reward.",Obelisk,ShamanOnly,false,30,1,1,WorldEvent,1,1,false,false,false,90
+Gargoyle,Gargoyle,"Rare Stone Head shaped like an Angel of Death. Only the Shaman can charge it; followers go through the animation. Grants a game-winning effect.",Gargoyle,ShamanOnly,true,60,1,5,WorldEvent,5,1,false,false,true,0

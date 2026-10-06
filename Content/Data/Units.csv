@@ -1,0 +1,5 @@
+---,DisplayName,Role,MaxHealth,WalkSpeed,bCanFight,MeleeDamage,MeleeRange,MeleeCooldown,MeleeKnockback,AggroRadius,LeashRadius,bCountsAsFollower,PopulationCost,bDrowns,DrownTime,CorpseLifetime,CapsuleRadius,CapsuleHalfHeight,SkeletalMesh,AnimClass,PlaceholderScale
+Shaman,Shaman,Shaman,250,520,true,18,170,0.9,1.4,1800,2600,false,0,true,4,0,34,92,,,"(X=0.6,Y=0.6,Z=1.84)"
+Brave,Brave,Brave,60,420,true,6,150,1.3,1.0,1100,2000,true,1,true,3,12,32,86,,,"(X=0.56,Y=0.56,Z=1.72)"
+Warrior,Warrior,Warrior,120,440,true,14,160,1.1,1.6,1400,2400,true,1,true,3,12,36,88,,,"(X=0.66,Y=0.66,Z=1.76)"
+Wildman,Wildman,Wildman,40,300,false,0,0,1,0,0,600,false,1,true,3,12,32,84,,,"(X=0.54,Y=0.54,Z=1.68)"

@@ -1,0 +1,20 @@
+---,DisplayName,Description,Targeting,ManaCost,RangeRaw,Radius,CastTime,Cooldown,Damage,Knockback,Duration,BuildingDamageMultiplier,ProjectileSpeed,bHoming,bIgnites,bSuperSpell,bOneShot,EffectId,UnlockCondition,TerrainEffectId,TargetFilter,bFriendlyFire
+Blast,Blast (Taka),Tracking fire blast. Low mana cost. Hurls nearby followers into the air.,Projectile,5,10,300,0.4,1.0,40,1.0,0,1.0,2500,true,true,false,false,FireBlast,Start,,AllUnits,true
+Convert,Convert,Converts wildmen in the radius into Braves of your tribe.,Ground,5,100,500,0.6,2.0,0,0,0,1.0,0,false,false,false,false,ConvertWildmen,Start,,WildmenOnly,false
+Swarm,Swarm,"Insects make enemy followers flee in panic; they abandon preaching, boats, and balloons.",Ground,50,30,600,0.6,4.0,0,0,12,1.0,0,false,false,false,false,InsectSwarm,Locked,,EnemiesOnly,false
+Invisibility,Invisibility,Followers turn invisible until they start fighting.,Ground,25,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,Invisibility,Locked,,FriendlyOnly,false
+MagicalShield,Magical Shield,Shields followers from direct spells and boosts them in battle.,Ground,30,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,MagicalShield,Locked,,FriendlyOnly,false
+LandBridge,Land Bridge,Raises a land bridge from the Shaman to the target point.,Ground,30,50,300,0.8,3.0,0,0,0,1.0,0,false,false,false,false,LandBridge,Locked,LandBridge,AllUnits,false
+Lightning,Lightning,"Powerful strike that kills unshielded followers, flings nearby ones, and ignites buildings.",Ground,30,60,250,0.5,2.0,100,0.6,0,1.5,0,false,true,false,false,Lightning,Locked,,AllUnits,true
+Hypnotize,Hypnotize,Enemy followers in the radius fight for you for about 15 seconds.,Ground,35,30,500,0.6,4.0,0,0,15,1.0,0,false,false,false,false,Hypnotize,Locked,,EnemiesOnly,false
+Tornado,Tornado,"Roams randomly, hurling followers and sucking up buildings.",Ground,35,30,300,0.8,5.0,0,0,30,1.0,0,false,false,false,false,Tornado,Locked,,AllUnits,true
+Swamp,Swamp,Followers entering it die. Disappears after 10 kills.,Ground,50,30,400,0.8,5.0,0,0,0,1.0,0,false,false,false,false,Swamp,Locked,Swamp,AllUnits,true
+Flatten,Flatten,Levels the land around the target to the target height.,Ground,60,30,800,1.0,6.0,0,0,0,1.0,0,false,false,false,false,Flatten,Locked,Flatten,AllUnits,false
+Earthquake,Earthquake,Splits the ground with lava; low shoreline land sinks briefly.,Ground,60,30,700,1.2,8.0,0,0,5,1.5,0,false,false,false,false,Earthquake,Locked,Earthquake,AllUnits,true
+Erode,Erode,Quickly sinks the land; low land floods with buildings and people on it.,Ground,80,30,800,1.2,10.0,0,0,8,1.5,0,false,false,false,false,Erode,Locked,Erode,AllUnits,true
+Firestorm,Firestorm,Flaming meteors ignite everyone (not your Shaman) and wreck buildings in a large radius.,Ground,85,30,1200,1.5,12.0,80,1.0,10,3.0,0,false,true,false,false,Firestorm,Locked,,AllUnits,true
+AngelOfDeath,Angel of Death,"Summons a flyer that seizes and kills enemy followers, shielded or not. Lives about 5 minutes.",Ground,90,15,300,1.5,15.0,0,0,300,1.0,0,false,true,false,false,AngelOfDeath,Locked,,EnemiesOnly,false
+Volcano,Volcano,Raises a volcano that burns buildings and followers and spreads lava and land.,Ground,100,15,900,2.0,20.0,0,0,0,2.0,0,false,true,false,false,Volcano,Locked,Volcano,AllUnits,true
+Armageddon,Armageddon,Super spell. Raises an arena and teleports every follower in the world into one battle.,Ground,0,100,3000,3.0,0,0,0,0,1.0,0,false,false,true,true,Armageddon,StoneHead,Armageddon,AllUnits,true
+Teleport,Teleport,Super spell. Instantly teleports the Shaman anywhere on the map.,Ground,0,100,0,0.5,0,0,0,0,1.0,0,false,false,true,true,Teleport,StoneHead,,FriendlyOnly,false
+Bloodlust,Bloodlust,Super spell. Followers deal and take far more damage.,Ground,0,30,500,0.5,0,0,0,30,1.0,0,false,false,true,true,Bloodlust,StoneHead,,FriendlyOnly,false

@@ -1,0 +1,23 @@
+# Unreal Engine 4 generated folders
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# Local tool builds
+Tools/WorldGenHarness/worldgen_harness
+Tools/ConvertHarness/convert_harness

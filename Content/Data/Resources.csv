@@ -1,0 +1,5 @@
+---,DisplayName,Type,Amount,bBlocksMovement,Mesh,MeshScale,Tint
+Tree,Tree,Wood,100,true,/Engine/BasicShapes/Cone.Cone,"(X=1.6,Y=1.6,Z=5.0)","(R=0.10,G=0.38,B=0.12,A=1.0)"
+BerryBush,Berry Bush,Food,60,false,/Engine/BasicShapes/Sphere.Sphere,"(X=1.4,Y=1.4,Z=1.0)","(R=0.55,G=0.12,B=0.40,A=1.0)"
+Stone,Stone Outcrop,Stone,150,true,/Engine/BasicShapes/Cube.Cube,"(X=2.0,Y=1.6,Z=1.2)","(R=0.50,G=0.50,B=0.52,A=1.0)"
+Ore,Ore Deposit,Ore,120,true,/Engine/BasicShapes/Cube.Cube,"(X=1.6,Y=1.6,Z=1.0)","(R=0.62,G=0.36,B=0.18,A=1.0)"

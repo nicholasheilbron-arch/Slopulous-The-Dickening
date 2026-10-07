@@ -394,6 +394,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	const FPlanetSettings S = TestSettings();
 	UShamanTerrainSubsystem* T = W.MakePlanet(S);
 	if (!TestNotNull(TEXT("Planet"), T)) return false;
+	W.World->GetWorldSettings()->bEnableWorldBoundsChecks = false; // as AShamanPlanetGameMode does (KillZ is world -Z)
 	// Southern-hemisphere land site, so "down" is far from world -Z.
 	FVector D;
 	const bool bFound = FindLand(T, [T](const FVector& Dir, const FTerrainSample& Smp)
@@ -417,14 +418,28 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
 	U->AutoPossessAI = EAutoPossessAI::Disabled;
 	U->FinishSpawning(FTransform(SpawnLoc));
+	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
 	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
 	if (!TestNotNull(TEXT("Movement"), M)) return false;
 	M->bRunPhysicsWithNoController = true;
 	M->SetMovementMode(MOVE_Falling);
 	TestTrue(TEXT("Planet: falling is redirected to the planet mode"), M->IsFalling() && M->MovementMode == MOVE_Custom);
 
+	// First UE4.27.2 run: driven through UWorld::Tick in this bare test world (no GameMode), the unit never moved.
+	// Advance world time only, and step the movement component directly: it is the code under test.
 	const float Dt = 1.f / 60.f;
-	for (int32 i = 0; i < 120; ++i) W.World->Tick(LEVELTICK_All, Dt); // 2 s: fall and land
+	auto Step = [&](int32 Frames)
+	{
+		for (int32 i = 0; i < Frames; ++i)
+		{
+			W.World->Tick(LEVELTICK_TimeOnly, Dt);
+			M->TickComponent(Dt, LEVELTICK_All, &M->PrimaryComponentTick);
+		}
+	};
+	const FVector BeforeFall = U->GetActorLocation();
+	Step(120); // 2 s: fall and land
+	TestFalse(TEXT("Unit still alive (not killed by world bounds)"), U->IsPendingKill());
+	TestTrue(TEXT("Movement component simulates (unit moved while falling)"), FVector::Dist(BeforeFall, U->GetActorLocation()) > 50.f);
 	const float Half = U->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	auto Clearance = [&]() { return F.GetDistanceFromCenter(U->GetActorLocation()) - Half - (S.Radius + T->GetTerrainHeight(U->GetActorLocation())); };
 	TestTrue(TEXT("Landed (walking on the planet)"), M->IsMovingOnGround());
@@ -439,7 +454,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	{
 		FVector F2, R2, U2; F.GetTangentBasis(U->GetActorLocation(), Fwd, F2, R2, U2);
 		U->AddMovementInput(F2, 1.f);
-		W.World->Tick(LEVELTICK_All, Dt);
+		Step(1);
 		WorstClearance = FMath::Max(WorstClearance, FMath::Abs(Clearance()));
 	}
 	const float Walked = F.GetSurfaceDistance(Start, U->GetActorLocation());
@@ -450,16 +465,15 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 
 	// Jump: leaves the ground radially and lands again.
 	U->Jump();
-	W.World->Tick(LEVELTICK_All, Dt);
-	W.World->Tick(LEVELTICK_All, Dt);
+	Step(2);
 	TestTrue(TEXT("Jump goes up (radially)"), Clearance() > 3.f && M->IsFalling());
-	for (int32 i = 0; i < 120; ++i) W.World->Tick(LEVELTICK_All, Dt);
+	Step(120);
 	TestTrue(TEXT("Lands after the jump"), M->IsMovingOnGround() && FMath::Abs(Clearance()) < 30.f);
 
 	// Raising the terrain under the unit: it ends up on top, not inside.
 	FTerrainModification Mod; Mod.Center = U->GetActorLocation(); Mod.Radius = 600.f; Mod.Strength = 300.f;
 	TestTrue(TEXT("Raise under the unit"), T->ModifyTerrain(Mod).WasApplied());
-	for (int32 i = 0; i < 30; ++i) W.World->Tick(LEVELTICK_All, Dt);
+	Step(30);
 	TestTrue(FString::Printf(TEXT("On top of raised terrain (clearance %.1f)"), Clearance()), FMath::Abs(Clearance()) < 30.f);
 	return true;
 }

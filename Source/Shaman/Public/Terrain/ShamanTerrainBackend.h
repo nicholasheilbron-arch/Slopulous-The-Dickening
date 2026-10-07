@@ -10,7 +10,7 @@ class FPlanetHeightField;
 
 /**
  * Implementation side of SHAMAN terrain. One backend is active per world, owned by UShamanTerrainSubsystem.
- * Gameplay never sees a backend; it uses the subsystem through ITerrainWorld / ITerrainQuery / ITerrainModification.
+ * Gameplay never sees a backend; it uses the subsystem through ITerrainWorld / ITerrainQuery / ITerrainModifier.
  *
  * Backends: UAnalyticPlanetTerrainBackend (pure math, no visuals; tests/headless), UVoxelPluginTerrainBackend
  * (ShamanVoxel module, Voxel Plugin Free). A future cube-sphere heightmap backend plugs in the same way.

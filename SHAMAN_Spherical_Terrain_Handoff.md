@@ -6,6 +6,8 @@
 
 > **UE4.27.2 has NOT been compiled or run in this environment.** No UnrealBuildTool build, no editor session, no PIE, no automation test run. Every in-engine result below is NOT TESTED.
 
+*Fix r2.1 (first real UE4.27.2 build attempt):* UnrealHeaderTool rejected the build because `UTerrainModification` (interface) and `FTerrainModification` (struct) collide once UHT strips the U/F prefixes. The interface is now `ITerrainModifier` / `UTerrainModifier`; nothing else changed. All 80 reflected types were re-checked for prefix-stripped name collisions: none remain.
+
 *Revision 2 (packaging fix):* the spike is now delivered as a patch package against the verified Fix1 base (section 8), and the ShamanVoxel public/private dependency boundary was corrected (section 3). No gameplay or milestone scope was added.
 
 All code for the milestone is written. The engine-independent terrain core was compiled and tested off-engine (re-run for revision 2: **20056 passed, 0 failed**, ThreadSanitizer clean; numbers in section 5). The Unreal code was reviewed line-by-line against the UE 4.27 API and the vendored Voxel Plugin headers.
@@ -31,7 +33,7 @@ No milestone commit was made.
 | File(s) | What it is |
 |---|---|
 | `Terrain/TerrainTypes.h` | Shared terrain types. `FPlanetSettings` (seed, centre, radius, sea level, noise, fordable depth, slope, voxel size). `FTerrainSample` (location, normal, up, height, material, walkable, underwater, water depth, flags). `FTerrainModification` with ops Raise / Lower / Flatten / Smooth / Paint / RaisePath. `FTerrainModificationResult`, `FTerrainProtectedRegion`, `FTerrainChangeEvent`, `FTerrainRaycastHit`. |
-| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModification`: native UINTERFACEs, the gameplay contract. |
+| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModifier`: native UINTERFACEs, the gameplay contract. |
 | `Terrain/PlanetFrame.h` | All planet geometry in one place: radial up, gravity direction, altitude, depth below sea, tangent basis, surface distance, parallel transport. |
 | `Terrain/PlanetHeightField.*` | Deterministic seeded spherical height field: hash-based gradient noise with continents, hills, ridged mountains and seabed. Holds an append-only edit log with lock-free publication for voxel worker threads, a signed distance function, and conservative height bounds. Engine-independent. |
 | `Terrain/PlanetTerrainQueries.*` | Samples, raycast (sphere tracing + bisection), protected-region overlap, edit footprint. Engine-independent. |

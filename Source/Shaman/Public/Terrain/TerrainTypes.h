@@ -28,7 +28,7 @@ namespace ETerrainFlags
 	};
 }
 
-/** Terrain operations. Not every backend supports every op (see ITerrainModification::SupportsOperation). */
+/** Terrain operations. Not every backend supports every op (see ITerrainModifier::SupportsOperation). */
 UENUM(BlueprintType)
 enum class ETerrainOp : uint8
 {

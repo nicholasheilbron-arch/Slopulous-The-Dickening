@@ -1,0 +1,105 @@
+diff --git a/SHAMAN_Spherical_Terrain_Handoff.md b/SHAMAN_Spherical_Terrain_Handoff.md
+index 1337ecf..f3b2f02 100644
+--- a/SHAMAN_Spherical_Terrain_Handoff.md
++++ b/SHAMAN_Spherical_Terrain_Handoff.md
+@@ -6,6 +6,8 @@
+ 
+ > **UE4.27.2 has NOT been compiled or run in this environment.** No UnrealBuildTool build, no editor session, no PIE, no automation test run. Every in-engine result below is NOT TESTED.
+ 
++*Fix r2.1 (first real UE4.27.2 build attempt):* UnrealHeaderTool rejected the build because `UTerrainModification` (interface) and `FTerrainModification` (struct) collide once UHT strips the U/F prefixes. The interface is now `ITerrainModifier` / `UTerrainModifier`; nothing else changed. All 80 reflected types were re-checked for prefix-stripped name collisions: none remain.
++
+ *Revision 2 (packaging fix):* the spike is now delivered as a patch package against the verified Fix1 base (section 8), and the ShamanVoxel public/private dependency boundary was corrected (section 3). No gameplay or milestone scope was added.
+ 
+ All code for the milestone is written. The engine-independent terrain core was compiled and tested off-engine (re-run for revision 2: **20056 passed, 0 failed**, ThreadSanitizer clean; numbers in section 5). The Unreal code was reviewed line-by-line against the UE 4.27 API and the vendored Voxel Plugin headers.
+@@ -31,7 +33,7 @@ No milestone commit was made.
+ | File(s) | What it is |
+ |---|---|
+ | `Terrain/TerrainTypes.h` | Shared terrain types. `FPlanetSettings` (seed, centre, radius, sea level, noise, fordable depth, slope, voxel size). `FTerrainSample` (location, normal, up, height, material, walkable, underwater, water depth, flags). `FTerrainModification` with ops Raise / Lower / Flatten / Smooth / Paint / RaisePath. `FTerrainModificationResult`, `FTerrainProtectedRegion`, `FTerrainChangeEvent`, `FTerrainRaycastHit`. |
+-| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModification`: native UINTERFACEs, the gameplay contract. |
++| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModifier`: native UINTERFACEs, the gameplay contract. |
+ | `Terrain/PlanetFrame.h` | All planet geometry in one place: radial up, gravity direction, altitude, depth below sea, tangent basis, surface distance, parallel transport. |
+ | `Terrain/PlanetHeightField.*` | Deterministic seeded spherical height field: hash-based gradient noise with continents, hills, ridged mountains and seabed. Holds an append-only edit log with lock-free publication for voxel worker threads, a signed distance function, and conservative height bounds. Engine-independent. |
+ | `Terrain/PlanetTerrainQueries.*` | Samples, raycast (sphere tracing + bisection), protected-region overlap, edit footprint. Engine-independent. |
+diff --git a/Source/Shaman/Public/Terrain/ShamanTerrainBackend.h b/Source/Shaman/Public/Terrain/ShamanTerrainBackend.h
+index fcd5e70..01d8e84 100644
+--- a/Source/Shaman/Public/Terrain/ShamanTerrainBackend.h
++++ b/Source/Shaman/Public/Terrain/ShamanTerrainBackend.h
+@@ -10,7 +10,7 @@ class FPlanetHeightField;
+ 
+ /**
+  * Implementation side of SHAMAN terrain. One backend is active per world, owned by UShamanTerrainSubsystem.
+- * Gameplay never sees a backend; it uses the subsystem through ITerrainWorld / ITerrainQuery / ITerrainModification.
++ * Gameplay never sees a backend; it uses the subsystem through ITerrainWorld / ITerrainQuery / ITerrainModifier.
+  *
+  * Backends: UAnalyticPlanetTerrainBackend (pure math, no visuals; tests/headless), UVoxelPluginTerrainBackend
+  * (ShamanVoxel module, Voxel Plugin Free). A future cube-sphere heightmap backend plugs in the same way.
+diff --git a/Source/Shaman/Public/Terrain/ShamanTerrainSubsystem.h b/Source/Shaman/Public/Terrain/ShamanTerrainSubsystem.h
+index fc85ffb..b53d912 100644
+--- a/Source/Shaman/Public/Terrain/ShamanTerrainSubsystem.h
++++ b/Source/Shaman/Public/Terrain/ShamanTerrainSubsystem.h
+@@ -18,7 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnShamanTerrainChanged, const FTerr
+  */
+ UCLASS()
+ class SHAMAN_API UShamanTerrainSubsystem : public UWorldSubsystem,
+-	public ITerrainWorld, public ITerrainQuery, public ITerrainModification, public FTickableGameObject
++	public ITerrainWorld, public ITerrainQuery, public ITerrainModifier, public FTickableGameObject
+ {
+ 	GENERATED_BODY()
+ public:
+@@ -51,7 +51,7 @@ public:
+ 	virtual float GetWaterDepthAt(const FVector& WorldLocation) const override;
+ 	virtual bool Raycast(const FVector& Start, const FVector& End, FTerrainRaycastHit& OutHit) const override;
+ 
+-	// ITerrainModification
++	// ITerrainModifier
+ 	virtual bool SupportsOperation(ETerrainOp Op) const override;
+ 	virtual FTerrainModificationResult ModifyTerrain(const FTerrainModification& Request) override;
+ 	virtual int32 RegisterProtectedRegion(const FVector& Center, float Radius, FName Tag) override;
+diff --git a/Source/Shaman/Public/Terrain/TerrainInterfaces.h b/Source/Shaman/Public/Terrain/TerrainInterfaces.h
+index c6c3950..05caea9 100644
+--- a/Source/Shaman/Public/Terrain/TerrainInterfaces.h
++++ b/Source/Shaman/Public/Terrain/TerrainInterfaces.h
+@@ -58,10 +58,14 @@ public:
+ };
+ 
+ UINTERFACE(meta=(CannotImplementInterfaceInBlueprint))
+-class SHAMAN_API UTerrainModification : public UInterface { GENERATED_BODY() };
++class SHAMAN_API UTerrainModifier : public UInterface { GENERATED_BODY() };
+ 
+-/** Terrain changes go through here: validation, protected regions, change notification. */
+-class SHAMAN_API ITerrainModification
++/**
++ * Terrain changes go through here: validation, protected regions, change notification.
++ * (Named "Modifier", not "Modification": UHT strips the U/I/F prefixes, so UTerrainModification would clash
++ * with the FTerrainModification request struct.)
++ */
++class SHAMAN_API ITerrainModifier
+ {
+ 	GENERATED_BODY()
+ public:
+diff --git a/Source/Shaman/Public/Terrain/TerrainTypes.h b/Source/Shaman/Public/Terrain/TerrainTypes.h
+index 6fbdc7b..848c949 100644
+--- a/Source/Shaman/Public/Terrain/TerrainTypes.h
++++ b/Source/Shaman/Public/Terrain/TerrainTypes.h
+@@ -28,7 +28,7 @@ namespace ETerrainFlags
+ 	};
+ }
+ 
+-/** Terrain operations. Not every backend supports every op (see ITerrainModification::SupportsOperation). */
++/** Terrain operations. Not every backend supports every op (see ITerrainModifier::SupportsOperation). */
+ UENUM(BlueprintType)
+ enum class ETerrainOp : uint8
+ {
+diff --git a/Source/Shaman/Public/World/SurfaceProbeActor.h b/Source/Shaman/Public/World/SurfaceProbeActor.h
+index 454f2bb..b867588 100644
+--- a/Source/Shaman/Public/World/SurfaceProbeActor.h
++++ b/Source/Shaman/Public/World/SurfaceProbeActor.h
+@@ -8,7 +8,7 @@ class UStaticMeshComponent;
+ 
+ /**
+  * A placeholder surface object (spike acceptance G): stands on the terrain, aligned to the terrain normal, and
+- * re-snaps itself when a terrain change touches it (listens to ITerrainModification::OnTerrainChangedNative).
++ * re-snaps itself when a terrain change touches it (listens to ITerrainModifier::OnTerrainChangedNative).
+  * Only uses the SHAMAN terrain abstraction.
+  */
+ UCLASS()

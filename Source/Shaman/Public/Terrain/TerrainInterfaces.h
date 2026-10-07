@@ -58,10 +58,14 @@ public:
 };
 
 UINTERFACE(meta=(CannotImplementInterfaceInBlueprint))
-class SHAMAN_API UTerrainModification : public UInterface { GENERATED_BODY() };
+class SHAMAN_API UTerrainModifier : public UInterface { GENERATED_BODY() };
 
-/** Terrain changes go through here: validation, protected regions, change notification. */
-class SHAMAN_API ITerrainModification
+/**
+ * Terrain changes go through here: validation, protected regions, change notification.
+ * (Named "Modifier", not "Modification": UHT strips the U/I/F prefixes, so UTerrainModification would clash
+ * with the FTerrainModification request struct.)
+ */
+class SHAMAN_API ITerrainModifier
 {
 	GENERATED_BODY()
 public:

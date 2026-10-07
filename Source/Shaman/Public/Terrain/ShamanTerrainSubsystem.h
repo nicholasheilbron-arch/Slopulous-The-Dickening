@@ -18,7 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnShamanTerrainChanged, const FTerr
  */
 UCLASS()
 class SHAMAN_API UShamanTerrainSubsystem : public UWorldSubsystem,
-	public ITerrainWorld, public ITerrainQuery, public ITerrainModification, public FTickableGameObject
+	public ITerrainWorld, public ITerrainQuery, public ITerrainModifier, public FTickableGameObject
 {
 	GENERATED_BODY()
 public:
@@ -51,7 +51,7 @@ public:
 	virtual float GetWaterDepthAt(const FVector& WorldLocation) const override;
 	virtual bool Raycast(const FVector& Start, const FVector& End, FTerrainRaycastHit& OutHit) const override;
 
-	// ITerrainModification
+	// ITerrainModifier
 	virtual bool SupportsOperation(ETerrainOp Op) const override;
 	virtual FTerrainModificationResult ModifyTerrain(const FTerrainModification& Request) override;
 	virtual int32 RegisterProtectedRegion(const FVector& Center, float Radius, FName Tag) override;

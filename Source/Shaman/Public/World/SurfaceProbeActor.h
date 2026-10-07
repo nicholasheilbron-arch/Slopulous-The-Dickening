@@ -8,7 +8,7 @@ class UStaticMeshComponent;
 
 /**
  * A placeholder surface object (spike acceptance G): stands on the terrain, aligned to the terrain normal, and
- * re-snaps itself when a terrain change touches it (listens to ITerrainModification::OnTerrainChangedNative).
+ * re-snaps itself when a terrain change touches it (listens to ITerrainModifier::OnTerrainChangedNative).
  * Only uses the SHAMAN terrain abstraction.
  */
 UCLASS()

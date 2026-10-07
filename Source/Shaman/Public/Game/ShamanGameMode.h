@@ -44,7 +44,10 @@ public:
 	UFUNCTION(Exec) void ShamanRegenerate(int32 Seed);
 
 protected:
-	void EnsureWorldGenerated();
+	/** Builds the world once (flat Phase 1 world here; AShamanPlanetGameMode builds a planet). */
+	virtual void EnsureWorldGenerated();
+	/** Body of the ShamanRegenerate console command. */
+	virtual void RegenerateWorld(int32 Seed);
 	void ResolveGameData();
 	void SpawnWorld();
 	void DestroyWorld();

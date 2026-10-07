@@ -2,17 +2,23 @@
 
 ## 1. Status
 
-**BLOCKED – implementation complete, UE validation not run.**
+**ACCEPTED – built and run in UE4.27.2 on the PM machine. All 28 automation tests pass (after fix r2.2) and every planet acceptance command passes.**
 
-> **UE4.27.2 has NOT been compiled or run in this environment.** No UnrealBuildTool build, no editor session, no PIE, no automation test run. Every in-engine result below is NOT TESTED.
+*First in-engine run (2026-10-06, PM machine, UE4.27.2 installed build, VS2019):* the project and the vendored Voxel Plugin compile (`Rebuild All: 1 succeeded`). The flat `ShamanPrototype` map still plays (world generated, Convert learned, Shaman reincarnates). A `PlanetTest` map with `ShamanPlanetGameMode` was played and every acceptance console command was run. Results are in section 5, taken from `Saved/Logs/Shaman.log`.
+
+*Second in-engine run (2026-10-07, after fix r2.2):* rebuild succeeded; Session Frontend `Shaman` group: **28 run, 28 passed**, including `Shaman.Terrain.SphericalMovement`. The planet console commands were repeated with the same results (numbers in section 5).
+
+*Fix r2.2 (test harness only):* `Shaman.Terrain.SphericalMovement` failed because the unit never moved at all in the bare automation world (position unchanged after 2 s of falling). In PIE the same movement code works (306 units on the planet, 0 ground rescues). The test now disables world-bounds checks like `AShamanPlanetGameMode` does, steps the movement component directly, and first asserts that the unit actually moved, so a repeat failure points at the cause. No game code changed.
+
+*Fix r2.1 (first real UE4.27.2 build attempt):* UnrealHeaderTool rejected the build because `UTerrainModification` (interface) and `FTerrainModification` (struct) collide once UHT strips the U/F prefixes. The interface is now `ITerrainModifier` / `UTerrainModifier`; nothing else changed. All 80 reflected types were re-checked for prefix-stripped name collisions: none remain.
 
 *Revision 2 (packaging fix):* the spike is now delivered as a patch package against the verified Fix1 base (section 8), and the ShamanVoxel public/private dependency boundary was corrected (section 3). No gameplay or milestone scope was added.
 
 All code for the milestone is written. The engine-independent terrain core was compiled and tested off-engine (re-run for revision 2: **20056 passed, 0 failed**, ThreadSanitizer clean; numbers in section 5). The Unreal code was reviewed line-by-line against the UE 4.27 API and the vendored Voxel Plugin headers.
 
-It has **not** been compiled with UnrealBuildTool, opened in the editor or played. That work happened in a Linux cloud sandbox with no Unreal Engine. The linked Windows PC was reachable for file access only, with no shell. Per the stop rules, nothing here is claimed as passing until it is built and run on the PM machine. Section 5 lists exactly what is still NOT TESTED; the runbook in section 10 runs every gate.
+The cloud sandbox that wrote the code has no Unreal Engine; all in-engine results come from the PM machine.
 
-No milestone commit was made.
+The milestone commit is made after this handoff update (see section 8).
 
 ## 2. Environment
 
@@ -22,7 +28,7 @@ No milestone commit was made.
 | Voxel Plugin | **Voxel Plugin Free, "Free-Beta-415230fff-2021-06-08"**. Git commit `9433a668dd568d63a338bdb2b45067c683474f96` (github.com/Phyronnaz/VoxelPluginFree). README states it is compatible with 4.24 and 4.27. Vendored **unmodified** to `Plugins/VoxelFree` (byte-identical, verified with `diff -r`). |
 | Toolchain intended | Visual Studio 2019, MSVC v142, Win64 Development Editor (standard for 4.27). |
 | Actually used here | Linux sandbox, g++ (C++17), used only for the off-engine harness `Tools/TerrainHarness` with a CoreMinimal shim. |
-| Platform tested in-engine | **None** (see Status). |
+| Platform tested in-engine | Windows PC of the PM, UE4.27.2 installed build, VS2019 (MSVC 14.29), Development Editor Win64. |
 
 ## 3. What changed
 
@@ -31,7 +37,7 @@ No milestone commit was made.
 | File(s) | What it is |
 |---|---|
 | `Terrain/TerrainTypes.h` | Shared terrain types. `FPlanetSettings` (seed, centre, radius, sea level, noise, fordable depth, slope, voxel size). `FTerrainSample` (location, normal, up, height, material, walkable, underwater, water depth, flags). `FTerrainModification` with ops Raise / Lower / Flatten / Smooth / Paint / RaisePath. `FTerrainModificationResult`, `FTerrainProtectedRegion`, `FTerrainChangeEvent`, `FTerrainRaycastHit`. |
-| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModification`: native UINTERFACEs, the gameplay contract. |
+| `Terrain/TerrainInterfaces.h` | `ITerrainWorld`, `ITerrainQuery`, `ITerrainModifier`: native UINTERFACEs, the gameplay contract. |
 | `Terrain/PlanetFrame.h` | All planet geometry in one place: radial up, gravity direction, altitude, depth below sea, tangent basis, surface distance, parallel transport. |
 | `Terrain/PlanetHeightField.*` | Deterministic seeded spherical height field: hash-based gradient noise with continents, hills, ridged mountains and seabed. Holds an append-only edit log with lock-free publication for voxel worker threads, a signed distance function, and conservative height bounds. Engine-independent. |
 | `Terrain/PlanetTerrainQueries.*` | Samples, raycast (sphere tracing + bisection), protected-region overlap, edit footprint. Engine-independent. |
@@ -113,26 +119,32 @@ UVoxelPluginTerrainBackend ── UShamanPlanetVoxelGenerator ── AVoxelWorld
 
 ## 5. Acceptance results
 
+In-engine evidence: PM machine, 2026-10-06, editor PIE on `Content/Maps/PlanetTest` (GameMode Override `ShamanPlanetGameMode`, voxel backend), Session Frontend automation run of the `Shaman` group. Off-engine numbers are from the g++ harness (revision 2).
+
 | # | Test | Result | Evidence / measurement |
 |---|---|---|---|
-| A | Project opens in UE4.27.2 | **NOT TESTED** | No engine available. |
-| A | Project compiles | **NOT TESTED** | Code review found 1 compile error (shadowed `Terrain` local); it has been fixed. |
-| A | No UE5 dependencies | PASS (static) | No UE5 API or modules; the plugin targets 4.24/4.27. |
-| A | Voxel Plugin compiles/loads | **NOT TESTED** | It is upstream's 4.27-compatible release, unmodified. |
-| B | Same seed → same planet | PASS (off-engine) | Harness: 4000/4000 heights bit-identical; seed-1337 height checksum `21358966.752` (reproduced exactly in every run). Also edit-log replay identical (3000/3000) and a seed checksum. UE test `Shaman.Terrain.Determinism` written, NOT RUN. |
+| A | Project compiles (incl. Voxel Plugin) | **PASS** | `Rebuild All: 1 succeeded, 0 failed` after fix r2.1. Only upstream plugin C4996 deprecation warnings. |
+| A | Project opens, flat map unaffected | **PASS** | `ShamanPrototype` PIE x3: world generated in ~10 ms, 313 actors, `Learned Convert`, `Shaman of tribe 0 reborn in 8.6s`. |
+| A | No UE5 dependencies | PASS (static) | No UE5 API or modules. |
+| B | Same seed → same planet | **PASS** | `Shaman.Terrain.Determinism` passed in UE; harness checksum `21358966.752`. `Shaman.World.Determinism` (flat) passed. |
 | B | Different seeds differ | PASS (off-engine) | Harness: >3000/4000 samples differ by more than 1 uu. |
-| C | Shaman walks across the surface / curvature / alignment / radial gravity | **NOT TESTED** | Logic implemented. UE test `Shaman.Terrain.SphericalMovement` (southern-hemisphere drop, land, 3 s walk, jump, raise under the unit) is written, not run. |
+| C | Movement on the sphere (land, walk across curvature, align, jump) | **PASS** | `Shaman.Terrain.SphericalMovement` passed on the second run (southern-hemisphere drop, land, 3 s walk, upright, orient to movement, jump and land, raise under the unit). First run failed because the unit was not simulated in the bare test world; fixed in the test only (r2.2). In PIE: player standing on the surface (altitude 749, ground 656, up.z 1.00); 306 units on the planet with 0 ground rescues. |
 | C | No world-Z in the core spherical movement path | PASS (review) | PlanetWalk/PlanetFall/rotation/jump use only `FPlanetFrame`. |
-| D | Surface position / normal / height / walkability / underwater | PASS (off-engine) | Harness covers samples, normal vs SDF gradient (>1900/2000), raycasts 500/500 within 10 uu, and flags. Land is 51.4%, heights range −1460…3179, walkable 54.2%. UE tests written, NOT RUN. |
-| E | Runtime terrain modification | PASS (off-engine, data level) | Raise/Lower/Flatten/Paint, falloff and validation are correct. `AddEdit` takes 0.01–0.2 ms. |
-| E | Collision updates | **NOT TESTED** | Needs the voxel backend in PIE (`ShamanTerrainBenchmark`). |
-| E | Change event fires | **NOT TESTED in UE** | Test `Shaman.Terrain.ChangedNotification` written. |
-| E | Protected region rejects | PASS (off-engine overlap math) | Console `ShamanTerrainProtectedTest` and test `Shaman.Terrain.ProtectedRejection` written. |
-| F | Spherical sea / underwater / depth | PASS (off-engine) | Water depth = sea radius − ground radius (4000/4000 consistent). The drowning rule uses radial depth. UE test `Shaman.Terrain.Underwater` written. |
-| G | Brave on the surface | **NOT TESTED** | Spawned by `ShamanPlanetGameMode`, with order FollowShaman. |
-| G | Surface object conforms to terrain | **NOT TESTED** | `ASurfaceProbeActor`. |
-| G | Spells / TAKA Blast / Convert / tribe data intact | **NOT TESTED in UE** | Source untouched (git diff). The existing `Shaman.Spells.*` and `Shaman.Data.TakaPreserved` tests must still pass. |
-| H | FPS, generation, edit, collision update, memory, 300 units, save/reload | **NOT TESTED** | Off-engine indications only (revision 2 re-run, g++ 13.3 -O2, cloud VM; timings vary run to run):<br>• 20000 samples incl. normal: 116.1 ms and 139.1 ms in two runs (5.80 / 6.96 µs per sample)<br>• `AddEdit` (data only, no remesh): 0.2090 ms and 0.1069 ms<br>• SDF evaluation with 4096 edits: 8.349 / 8.446 µs per eval (linear in edit count)<br>• Height-field creation: <1 ms<br>In-engine numbers come from `Perf:` log lines, `ShamanTerrainBenchmark` (prints PASS/FAIL vs the 100 ms target), `ShamanSpawnStress 300` and `ShamanTerrainSaveReload`. |
+| D | Surface position / normal / height / walkability / underwater | **PASS** | `Shaman.Terrain.SurfaceQuery`, `PlanetCenterRadius`, `RadialUp` passed. `ShamanTerrainProbe`: height 616, Grass, walkable, normal.up 0.97, raycast hit at 2998. |
+| E | Runtime terrain modification | **PASS** | `ShamanTerrainBenchmark 8`: 8 edits r=500 applied, apply avg 0.094 / max 0.174 ms. `Shaman.Terrain.ModificationRequest` passed. |
+| E | Collision updates < 100 ms | **PASS** | Mesh + collision up to date avg 39.6 / max 50.3 ms per edit (run 1) and avg 43.8 / max 50.4 ms (run 2); target 100 ms. |
+| E | Change event fires | **PASS** | `Shaman.Terrain.ChangedNotification` passed; `SurfaceProbe … re-aligned after terrain edit` logged. |
+| E | Protected region rejects | **PASS** | `ShamanTerrainProtectedTest: PASS` (centre and edge rejected, edits 0→0); `Shaman.Terrain.ProtectedRejection` passed. `ShamanTerrainRaise 500 300` aimed at the start site was also correctly rejected (region 1). |
+| F | Spherical sea / underwater / depth | **PASS** | `Shaman.Terrain.Underwater` passed. Visual check of the water sphere not reported. |
+| G | Brave on the surface | PASS (indirect) | 6 units at start, 0 ground rescues. Not visually confirmed in the report. |
+| G | Surface object conforms to terrain | **PASS** | `SurfaceProbeActor_0 re-aligned after terrain edit 6/7/-1`. |
+| G | Spells / TAKA Blast / Convert / tribe data intact | **PASS** | All `Shaman.Spells.*` (incl. `Convert.BlastUnchanged`), `Shaman.Data.TakaPreserved`, `Shaman.Tribes.PopulationFormulas`, `Shaman.World.StartAreaConstraints` passed. Note: `TakaPreserved` logged "DT_Spells not imported yet; skipped" (pre-existing). |
+| H | Generation time | **PASS** | Voxel world created in 43.9 ms (run 1) / 5.9 ms (run 2); initial meshes + collision 10 / 7 ms; start site + content ~2 ms. |
+| H | 300 units | **PASS** | `ShamanSpawnStress 300`: 306 units, steady 105–112 fps (worst frame 12–19 ms) over one minute. One unit was lost (306→305), cause not logged. Run 2 (60 fps cap): 306 units at 55–60 fps, worst frame 17–27 ms; the count later fell to 217 because the PM cast Blast on his own Braves (confirmed). |
+| H | Save / reload | **PASS** | `SaveReload: PASS (8 edits, hash 69505468 -> 69505468, replay 139.08 ms)`; full remesh after reload 1275 ms (load-time, not per edit). |
+| H | FPS / memory | PASS, with a note | 80–120 fps typical, ~1.29–1.39 GB editor process. Recurring single ~335 ms frames and two 5-s windows at 3.0 fps match the editor's background throttling when its window loses focus; they did not occur during the focused minute of the stress run. Re-check in a standalone game if needed. |
+
+Automation summary: run 1 – 28 run, 27 passed, 1 failed (`Shaman.Terrain.SphericalMovement`); run 2 after fix r2.2 – **28 run, 28 passed**.
 
 ## 6. Known limitations
 
@@ -163,6 +175,8 @@ UVoxelPluginTerrainBackend ── UShamanPlanetVoxelGenerator ── AVoxelWorld
 - **Content.**
   - Upstream's GitHub copy of the plugin lacks 53 large example assets (`*.REMOVED.git-id` placeholders). This only affects the plugin's example maps, not runtime.
   - The terrain material is the plugin's RGB example material, with a fallback to the engine default.
+- **Unit deaths are not logged.** The drop from 306 to 217 in run 2 was the PM casting Blast (confirmed); the single loss in run 1 (306→305) remains unexplained. A death-reason log line would make this visible.
+- **Run 2 was played on `ShamanPrototype` with its GameMode Override switched to the planet mode.** The flat map must keep `ShamanGameMode`; use `PlanetTest` for the planet.
 - **World bounds.** The planet game mode disables `bEnableWorldBoundsChecks`, because the southern hemisphere lies below KillZ.
 
 ## 7. Licensing
@@ -203,26 +217,24 @@ Nothing in the package replaces or re-creates an existing project file that the 
 
 ### Repository state
 
-- **No commit of any kind was made** (no milestone commit, no merge into main, nothing pushed, no remote created). The user's repository was not modified.
-- The work also exists uncommitted on branch `terrain/spherical-spike` of my merge repo (base `eec16ab`), with `Shaman.uproject` updated to your editor-written version plus the two additions.
-- **Recommended order on your machine:**
-  1. Commit your current Fix1 state (source, data tables, map) as its own commit.
-  2. Verify the base with `BASE_MANIFEST.sha256`, then apply this package (see `APPLY.md`).
-  3. Build and run section 10.
-  4. Only then commit `terrain: add UE4 spherical terrain foundation`.
+On the PM machine (local only, nothing pushed, no remote created by Claude):
+
+- `main`: `993fdd0` Initial Commit → `1a7f89c` baseline: Fix1 before spherical terrain.
+- `terrain/spherical-spike`: `09f0bd8` spike patch r2 → fix r2.1 (UHT rename) → fix r2.2 (movement test) → milestone commit `terrain: add UE4 spherical terrain foundation` (this handoff with real results + `Content/Maps/PlanetTest.umap`).
+- Merging into `main` and pushing are separate, explicit PM decisions.
 - **Excluded by `.gitignore`:** Binaries, Intermediate, Saved, DerivedDataCache, Build, `Plugins/*/Binaries`, `Plugins/*/Intermediate`, `.vs`, `*.sln`, the harness binary. Plugin uassets go through LFS (existing `.gitattributes`); `Plugins/VoxelFree/** -text` keeps vendored files byte-identical.
 
 ## 9. Next recommended milestone
 
-1. **Validation pass (blocking).** Build, run section 10, record the real numbers, fix whatever breaks, then make the milestone commit.
-2. **Then, if the gates pass:** globe-wide navigation, covering:
+1. **Globe-wide navigation**, covering:
    - a surface graph + A* behind `IShamanSurfacePathfinder`;
    - re-pathing on `OnTerrainChanged`;
    - stuck handling;
    - radial versions of the remaining world-Z call sites (ragdoll bias, Blast spawn offset, rebirth offset).
-3. **If the voxel edit or collision timing fails the 100 ms gate:** prototype the cube-sphere heightmap backend behind the same interfaces before going further.
+2. **Small follow-ups:** log unit death reasons (to explain losses like the one in run 1), and a standalone-game performance check.
+3. The voxel edit + collision timing passed the 100 ms gate (max 50.4 ms), so the cube-sphere heightmap backend is not needed now; it stays an option behind the same interfaces.
 
-## 10. Runbook for the PM (to produce the missing results)
+## 10. Runbook for the PM (re-running the acceptance checks)
 
 ### 1. Build
 

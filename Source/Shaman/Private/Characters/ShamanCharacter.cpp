@@ -1,5 +1,6 @@
 #include "Characters/ShamanCharacter.h"
 #include "Characters/HealthComponent.h"
+#include "Terrain/ShamanSpace.h"
 #include "SpellComponent.h"
 #include "ProgressionComponent.h"
 #include "SpellProjectile.h"
@@ -21,7 +22,8 @@
 #include "Core/ShamanLog.h"
 #include "DrawDebugHelpers.h"
 
-AShamanCharacter::AShamanCharacter()
+AShamanCharacter::AShamanCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.TickInterval = 0.f; // player: per-frame focus/aim updates
 
@@ -71,7 +73,7 @@ FVector AShamanCharacter::GetAimPoint() const
 	const AController* C = GetController();
 	FVector ViewLoc; FRotator ViewRot;
 	if (const APlayerController* PC = Cast<APlayerController>(C)) PC->GetPlayerViewPoint(ViewLoc, ViewRot);
-	else { ViewLoc = GetActorLocation() + FVector(0, 0, 60); ViewRot = GetActorRotation(); }
+	else { ViewLoc = GetActorLocation() + FShamanSpace::GetUp(this, GetActorLocation()) * 60.f; ViewRot = GetActorRotation(); }
 	const FVector End = ViewLoc + ViewRot.Vector() * AimTraceDistance;
 	FHitResult Hit;
 	FCollisionQueryParams Params(TEXT("ShamanAim"), true, this);
@@ -88,7 +90,7 @@ bool AShamanCharacter::TryCastSpell(FName SpellId, FVector AimPoint)
 	else
 	{
 		const FVector To = AimPoint - GetActorLocation();
-		SetActorRotation(FRotator(0.f, To.Rotation().Yaw, 0.f)); // projectiles leave from the Shaman's front
+		SetActorRotation(FShamanSpace::UprightRotation(this, GetActorLocation(), To)); // projectiles leave from the Shaman's front
 		Spells->CastSpell(SpellId, AimPoint);
 		if (ShamanDebug::IsEnabled())
 		{
@@ -124,12 +126,66 @@ void AShamanCharacter::Reincarnate(const FVector& Location, const FRotator& Rota
 		EnableInput(PC);
 		PC->SetControlRotation(FRotator(-15.f, Rotation.Yaw, 0.f));
 	}
+	ResetPlanetView();
 }
 
 void AShamanCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (IsPlayerControlled()) UpdateFocus();
+	if (IsPlayerControlled())
+	{
+		UpdatePlanetCamera();
+		UpdateFocus();
+	}
+}
+
+// --- Planet camera ------------------------------------------------------------------------------------------------
+
+void AShamanCharacter::ResetPlanetView()
+{
+	FPlanetFrame Planet;
+	if (!FShamanSpace::GetPlanet(this, Planet)) return;
+	PlanetViewForward = Planet.ProjectOntoTangent(GetActorForwardVector(), GetActorLocation()).GetSafeNormal();
+	PlanetViewPitch = -15.f;
+}
+
+void AShamanCharacter::UpdatePlanetCamera()
+{
+	FPlanetFrame Planet;
+	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
+	if (bPlanet != bPlanetCamera)
+	{
+		bPlanetCamera = bPlanet;
+		CameraBoom->bUsePawnControlRotation = !bPlanet;
+		CameraBoom->SetUsingAbsoluteRotation(bPlanet);
+		if (bPlanet) ResetPlanetView();
+		else CameraBoom->SetRelativeRotation(FRotator::ZeroRotator);
+	}
+	if (!bPlanet) return;
+
+	FVector Fwd, Right, Up;
+	Planet.GetTangentBasis(GetActorLocation(), PlanetViewForward, Fwd, Right, Up); // parallel transport to the new tangent plane
+	PlanetViewForward = Fwd;
+	const float P = FMath::DegreesToRadians(PlanetViewPitch);
+	const FVector ViewDir = Fwd * FMath::Cos(P) + Up * FMath::Sin(P);
+	CameraBoom->SetWorldRotation(FRotationMatrix::MakeFromXZ(ViewDir, Up).ToQuat());
+}
+
+void AShamanCharacter::InputTurn(float V)
+{
+	if (!bPlanetCamera) { AddControllerYawInput(V); return; }
+	if (V == 0.f) return;
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	const float Deg = V * (PC ? PC->InputYawScale : 2.5f);
+	PlanetViewForward = PlanetViewForward.RotateAngleAxis(Deg, FShamanSpace::GetUp(this, GetActorLocation()));
+}
+
+void AShamanCharacter::InputLookUp(float V)
+{
+	if (!bPlanetCamera) { AddControllerPitchInput(V); return; }
+	if (V == 0.f) return;
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	PlanetViewPitch = FMath::Clamp(PlanetViewPitch + V * (PC ? PC->InputPitchScale : -2.5f), PlanetPitchMin, PlanetPitchMax);
 }
 
 // --- Interaction ---------------------------------------------------------------------------------------------
@@ -151,7 +207,7 @@ void AShamanCharacter::UpdateFocus()
 	FVector ViewLoc; FRotator ViewRot;
 	if (const APlayerController* PC = Cast<APlayerController>(GetController())) PC->GetPlayerViewPoint(ViewLoc, ViewRot);
 	else ViewRot = GetActorRotation();
-	const FVector ViewDir = ViewRot.Vector().GetSafeNormal2D();
+	const FVector ViewDir = FShamanSpace::HorizontalNormal(this, GetActorLocation(), ViewRot.Vector());
 
 	float BestScore = -1.f;
 	for (const FOverlapResult& H : Hits)
@@ -159,10 +215,9 @@ void AShamanCharacter::UpdateFocus()
 		AActor* A = H.GetActor();
 		IShamanInteractable* I = Cast<IShamanInteractable>(A);
 		if (!I || !I->CanInteract(this)) continue;
-		const FVector To = A->GetActorLocation() - GetActorLocation();
-		const float Facing = FVector::DotProduct(To.GetSafeNormal2D(), ViewDir);
+		const float Facing = FVector::DotProduct(FShamanSpace::HorizontalDirection(this, GetActorLocation(), A->GetActorLocation()), ViewDir);
 		if (Facing < 0.25f) continue;
-		const float Score = Facing * 2.f + (1.f - To.Size2D() / (Range + 400.f));
+		const float Score = Facing * 2.f + (1.f - FShamanSpace::HorizontalDistance(this, GetActorLocation(), A->GetActorLocation()) / (Range + 400.f));
 		if (Score > BestScore) { BestScore = Score; FocusedInteractable = A; }
 	}
 }
@@ -180,8 +235,8 @@ void AShamanCharacter::SetupPlayerInputComponent(UInputComponent* Input)
 	Super::SetupPlayerInputComponent(Input);
 	Input->BindAxis("MoveForward", this, &AShamanCharacter::MoveForward);
 	Input->BindAxis("MoveRight", this, &AShamanCharacter::MoveRight);
-	Input->BindAxis("Turn", this, &APawn::AddControllerYawInput);
-	Input->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
+	Input->BindAxis("Turn", this, &AShamanCharacter::InputTurn);     // = AddControllerYawInput on flat worlds
+	Input->BindAxis("LookUp", this, &AShamanCharacter::InputLookUp); // = AddControllerPitchInput on flat worlds
 	Input->BindAxis("TurnRate", this, &AShamanCharacter::TurnAtRate);
 	Input->BindAxis("LookUpRate", this, &AShamanCharacter::LookUpAtRate);
 	Input->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
@@ -198,6 +253,7 @@ void AShamanCharacter::SetupPlayerInputComponent(UInputComponent* Input)
 void AShamanCharacter::MoveForward(float V)
 {
 	if (!Controller || V == 0.f || !IsAlive()) return;
+	if (bPlanetCamera) { AddMovementInput(PlanetViewForward, V); return; }
 	const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
 	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::X), V);
 }
@@ -205,12 +261,13 @@ void AShamanCharacter::MoveForward(float V)
 void AShamanCharacter::MoveRight(float V)
 {
 	if (!Controller || V == 0.f || !IsAlive()) return;
+	if (bPlanetCamera) { AddMovementInput(FVector::CrossProduct(FShamanSpace::GetUp(this, GetActorLocation()), PlanetViewForward), V); return; }
 	const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
 	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y), V);
 }
 
-void AShamanCharacter::TurnAtRate(float V) { AddControllerYawInput(V * BaseTurnRate * GetWorld()->GetDeltaSeconds()); }
-void AShamanCharacter::LookUpAtRate(float V) { AddControllerPitchInput(V * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
+void AShamanCharacter::TurnAtRate(float V) { InputTurn(V * BaseTurnRate * GetWorld()->GetDeltaSeconds()); }
+void AShamanCharacter::LookUpAtRate(float V) { InputLookUp(V * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
 
 void AShamanCharacter::InputCast()
 {
@@ -243,7 +300,7 @@ void AShamanCharacter::InputRally()
 	const float R = UShamanGameData::Get(this)->RallyRadius;
 	if (UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>())
 		for (AShamanUnitBase* F : Tribes->GetFollowers(GetTribeId()))
-			if (FVector::Dist(F->GetActorLocation(), GetActorLocation()) <= R)
+			if (FVector::Dist(F->GetActorLocation(), GetActorLocation()) <= R) // 3D distance: valid on planets too
 				F->SetOrder(EFollowerOrder::FollowShaman, GetActorLocation());
 }
 

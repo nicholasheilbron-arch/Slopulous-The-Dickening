@@ -13,3 +13,6 @@
 *.csv text eol=lf
 *.md text eol=lf
 *.uproject text eol=lf
+
+# Vendored third-party plugin: keep files byte-identical to upstream (no EOL normalisation)
+Plugins/VoxelFree/** -text

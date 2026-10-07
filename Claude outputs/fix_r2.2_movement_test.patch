@@ -1,0 +1,156 @@
+diff --git a/SHAMAN_Spherical_Terrain_Handoff.md b/SHAMAN_Spherical_Terrain_Handoff.md
+index f3b2f02..65d7b3f 100644
+--- a/SHAMAN_Spherical_Terrain_Handoff.md
++++ b/SHAMAN_Spherical_Terrain_Handoff.md
+@@ -2,9 +2,11 @@
+ 
+ ## 1. Status
+ 
+-**BLOCKED – implementation complete, UE validation not run.**
++**BUILT AND RUN IN UE4.27.2 ON THE PM MACHINE – 27 of 28 automation tests pass; fix r2.2 addresses the one failure and must be re-run before the milestone commit.**
+ 
+-> **UE4.27.2 has NOT been compiled or run in this environment.** No UnrealBuildTool build, no editor session, no PIE, no automation test run. Every in-engine result below is NOT TESTED.
++*First in-engine run (2026-10-06, PM machine, UE4.27.2 installed build, VS2019):* the project and the vendored Voxel Plugin compile (`Rebuild All: 1 succeeded`). The flat `ShamanPrototype` map still plays (world generated, Convert learned, Shaman reincarnates). A `PlanetTest` map with `ShamanPlanetGameMode` was played and every acceptance console command was run. Results are in section 5, taken from `Saved/Logs/Shaman.log`.
++
++*Fix r2.2 (test harness only):* `Shaman.Terrain.SphericalMovement` failed because the unit never moved at all in the bare automation world (position unchanged after 2 s of falling). In PIE the same movement code works (306 units on the planet, 0 ground rescues). The test now disables world-bounds checks like `AShamanPlanetGameMode` does, steps the movement component directly, and first asserts that the unit actually moved, so a repeat failure points at the cause. No game code changed.
+ 
+ *Fix r2.1 (first real UE4.27.2 build attempt):* UnrealHeaderTool rejected the build because `UTerrainModification` (interface) and `FTerrainModification` (struct) collide once UHT strips the U/F prefixes. The interface is now `ITerrainModifier` / `UTerrainModifier`; nothing else changed. All 80 reflected types were re-checked for prefix-stripped name collisions: none remain.
+ 
+@@ -12,7 +14,7 @@
+ 
+ All code for the milestone is written. The engine-independent terrain core was compiled and tested off-engine (re-run for revision 2: **20056 passed, 0 failed**, ThreadSanitizer clean; numbers in section 5). The Unreal code was reviewed line-by-line against the UE 4.27 API and the vendored Voxel Plugin headers.
+ 
+-It has **not** been compiled with UnrealBuildTool, opened in the editor or played. That work happened in a Linux cloud sandbox with no Unreal Engine. The linked Windows PC was reachable for file access only, with no shell. Per the stop rules, nothing here is claimed as passing until it is built and run on the PM machine. Section 5 lists exactly what is still NOT TESTED; the runbook in section 10 runs every gate.
++The cloud sandbox that wrote the code has no Unreal Engine; all in-engine results come from the PM machine.
+ 
+ No milestone commit was made.
+ 
+@@ -24,7 +26,7 @@ No milestone commit was made.
+ | Voxel Plugin | **Voxel Plugin Free, "Free-Beta-415230fff-2021-06-08"**. Git commit `9433a668dd568d63a338bdb2b45067c683474f96` (github.com/Phyronnaz/VoxelPluginFree). README states it is compatible with 4.24 and 4.27. Vendored **unmodified** to `Plugins/VoxelFree` (byte-identical, verified with `diff -r`). |
+ | Toolchain intended | Visual Studio 2019, MSVC v142, Win64 Development Editor (standard for 4.27). |
+ | Actually used here | Linux sandbox, g++ (C++17), used only for the off-engine harness `Tools/TerrainHarness` with a CoreMinimal shim. |
+-| Platform tested in-engine | **None** (see Status). |
++| Platform tested in-engine | Windows PC of the PM, UE4.27.2 installed build, VS2019 (MSVC 14.29), Development Editor Win64. |
+ 
+ ## 3. What changed
+ 
+@@ -115,26 +117,32 @@ UVoxelPluginTerrainBackend ── UShamanPlanetVoxelGenerator ── AVoxelWorld
+ 
+ ## 5. Acceptance results
+ 
++In-engine evidence: PM machine, 2026-10-06, editor PIE on `Content/Maps/PlanetTest` (GameMode Override `ShamanPlanetGameMode`, voxel backend), Session Frontend automation run of the `Shaman` group. Off-engine numbers are from the g++ harness (revision 2).
++
+ | # | Test | Result | Evidence / measurement |
+ |---|---|---|---|
+-| A | Project opens in UE4.27.2 | **NOT TESTED** | No engine available. |
+-| A | Project compiles | **NOT TESTED** | Code review found 1 compile error (shadowed `Terrain` local); it has been fixed. |
+-| A | No UE5 dependencies | PASS (static) | No UE5 API or modules; the plugin targets 4.24/4.27. |
+-| A | Voxel Plugin compiles/loads | **NOT TESTED** | It is upstream's 4.27-compatible release, unmodified. |
+-| B | Same seed → same planet | PASS (off-engine) | Harness: 4000/4000 heights bit-identical; seed-1337 height checksum `21358966.752` (reproduced exactly in every run). Also edit-log replay identical (3000/3000) and a seed checksum. UE test `Shaman.Terrain.Determinism` written, NOT RUN. |
++| A | Project compiles (incl. Voxel Plugin) | **PASS** | `Rebuild All: 1 succeeded, 0 failed` after fix r2.1. Only upstream plugin C4996 deprecation warnings. |
++| A | Project opens, flat map unaffected | **PASS** | `ShamanPrototype` PIE x3: world generated in ~10 ms, 313 actors, `Learned Convert`, `Shaman of tribe 0 reborn in 8.6s`. |
++| A | No UE5 dependencies | PASS (static) | No UE5 API or modules. |
++| B | Same seed → same planet | **PASS** | `Shaman.Terrain.Determinism` passed in UE; harness checksum `21358966.752`. `Shaman.World.Determinism` (flat) passed. |
+ | B | Different seeds differ | PASS (off-engine) | Harness: >3000/4000 samples differ by more than 1 uu. |
+-| C | Shaman walks across the surface / curvature / alignment / radial gravity | **NOT TESTED** | Logic implemented. UE test `Shaman.Terrain.SphericalMovement` (southern-hemisphere drop, land, 3 s walk, jump, raise under the unit) is written, not run. |
++| C | Movement on the sphere (land, walk across curvature, align, jump) | **FAIL in automation → fix r2.2, re-run pending** | `Shaman.Terrain.SphericalMovement`: unit did not move in the test world (clearance stayed 311.7, walked 0 uu). In PIE: player standing on the surface (altitude 749, ground 656, up.z 1.00); 306 units on the planet with 0 ground rescues. |
+ | C | No world-Z in the core spherical movement path | PASS (review) | PlanetWalk/PlanetFall/rotation/jump use only `FPlanetFrame`. |
+-| D | Surface position / normal / height / walkability / underwater | PASS (off-engine) | Harness covers samples, normal vs SDF gradient (>1900/2000), raycasts 500/500 within 10 uu, and flags. Land is 51.4%, heights range −1460…3179, walkable 54.2%. UE tests written, NOT RUN. |
+-| E | Runtime terrain modification | PASS (off-engine, data level) | Raise/Lower/Flatten/Paint, falloff and validation are correct. `AddEdit` takes 0.01–0.2 ms. |
+-| E | Collision updates | **NOT TESTED** | Needs the voxel backend in PIE (`ShamanTerrainBenchmark`). |
+-| E | Change event fires | **NOT TESTED in UE** | Test `Shaman.Terrain.ChangedNotification` written. |
+-| E | Protected region rejects | PASS (off-engine overlap math) | Console `ShamanTerrainProtectedTest` and test `Shaman.Terrain.ProtectedRejection` written. |
+-| F | Spherical sea / underwater / depth | PASS (off-engine) | Water depth = sea radius − ground radius (4000/4000 consistent). The drowning rule uses radial depth. UE test `Shaman.Terrain.Underwater` written. |
+-| G | Brave on the surface | **NOT TESTED** | Spawned by `ShamanPlanetGameMode`, with order FollowShaman. |
+-| G | Surface object conforms to terrain | **NOT TESTED** | `ASurfaceProbeActor`. |
+-| G | Spells / TAKA Blast / Convert / tribe data intact | **NOT TESTED in UE** | Source untouched (git diff). The existing `Shaman.Spells.*` and `Shaman.Data.TakaPreserved` tests must still pass. |
+-| H | FPS, generation, edit, collision update, memory, 300 units, save/reload | **NOT TESTED** | Off-engine indications only (revision 2 re-run, g++ 13.3 -O2, cloud VM; timings vary run to run):<br>• 20000 samples incl. normal: 116.1 ms and 139.1 ms in two runs (5.80 / 6.96 µs per sample)<br>• `AddEdit` (data only, no remesh): 0.2090 ms and 0.1069 ms<br>• SDF evaluation with 4096 edits: 8.349 / 8.446 µs per eval (linear in edit count)<br>• Height-field creation: <1 ms<br>In-engine numbers come from `Perf:` log lines, `ShamanTerrainBenchmark` (prints PASS/FAIL vs the 100 ms target), `ShamanSpawnStress 300` and `ShamanTerrainSaveReload`. |
++| D | Surface position / normal / height / walkability / underwater | **PASS** | `Shaman.Terrain.SurfaceQuery`, `PlanetCenterRadius`, `RadialUp` passed. `ShamanTerrainProbe`: height 616, Grass, walkable, normal.up 0.97, raycast hit at 2998. |
++| E | Runtime terrain modification | **PASS** | `ShamanTerrainBenchmark 8`: 8 edits r=500 applied, apply avg 0.094 / max 0.174 ms. `Shaman.Terrain.ModificationRequest` passed. |
++| E | Collision updates < 100 ms | **PASS** | Mesh + collision up to date avg 39.6 / max 50.3 ms per edit (target 100 ms). |
++| E | Change event fires | **PASS** | `Shaman.Terrain.ChangedNotification` passed; `SurfaceProbe … re-aligned after terrain edit` logged. |
++| E | Protected region rejects | **PASS** | `ShamanTerrainProtectedTest: PASS` (centre and edge rejected, edits 0→0); `Shaman.Terrain.ProtectedRejection` passed. `ShamanTerrainRaise 500 300` aimed at the start site was also correctly rejected (region 1). |
++| F | Spherical sea / underwater / depth | **PASS** | `Shaman.Terrain.Underwater` passed. Visual check of the water sphere not reported. |
++| G | Brave on the surface | PASS (indirect) | 6 units at start, 0 ground rescues. Not visually confirmed in the report. |
++| G | Surface object conforms to terrain | **PASS** | `SurfaceProbeActor_0 re-aligned after terrain edit 6/7/-1`. |
++| G | Spells / TAKA Blast / Convert / tribe data intact | **PASS** | All `Shaman.Spells.*` (incl. `Convert.BlastUnchanged`), `Shaman.Data.TakaPreserved`, `Shaman.Tribes.PopulationFormulas`, `Shaman.World.StartAreaConstraints` passed. Note: `TakaPreserved` logged "DT_Spells not imported yet; skipped" (pre-existing). |
++| H | Generation time | **PASS** | Voxel world created in 43.9 ms; start site + content 2.2 ms. |
++| H | 300 units | **PASS** | `ShamanSpawnStress 300`: 306 units, steady 105–112 fps (worst frame 12–19 ms) over one minute. One unit was lost (306→305), cause not logged. |
++| H | Save / reload | **PASS** | `SaveReload: PASS (8 edits, hash 69505468 -> 69505468, replay 139.08 ms)`; full remesh after reload 1275 ms (load-time, not per edit). |
++| H | FPS / memory | PASS, with a note | 80–120 fps typical, ~1.29–1.39 GB editor process. Recurring single ~335 ms frames and two 5-s windows at 3.0 fps match the editor's background throttling when its window loses focus; they did not occur during the focused minute of the stress run. Re-check in a standalone game if needed. |
++
++Automation summary: 28 run, 27 passed, 1 failed (`Shaman.Terrain.SphericalMovement`, addressed by fix r2.2).
+ 
+ ## 6. Known limitations
+ 
+diff --git a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+index c9d08f9..3ff0765 100644
+--- a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+@@ -394,6 +394,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	const FPlanetSettings S = TestSettings();
+ 	UShamanTerrainSubsystem* T = W.MakePlanet(S);
+ 	if (!TestNotNull(TEXT("Planet"), T)) return false;
++	W.World->GetWorldSettings()->bEnableWorldBoundsChecks = false; // as AShamanPlanetGameMode does (KillZ is world -Z)
+ 	// Southern-hemisphere land site, so "down" is far from world -Z.
+ 	FVector D;
+ 	const bool bFound = FindLand(T, [T](const FVector& Dir, const FTerrainSample& Smp)
+@@ -417,14 +418,28 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
+ 	U->AutoPossessAI = EAutoPossessAI::Disabled;
+ 	U->FinishSpawning(FTransform(SpawnLoc));
++	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+ 	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
+ 	if (!TestNotNull(TEXT("Movement"), M)) return false;
+ 	M->bRunPhysicsWithNoController = true;
+ 	M->SetMovementMode(MOVE_Falling);
+ 	TestTrue(TEXT("Planet: falling is redirected to the planet mode"), M->IsFalling() && M->MovementMode == MOVE_Custom);
+ 
++	// First UE4.27.2 run: driven through UWorld::Tick in this bare test world (no GameMode), the unit never moved.
++	// Advance world time only, and step the movement component directly: it is the code under test.
+ 	const float Dt = 1.f / 60.f;
+-	for (int32 i = 0; i < 120; ++i) W.World->Tick(LEVELTICK_All, Dt); // 2 s: fall and land
++	auto Step = [&](int32 Frames)
++	{
++		for (int32 i = 0; i < Frames; ++i)
++		{
++			W.World->Tick(LEVELTICK_TimeOnly, Dt);
++			M->TickComponent(Dt, LEVELTICK_All, &M->PrimaryComponentTick);
++		}
++	};
++	const FVector BeforeFall = U->GetActorLocation();
++	Step(120); // 2 s: fall and land
++	TestFalse(TEXT("Unit still alive (not killed by world bounds)"), U->IsPendingKill());
++	TestTrue(TEXT("Movement component simulates (unit moved while falling)"), FVector::Dist(BeforeFall, U->GetActorLocation()) > 50.f);
+ 	const float Half = U->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+ 	auto Clearance = [&]() { return F.GetDistanceFromCenter(U->GetActorLocation()) - Half - (S.Radius + T->GetTerrainHeight(U->GetActorLocation())); };
+ 	TestTrue(TEXT("Landed (walking on the planet)"), M->IsMovingOnGround());
+@@ -439,7 +454,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	{
+ 		FVector F2, R2, U2; F.GetTangentBasis(U->GetActorLocation(), Fwd, F2, R2, U2);
+ 		U->AddMovementInput(F2, 1.f);
+-		W.World->Tick(LEVELTICK_All, Dt);
++		Step(1);
+ 		WorstClearance = FMath::Max(WorstClearance, FMath::Abs(Clearance()));
+ 	}
+ 	const float Walked = F.GetSurfaceDistance(Start, U->GetActorLocation());
+@@ -450,16 +465,15 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 
+ 	// Jump: leaves the ground radially and lands again.
+ 	U->Jump();
+-	W.World->Tick(LEVELTICK_All, Dt);
+-	W.World->Tick(LEVELTICK_All, Dt);
++	Step(2);
+ 	TestTrue(TEXT("Jump goes up (radially)"), Clearance() > 3.f && M->IsFalling());
+-	for (int32 i = 0; i < 120; ++i) W.World->Tick(LEVELTICK_All, Dt);
++	Step(120);
+ 	TestTrue(TEXT("Lands after the jump"), M->IsMovingOnGround() && FMath::Abs(Clearance()) < 30.f);
+ 
+ 	// Raising the terrain under the unit: it ends up on top, not inside.
+ 	FTerrainModification Mod; Mod.Center = U->GetActorLocation(); Mod.Radius = 600.f; Mod.Strength = 300.f;
+ 	TestTrue(TEXT("Raise under the unit"), T->ModifyTerrain(Mod).WasApplied());
+-	for (int32 i = 0; i < 30; ++i) W.World->Tick(LEVELTICK_All, Dt);
++	Step(30);
+ 	TestTrue(FString::Printf(TEXT("On top of raised terrain (clearance %.1f)"), Clearance()), FMath::Abs(Clearance()) < 30.f);
+ 	return true;
+ }

@@ -5,6 +5,6 @@ public class ShamanEditorTarget : TargetRules
 	{
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.Add("Shaman");
+		ExtraModuleNames.AddRange(new string[] { "Shaman", "ShamanVoxel" });
 	}
 }

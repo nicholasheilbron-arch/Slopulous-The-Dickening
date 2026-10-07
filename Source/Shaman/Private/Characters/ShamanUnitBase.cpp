@@ -1,5 +1,8 @@
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/HealthComponent.h"
+#include "Characters/ShamanCharacterMovementComponent.h"
+#include "Terrain/ShamanSpace.h"
+#include "Terrain/ShamanTerrainSubsystem.h"
 #include "Characters/ShamanUnitAIController.h"
 #include "RagdollReactionComponent.h"
 #include "HitReactionConfig.h"
@@ -28,7 +31,8 @@
 
 #define LOCTEXT_NAMESPACE "ShamanUnits"
 
-AShamanUnitBase::AShamanUnitBase()
+AShamanUnitBase::AShamanUnitBase(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UShamanCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = 0.2f;
@@ -238,8 +242,8 @@ AActor* AShamanUnitBase::FindMeleeTarget() const
 		AActor* A = H.GetActor();
 		if (!A || A == this || !FShamanTargetRules::CanAffect(this, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
 		const FVector To = A->GetActorLocation() - GetActorLocation();
-		if (FVector::DotProduct(To.GetSafeNormal2D(), GetActorForwardVector()) < 0.2f) continue;
-		if (To.Size2D() > GetMeleeReach(A)) continue;
+		if (FVector::DotProduct(FShamanSpace::HorizontalDirection(this, GetActorLocation(), A->GetActorLocation()), GetActorForwardVector()) < 0.2f) continue;
+		if (FShamanSpace::HorizontalDistance(this, GetActorLocation(), A->GetActorLocation()) > GetMeleeReach(A)) continue;
 		if (To.SizeSquared() < BestD) { BestD = To.SizeSquared(); Best = A; }
 	}
 	return Best;
@@ -251,10 +255,10 @@ bool AShamanUnitBase::TryMeleeAttack(AActor* Target)
 	if (!Target) Target = FindMeleeTarget();
 	if (!Target || !FShamanTargetRules::CanAffect(this, Target, ESpellTargetFilter::EnemiesOnly, false)) return false;
 	const FVector To = Target->GetActorLocation() - GetActorLocation();
-	if (To.Size2D() > GetMeleeReach(Target)) return false;
+	if (FShamanSpace::HorizontalDistance(this, GetActorLocation(), Target->GetActorLocation()) > GetMeleeReach(Target)) return false;
 
 	LastMeleeTime = GetWorld()->GetTimeSeconds();
-	SetActorRotation(FRotator(0.f, To.Rotation().Yaw, 0.f));
+	SetActorRotation(FShamanSpace::UprightRotation(this, GetActorLocation(), To));
 	UGameplayStatics::ApplyDamage(Target, Row.MeleeDamage, GetController(), this, UDamageType::StaticClass());
 	if (URagdollReactionComponent* Rag = Target->FindComponentByClass<URagdollReactionComponent>())
 		Rag->ApplyHit(Row.MeleeDamage * Row.MeleeKnockback, To);
@@ -284,7 +288,7 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
 
 	FVector Dir = GetActorForwardVector() * -1.f;
-	if (Killer) Dir = (GetActorLocation() - Killer->GetActorLocation()).GetSafeNormal2D();
+	if (Killer) Dir = FShamanSpace::HorizontalDirection(this, Killer->GetActorLocation(), GetActorLocation());
 	// Launch first, and keep a movement mode that applies it (MOVE_None would discard a pending launch).
 	HitReaction->EnterDeathRagdoll(Dir, FMath::Max(Health->GetLastDamage(), 1.f));
 	if (GetMesh()->SkeletalMesh) GetCharacterMovement()->DisableMovement(); // real ragdoll takes over
@@ -317,7 +321,18 @@ void AShamanUnitBase::Reincarnate(const FVector& Location, const FRotator& Rotat
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
-	SetActorLocationAndRotation(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+	FPlanetFrame Planet;
+	const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this);
+	if (Terrain && FShamanSpace::GetPlanet(this, Planet))
+	{
+		// Planet: re-project onto the ground under Location (callers may still add world-Z offsets) and stand upright.
+		const FVector Where = Terrain->QueryTerrain(Location).Location + Planet.GetUp(Location) * (GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 10.f);
+		SetActorLocationAndRotation(Where, FShamanSpace::UprightRotation(this, Where, Rotation.Vector()), false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	else
+	{
+		SetActorLocationAndRotation(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+	}
 	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
 	TribeMember->bConvertible = true;
 	if (IsShaman())
@@ -335,6 +350,32 @@ void AShamanUnitBase::UpdateWater(float DeltaSeconds)
 {
 	const UShamanGameData* Data = UShamanGameData::Get(this);
 	const FVector Body = GetBodyLocation();
+
+	FPlanetFrame Planet;
+	if (FShamanSpace::GetPlanet(this, Planet))
+	{
+		// Planet: sea level is a sphere; depth and "out of the world" are measured radially.
+		const UShamanTerrainSubsystem* T = UShamanTerrainSubsystem::Get(this);
+		const FVector Up = Planet.GetUp(Body);
+		const FVector Feet = Body - Up * (IsRagdolling() ? 30.f : GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		const FPlanetSettings& PS = T->GetPlanetSettings();
+		if (Planet.GetAltitude(Feet) < -(PS.SeabedDepth + PS.Radius * 0.25f) || Planet.GetAltitude(Feet) > PS.Radius * 2.f)
+		{
+			UE_LOG(LogShaman, Warning, TEXT("%s left the planet (altitude %.0f)"), *GetName(), Planet.GetAltitude(Feet));
+			Health->Kill(nullptr);
+			return;
+		}
+		const bool bDeepPlanet = T->GetWaterDepthAt(Feet) > PS.FordableDepth;
+		if (!bDeepPlanet || !Row.bDrowns) { DrownTimer = 0.f; return; }
+		DrownTimer += DeltaSeconds;
+		if (DrownTimer >= Row.DrownTime)
+		{
+			DrownTimer = 0.f;
+			Health->Kill(nullptr);
+		}
+		return;
+	}
+
 	const float FeetZ = IsRagdolling() ? Body.Z - 30.f : Body.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 
 	// Out-of-world safety net: never leave a unit falling forever.

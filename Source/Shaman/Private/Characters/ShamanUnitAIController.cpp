@@ -6,6 +6,9 @@
 #include "Tribes/TribeSubsystem.h"
 #include "Buildings/BuildingActor.h"
 #include "Core/ShamanTargetRules.h"
+#include "Terrain/ShamanSpace.h"
+#include "Terrain/ShamanTerrainSubsystem.h"
+#include "Navigation/ShamanSurfaceNavigation.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Engine/World.h"
 
@@ -42,11 +45,50 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
 	if (!U || !U->IsAlive() || U->IsRagdolling())
 	{
 		Target = nullptr;
+		bHasSurfaceGoal = false;
 		return;
 	}
+	FPlanetFrame Planet;
+	if (FShamanSpace::GetPlanet(this, Planet))
+	{
+		// Planet: steer every frame (no path following component), think 4x per second as before.
+		if (PrimaryActorTick.TickInterval > 0.f) SetActorTickInterval(0.f);
+		DecisionTimer -= DeltaSeconds;
+		if (DecisionTimer <= 0.f)
+		{
+			DecisionTimer = 0.25f;
+			Think(U);
+		}
+		SteerOnSurface(U);
+		return;
+	}
+	if (PrimaryActorTick.TickInterval == 0.f) SetActorTickInterval(0.25f); // planet went away: back to the flat cadence
+	Think(U);
+}
+
+void AShamanUnitAIController::Think(AShamanUnitBase* U)
+{
 	UpdateTarget(U);
 	if (AActor* T = Target.Get()) Engage(U, T);
 	else FollowOrders(U);
+}
+
+void AShamanUnitAIController::StopMovement()
+{
+	bHasSurfaceGoal = false;
+	Super::StopMovement();
+}
+
+void AShamanUnitAIController::SteerOnSurface(AShamanUnitBase* U)
+{
+	if (!bHasSurfaceGoal) return;
+	const FVector Here = U->GetActorLocation();
+	if (FShamanSpace::HorizontalDistance(this, Here, SurfaceGoal) <= SurfaceAcceptance)
+	{
+		bHasSurfaceGoal = false;
+		return;
+	}
+	U->AddMovementInput(FShamanSpace::HorizontalDirection(this, Here, SurfaceGoal), 1.f);
 }
 
 FVector AShamanUnitAIController::GetLeashAnchor(AShamanUnitBase* U) const
@@ -73,7 +115,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
 	if (AActor* T = Target.Get())
 	{
 		const bool bValid = FShamanTargetRules::CanAffect(U, T, ESpellTargetFilter::EnemiesOnly, false)
-			&& FVector::Dist2D(T->GetActorLocation(), Anchor) <= Row.LeashRadius;
+			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Row.LeashRadius;
 		if (bValid) return;
 		Target = nullptr;
 	}
@@ -86,7 +128,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
 	{
 		AActor* A = H.GetActor();
 		if (!A || !FShamanTargetRules::CanAffect(U, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
-		if (FVector::Dist2D(A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
+		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
 		const float D = FVector::DistSquared(A->GetActorLocation(), U->GetActorLocation());
 		if (D < BestD) { BestD = D; Target = A; }
 	}
@@ -114,7 +156,7 @@ void AShamanUnitAIController::Engage(AShamanUnitBase* U, AActor* T)
 {
 	if (TryCastAt(U, T)) return;
 	const float Reach = U->GetMeleeReach(T);
-	if (FVector::Dist2D(U->GetActorLocation(), T->GetActorLocation()) <= Reach)
+	if (FShamanSpace::HorizontalDistance(this, U->GetActorLocation(), T->GetActorLocation()) <= Reach)
 	{
 		StopMovement();
 		LastMoveGoal = FVector(FLT_MAX);
@@ -141,24 +183,24 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 			// Shaman is reincarnating: wait at the circle.
 			const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
 			const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
-			if (FVector::Dist2D(Here, Wait) > 600.f) MoveToward(Wait + FormationOffset * 400.f, 120.f);
+			if (FShamanSpace::HorizontalDistance(this, Here, Wait) > 600.f) MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
 			return;
 		}
 		const float FollowDist = Data->FollowDistance;
-		if (FVector::Dist2D(Here, S->GetActorLocation()) > FollowDist)
-			MoveToward(S->GetActorLocation() + FormationOffset * FollowDist * 0.7f, 100.f);
+		if (FShamanSpace::HorizontalDistance(this, Here, S->GetActorLocation()) > FollowDist)
+			MoveToward(FShamanSpace::OffsetAlongGround(this, S->GetActorLocation(), FVector2D(FormationOffset) * FollowDist * 0.7f), 100.f);
 		return;
 	}
 	case EFollowerOrder::HoldPosition:
 	{
-		const FVector Spot = U->GetOrderLocation() + FormationOffset * 180.f;
-		if (FVector::Dist2D(Here, Spot) > 150.f) MoveToward(Spot, 80.f);
+		const FVector Spot = FShamanSpace::OffsetAlongGround(this, U->GetOrderLocation(), FVector2D(FormationOffset) * 180.f);
+		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 150.f) MoveToward(Spot, 80.f);
 		return;
 	}
 	case EFollowerOrder::GuardHome:
 	{
 		const FVector Spot = U->GetHomeLocation();
-		if (FVector::Dist2D(Here, Spot) > 400.f) MoveToward(Spot, 120.f);
+		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 400.f) MoveToward(Spot, 120.f);
 		return;
 	}
 	case EFollowerOrder::Wander:
@@ -168,7 +210,8 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 		if (Now < NextWanderTime) return;
 		NextWanderTime = Now + 4.0 + RandFloat() * 5.0;
 		const float A = RandFloat() * 2.f * PI;
-		const FVector Spot = U->GetHomeLocation() + FVector(FMath::Cos(A), FMath::Sin(A), 0.f) * (RandFloat() * 450.f);
+		const float Dist = RandFloat() * 450.f;
+		const FVector Spot = FShamanSpace::OffsetAlongGround(this, U->GetHomeLocation(), FVector2D(FMath::Cos(A), FMath::Sin(A)) * Dist);
 		MoveToward(Spot, 60.f);
 		return;
 	}
@@ -177,6 +220,18 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 
 void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
 {
+	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
+		if (Terrain->IsPlanetActive())
+		{
+			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
+			LastMoveGoal = Dest;
+			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, GetPawn()->GetActorLocation(), Dest);
+			bHasSurfaceGoal = Path.bValid && Path.Points.Num() > 0;
+			if (bHasSurfaceGoal) SurfaceGoal = Path.Points.Last();
+			SurfaceAcceptance = Acceptance;
+			return;
+		}
+
 	const bool bMoving = GetMoveStatus() == EPathFollowingStatus::Moving;
 	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
 	LastMoveGoal = Dest;

@@ -2,9 +2,11 @@
 
 ## 1. Status
 
-**BUILT AND RUN IN UE4.27.2 ON THE PM MACHINE – 27 of 28 automation tests pass; fix r2.2 addresses the one failure and must be re-run before the milestone commit.**
+**ACCEPTED – built and run in UE4.27.2 on the PM machine. All 28 automation tests pass (after fix r2.2) and every planet acceptance command passes.**
 
 *First in-engine run (2026-10-06, PM machine, UE4.27.2 installed build, VS2019):* the project and the vendored Voxel Plugin compile (`Rebuild All: 1 succeeded`). The flat `ShamanPrototype` map still plays (world generated, Convert learned, Shaman reincarnates). A `PlanetTest` map with `ShamanPlanetGameMode` was played and every acceptance console command was run. Results are in section 5, taken from `Saved/Logs/Shaman.log`.
+
+*Second in-engine run (2026-10-07, after fix r2.2):* rebuild succeeded; Session Frontend `Shaman` group: **28 run, 28 passed**, including `Shaman.Terrain.SphericalMovement`. The planet console commands were repeated with the same results (numbers in section 5).
 
 *Fix r2.2 (test harness only):* `Shaman.Terrain.SphericalMovement` failed because the unit never moved at all in the bare automation world (position unchanged after 2 s of falling). In PIE the same movement code works (306 units on the planet, 0 ground rescues). The test now disables world-bounds checks like `AShamanPlanetGameMode` does, steps the movement component directly, and first asserts that the unit actually moved, so a repeat failure points at the cause. No game code changed.
 
@@ -16,7 +18,7 @@ All code for the milestone is written. The engine-independent terrain core was c
 
 The cloud sandbox that wrote the code has no Unreal Engine; all in-engine results come from the PM machine.
 
-No milestone commit was made.
+The milestone commit is made after this handoff update (see section 8).
 
 ## 2. Environment
 
@@ -126,23 +128,23 @@ In-engine evidence: PM machine, 2026-10-06, editor PIE on `Content/Maps/PlanetTe
 | A | No UE5 dependencies | PASS (static) | No UE5 API or modules. |
 | B | Same seed → same planet | **PASS** | `Shaman.Terrain.Determinism` passed in UE; harness checksum `21358966.752`. `Shaman.World.Determinism` (flat) passed. |
 | B | Different seeds differ | PASS (off-engine) | Harness: >3000/4000 samples differ by more than 1 uu. |
-| C | Movement on the sphere (land, walk across curvature, align, jump) | **FAIL in automation → fix r2.2, re-run pending** | `Shaman.Terrain.SphericalMovement`: unit did not move in the test world (clearance stayed 311.7, walked 0 uu). In PIE: player standing on the surface (altitude 749, ground 656, up.z 1.00); 306 units on the planet with 0 ground rescues. |
+| C | Movement on the sphere (land, walk across curvature, align, jump) | **PASS** | `Shaman.Terrain.SphericalMovement` passed on the second run (southern-hemisphere drop, land, 3 s walk, upright, orient to movement, jump and land, raise under the unit). First run failed because the unit was not simulated in the bare test world; fixed in the test only (r2.2). In PIE: player standing on the surface (altitude 749, ground 656, up.z 1.00); 306 units on the planet with 0 ground rescues. |
 | C | No world-Z in the core spherical movement path | PASS (review) | PlanetWalk/PlanetFall/rotation/jump use only `FPlanetFrame`. |
 | D | Surface position / normal / height / walkability / underwater | **PASS** | `Shaman.Terrain.SurfaceQuery`, `PlanetCenterRadius`, `RadialUp` passed. `ShamanTerrainProbe`: height 616, Grass, walkable, normal.up 0.97, raycast hit at 2998. |
 | E | Runtime terrain modification | **PASS** | `ShamanTerrainBenchmark 8`: 8 edits r=500 applied, apply avg 0.094 / max 0.174 ms. `Shaman.Terrain.ModificationRequest` passed. |
-| E | Collision updates < 100 ms | **PASS** | Mesh + collision up to date avg 39.6 / max 50.3 ms per edit (target 100 ms). |
+| E | Collision updates < 100 ms | **PASS** | Mesh + collision up to date avg 39.6 / max 50.3 ms per edit (run 1) and avg 43.8 / max 50.4 ms (run 2); target 100 ms. |
 | E | Change event fires | **PASS** | `Shaman.Terrain.ChangedNotification` passed; `SurfaceProbe … re-aligned after terrain edit` logged. |
 | E | Protected region rejects | **PASS** | `ShamanTerrainProtectedTest: PASS` (centre and edge rejected, edits 0→0); `Shaman.Terrain.ProtectedRejection` passed. `ShamanTerrainRaise 500 300` aimed at the start site was also correctly rejected (region 1). |
 | F | Spherical sea / underwater / depth | **PASS** | `Shaman.Terrain.Underwater` passed. Visual check of the water sphere not reported. |
 | G | Brave on the surface | PASS (indirect) | 6 units at start, 0 ground rescues. Not visually confirmed in the report. |
 | G | Surface object conforms to terrain | **PASS** | `SurfaceProbeActor_0 re-aligned after terrain edit 6/7/-1`. |
 | G | Spells / TAKA Blast / Convert / tribe data intact | **PASS** | All `Shaman.Spells.*` (incl. `Convert.BlastUnchanged`), `Shaman.Data.TakaPreserved`, `Shaman.Tribes.PopulationFormulas`, `Shaman.World.StartAreaConstraints` passed. Note: `TakaPreserved` logged "DT_Spells not imported yet; skipped" (pre-existing). |
-| H | Generation time | **PASS** | Voxel world created in 43.9 ms; start site + content 2.2 ms. |
-| H | 300 units | **PASS** | `ShamanSpawnStress 300`: 306 units, steady 105–112 fps (worst frame 12–19 ms) over one minute. One unit was lost (306→305), cause not logged. |
+| H | Generation time | **PASS** | Voxel world created in 43.9 ms (run 1) / 5.9 ms (run 2); initial meshes + collision 10 / 7 ms; start site + content ~2 ms. |
+| H | 300 units | **PASS** | `ShamanSpawnStress 300`: 306 units, steady 105–112 fps (worst frame 12–19 ms) over one minute. One unit was lost (306→305), cause not logged. Run 2 (60 fps cap): 306 units at 55–60 fps, worst frame 17–27 ms; the count later fell to 217 because the PM cast Blast on his own Braves (confirmed). |
 | H | Save / reload | **PASS** | `SaveReload: PASS (8 edits, hash 69505468 -> 69505468, replay 139.08 ms)`; full remesh after reload 1275 ms (load-time, not per edit). |
 | H | FPS / memory | PASS, with a note | 80–120 fps typical, ~1.29–1.39 GB editor process. Recurring single ~335 ms frames and two 5-s windows at 3.0 fps match the editor's background throttling when its window loses focus; they did not occur during the focused minute of the stress run. Re-check in a standalone game if needed. |
 
-Automation summary: 28 run, 27 passed, 1 failed (`Shaman.Terrain.SphericalMovement`, addressed by fix r2.2).
+Automation summary: run 1 – 28 run, 27 passed, 1 failed (`Shaman.Terrain.SphericalMovement`); run 2 after fix r2.2 – **28 run, 28 passed**.
 
 ## 6. Known limitations
 
@@ -173,6 +175,8 @@ Automation summary: 28 run, 27 passed, 1 failed (`Shaman.Terrain.SphericalMoveme
 - **Content.**
   - Upstream's GitHub copy of the plugin lacks 53 large example assets (`*.REMOVED.git-id` placeholders). This only affects the plugin's example maps, not runtime.
   - The terrain material is the plugin's RGB example material, with a fallback to the engine default.
+- **Unit deaths are not logged.** The drop from 306 to 217 in run 2 was the PM casting Blast (confirmed); the single loss in run 1 (306→305) remains unexplained. A death-reason log line would make this visible.
+- **Run 2 was played on `ShamanPrototype` with its GameMode Override switched to the planet mode.** The flat map must keep `ShamanGameMode`; use `PlanetTest` for the planet.
 - **World bounds.** The planet game mode disables `bEnableWorldBoundsChecks`, because the southern hemisphere lies below KillZ.
 
 ## 7. Licensing
@@ -213,26 +217,24 @@ Nothing in the package replaces or re-creates an existing project file that the 
 
 ### Repository state
 
-- **No commit of any kind was made** (no milestone commit, no merge into main, nothing pushed, no remote created). The user's repository was not modified.
-- The work also exists uncommitted on branch `terrain/spherical-spike` of my merge repo (base `eec16ab`), with `Shaman.uproject` updated to your editor-written version plus the two additions.
-- **Recommended order on your machine:**
-  1. Commit your current Fix1 state (source, data tables, map) as its own commit.
-  2. Verify the base with `BASE_MANIFEST.sha256`, then apply this package (see `APPLY.md`).
-  3. Build and run section 10.
-  4. Only then commit `terrain: add UE4 spherical terrain foundation`.
+On the PM machine (local only, nothing pushed, no remote created by Claude):
+
+- `main`: `993fdd0` Initial Commit → `1a7f89c` baseline: Fix1 before spherical terrain.
+- `terrain/spherical-spike`: `09f0bd8` spike patch r2 → fix r2.1 (UHT rename) → fix r2.2 (movement test) → milestone commit `terrain: add UE4 spherical terrain foundation` (this handoff with real results + `Content/Maps/PlanetTest.umap`).
+- Merging into `main` and pushing are separate, explicit PM decisions.
 - **Excluded by `.gitignore`:** Binaries, Intermediate, Saved, DerivedDataCache, Build, `Plugins/*/Binaries`, `Plugins/*/Intermediate`, `.vs`, `*.sln`, the harness binary. Plugin uassets go through LFS (existing `.gitattributes`); `Plugins/VoxelFree/** -text` keeps vendored files byte-identical.
 
 ## 9. Next recommended milestone
 
-1. **Validation pass (blocking).** Build, run section 10, record the real numbers, fix whatever breaks, then make the milestone commit.
-2. **Then, if the gates pass:** globe-wide navigation, covering:
+1. **Globe-wide navigation**, covering:
    - a surface graph + A* behind `IShamanSurfacePathfinder`;
    - re-pathing on `OnTerrainChanged`;
    - stuck handling;
    - radial versions of the remaining world-Z call sites (ragdoll bias, Blast spawn offset, rebirth offset).
-3. **If the voxel edit or collision timing fails the 100 ms gate:** prototype the cube-sphere heightmap backend behind the same interfaces before going further.
+2. **Small follow-ups:** log unit death reasons (to explain losses like the one in run 1), and a standalone-game performance check.
+3. The voxel edit + collision timing passed the 100 ms gate (max 50.4 ms), so the cube-sphere heightmap backend is not needed now; it stays an option behind the same interfaces.
 
-## 10. Runbook for the PM (to produce the missing results)
+## 10. Runbook for the PM (re-running the acceptance checks)
 
 ### 1. Build
 

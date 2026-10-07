@@ -51,7 +51,7 @@ Data-table spells with mana regen = BaseRegen * (1 + RegenPerFollower * follower
 
 ## Setup
 1. Open `Shaman.uproject` with UE 4.27 and let it build the module (or generate VS project files first).
-2. Import the CSVs in `Content/Data` as DataTables in `/Game/Data`: DT_Spells (SpellRow), DT_Units (UnitRow), DT_Buildings (BuildingRow), DT_Resources (ResourceRow), DT_Monuments (MonumentRow). Optional: DA_ShamanGameData (ShamanGameData) for tuning; without it defaults are used.
+2. Import the CSVs in `Content/Data` as DataTables: Spells (SpellRow), Units (UnitRow), Buildings (BuildingRow), Resources (ResourceRow), Monuments (MonumentRow). Any asset name/folder works: the game finds tables by row type (preferred names DT_Spells etc. in /Game/Data). If one is missing, a red on-screen message names it. Optional: DA_ShamanGameData (ShamanGameData) for tuning.
 3. Create `/Game/Maps/ShamanPrototype`: empty level with a directional light, sky light, sky atmosphere, and a NavMeshBoundsVolume covering +/-13,000 uu XY and -1,000..3,000 Z. GameMode is set globally to ShamanGameMode.
 4. Play. Controls: WASD/mouse, LMB cast, RMB/F melee, E interact, Q/wheel change spell, R rally followers, F3 debug.
 5. Later art: set SkeletalMesh/AnimClass in DT_Units, meshes in DT_Buildings/DT_Resources, projectile class in DA_ShamanGameData, `ConvertedFollowerClass` on a Shaman Blueprint once BP_Brave exists (must carry a TribeMemberComponent; a child of ShamanUnitBase works).

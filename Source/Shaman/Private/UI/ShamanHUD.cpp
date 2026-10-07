@@ -37,7 +37,7 @@ static FString CastResultText(ESpellCastResult R)
 	case ESpellCastResult::NotEnoughMana:  return TEXT("Not enough mana");
 	case ESpellCastResult::NoCharges:      return TEXT("No charges left");
 	case ESpellCastResult::OutOfRange:     return TEXT("Out of range");
-	case ESpellCastResult::UnknownSpell:   return TEXT("Spell not known");
+	case ESpellCastResult::UnknownSpell:   return TEXT("Spell not learned (or no spell data loaded)");
 	case ESpellCastResult::CasterDisabled: return TEXT("Cannot cast right now");
 	default: return FString();
 	}
@@ -71,6 +71,9 @@ void AShamanHUD::DrawHUD()
 		FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
 	BY += BH + 10.f * UI;
 	DrawLine(FString::Printf(TEXT("Followers %d / %d   (more followers = faster mana & rebirth)"), Followers, Cap), BX, BY, FLinearColor::White, 0.85f * UI);
+
+	if (!S->Spells->SpellTable)
+		DrawLine(TEXT("No spell data loaded: import Content/Data/Spells.csv as a DataTable (row type SpellRow)"), SW * 0.5f, SH - 120.f * UI, FLinearColor(1.f, 0.3f, 0.3f), 1.f * UI, true);
 
 	// Selected spell (bottom-centre).
 	const FName SpellId = S->GetSelectedSpellId();

@@ -1,0 +1,56 @@
+SHAMAN spherical-terrain spike - file list (revision 2)
+Base: user's real Fix1 project = merge-repo commit eec16ab for all Source/ files, .gitignore, .gitattributes
+      (SHA-256 verified against the user's folder), with the user's own editor-written Shaman.uproject.
+Status values: MODIFIED (existing file changed), NEW (file added), DELETED (file removed).
+Counts: MODIFIED 13, NEW 35 SHAMAN files + Plugins/VoxelFree (1266 files), DELETED 0
+
+MODIFIED	.gitattributes
+MODIFIED	.gitignore
+MODIFIED	Shaman.uproject
+MODIFIED	Source/Shaman.Target.cs
+MODIFIED	Source/Shaman/Private/Characters/ShamanCharacter.cpp
+MODIFIED	Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+MODIFIED	Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+MODIFIED	Source/Shaman/Private/Game/ShamanGameMode.cpp
+MODIFIED	Source/Shaman/Public/Characters/ShamanCharacter.h
+MODIFIED	Source/Shaman/Public/Characters/ShamanUnitAIController.h
+MODIFIED	Source/Shaman/Public/Characters/ShamanUnitBase.h
+MODIFIED	Source/Shaman/Public/Game/ShamanGameMode.h
+MODIFIED	Source/ShamanEditor.Target.cs
+NEW	SHAMAN_Spherical_Terrain_Handoff.md
+NEW	Source/Shaman/Private/Characters/ShamanCharacterMovementComponent.cpp
+NEW	Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
+NEW	Source/Shaman/Private/Navigation/ShamanSurfaceNavigation.cpp
+NEW	Source/Shaman/Private/Terrain/PlanetHeightField.cpp
+NEW	Source/Shaman/Private/Terrain/PlanetTerrainQueries.cpp
+NEW	Source/Shaman/Private/Terrain/ShamanSpace.cpp
+NEW	Source/Shaman/Private/Terrain/ShamanTerrainBackend.cpp
+NEW	Source/Shaman/Private/Terrain/ShamanTerrainSubsystem.cpp
+NEW	Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+NEW	Source/Shaman/Private/World/PlanetWaterActor.cpp
+NEW	Source/Shaman/Private/World/SurfaceProbeActor.cpp
+NEW	Source/Shaman/Public/Characters/ShamanCharacterMovementComponent.h
+NEW	Source/Shaman/Public/Game/ShamanPlanetGameMode.h
+NEW	Source/Shaman/Public/Navigation/ShamanSurfaceNavigation.h
+NEW	Source/Shaman/Public/Terrain/PlanetFrame.h
+NEW	Source/Shaman/Public/Terrain/PlanetHeightField.h
+NEW	Source/Shaman/Public/Terrain/PlanetTerrainQueries.h
+NEW	Source/Shaman/Public/Terrain/ShamanSpace.h
+NEW	Source/Shaman/Public/Terrain/ShamanTerrainBackend.h
+NEW	Source/Shaman/Public/Terrain/ShamanTerrainSubsystem.h
+NEW	Source/Shaman/Public/Terrain/TerrainInterfaces.h
+NEW	Source/Shaman/Public/Terrain/TerrainTypes.h
+NEW	Source/Shaman/Public/World/PlanetWaterActor.h
+NEW	Source/Shaman/Public/World/SurfaceProbeActor.h
+NEW	Source/ShamanVoxel/Private/ShamanPlanetVoxelGenerator.cpp
+NEW	Source/ShamanVoxel/Private/ShamanPlanetVoxelGenerator.h
+NEW	Source/ShamanVoxel/Private/ShamanVoxelModule.cpp
+NEW	Source/ShamanVoxel/Private/VoxelPluginTerrainBackend.cpp
+NEW	Source/ShamanVoxel/Public/VoxelPluginTerrainBackend.h
+NEW	Source/ShamanVoxel/ShamanVoxel.Build.cs
+NEW	Tools/TerrainHarness/TerrainHarness.cpp
+NEW	Tools/TerrainHarness/build.sh
+NEW	Tools/TerrainHarness/shim/CoreMinimal.h
+NEW	Tools/TerrainHarness/shim/TerrainTypes.generated.h
+NEW	Plugins/VoxelFree/  (Voxel Plugin Free, commit 9433a668dd568d63a338bdb2b45067c683474f96, unmodified upstream; 1266 files, listed in files/Plugins/VoxelFree)
+(no DELETED files)

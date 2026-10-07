@@ -11,3 +11,11 @@ void ShamanDebug::Toggle() { CVarShamanDebug.AsVariable()->Set(IsEnabled() ? 0 :
 
 #include "Core/ShamanLog.h"
 DEFINE_LOG_CATEGORY(LogShaman);
+
+bool ShamanLog::FirstTime(const FString& Key)
+{
+	static TSet<FString> Seen;
+	bool bAlready = false;
+	Seen.Add(Key, &bAlready);
+	return !bAlready;
+}

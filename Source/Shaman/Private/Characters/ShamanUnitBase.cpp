@@ -66,7 +66,8 @@ void AShamanUnitBase::LoadRow()
 		Row = *R;
 		return;
 	}
-	UE_LOG(LogShaman, Warning, TEXT("Unit row '%s' not found; using defaults."), *UnitId.ToString());
+	if (ShamanLog::FirstTime(TEXT("UnitRow:") + UnitId.ToString()))
+		UE_LOG(LogShaman, Warning, TEXT("Unit row '%s' not found; using defaults (logged once)."), *UnitId.ToString());
 	Row = FUnitRow();
 	if (UnitId == Data->ShamanUnitId) { Row.Role = EUnitRole::Shaman; Row.bCountsAsFollower = false; }
 	else if (UnitId == Data->WildmanUnitId) { Row.Role = EUnitRole::Wildman; Row.bCountsAsFollower = false; Row.bCanFight = false; }

@@ -16,6 +16,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
 #include "Engine/World.h"
+#include "Engine/DataTable.h"
+#include "Engine/Engine.h"
+#include "Core/ShamanLog.h"
 #include "DrawDebugHelpers.h"
 
 AShamanCharacter::AShamanCharacter()
@@ -248,5 +251,10 @@ void AShamanCharacter::InputToggleDebug() { ShamanDebug::Toggle(); }
 
 void AShamanCharacter::ShamanLearnSpell(FName SpellId)
 {
-	if (Spells->GetSpellRow(SpellId)) Spells->LearnSpell(SpellId);
+	FString Msg;
+	if (!Spells->SpellTable) Msg = TEXT("Cannot learn spells: no spell DataTable is loaded (import Content/Data/Spells.csv, row type SpellRow).");
+	else if (!Spells->GetSpellRow(SpellId)) Msg = FString::Printf(TEXT("No spell row named '%s' in %s."), *SpellId.ToString(), *Spells->SpellTable->GetName());
+	else { Spells->LearnSpell(SpellId); Msg = FString::Printf(TEXT("Learned %s."), *SpellId.ToString()); }
+	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, Msg);
 }

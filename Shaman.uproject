@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "4.27",
+	"EngineAssociation": "{03AFFC7F-4036-DCA1-5300-3A8BDD054D06}",
 	"Category": "",
 	"Description": "SHAMAN - single-player god-game prototype",
 	"Modules": [
@@ -8,10 +8,17 @@
 			"Name": "Shaman",
 			"Type": "Runtime",
 			"LoadingPhase": "Default",
-			"AdditionalDependencies": [ "Engine", "AIModule", "GameplayTags" ]
+			"AdditionalDependencies": [
+				"Engine",
+				"AIModule",
+				"GameplayTags"
+			]
 		}
 	],
 	"Plugins": [
-		{ "Name": "ProceduralMeshComponent", "Enabled": true }
+		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		}
 	]
 }

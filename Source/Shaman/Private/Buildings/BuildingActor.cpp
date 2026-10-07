@@ -34,7 +34,8 @@ void ABuildingActor::BeginPlay()
 	if (const FBuildingRow* R = Data->BuildingTable ? Data->BuildingTable->FindRow<FBuildingRow>(BuildingId, TEXT("Building"), false) : nullptr)
 		Row = *R;
 	else
-		UE_LOG(LogShaman, Warning, TEXT("Building row '%s' not found; using defaults."), *BuildingId.ToString());
+		if (ShamanLog::FirstTime(TEXT("BuildingRow:") + BuildingId.ToString()))
+			UE_LOG(LogShaman, Warning, TEXT("Building row '%s' not found; using defaults (logged once)."), *BuildingId.ToString());
 
 	FLinearColor Tint = Row.Tint;
 	if (const FTribeDefinition* T = Data->GetTribe(TribeId))

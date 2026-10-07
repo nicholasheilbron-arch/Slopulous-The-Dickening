@@ -28,7 +28,8 @@ void AResourceNode::BeginPlay()
 	if (const FResourceRow* R = Data->ResourceTable ? Data->ResourceTable->FindRow<FResourceRow>(ResourceId, TEXT("Resource"), false) : nullptr)
 		Row = *R;
 	else
-		UE_LOG(LogShaman, Warning, TEXT("Resource row '%s' not found; using defaults."), *ResourceId.ToString());
+		if (ShamanLog::FirstTime(TEXT("ResourceRow:") + ResourceId.ToString()))
+			UE_LOG(LogShaman, Warning, TEXT("Resource row '%s' not found; using defaults (logged once)."), *ResourceId.ToString());
 	Remaining = Row.Amount;
 	ShamanVisuals::ApplyMesh(Mesh, Row.Mesh, FallbackMesh, Row.MeshScale, Row.Tint);
 	if (!Row.bBlocksMovement)

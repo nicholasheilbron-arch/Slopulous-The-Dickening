@@ -1,0 +1,637 @@
+diff --git a/.gitattributes b/.gitattributes
+index ce9e11b..52b4b5d 100644
+--- a/.gitattributes
++++ b/.gitattributes
+@@ -13,3 +13,6 @@
+ *.csv text eol=lf
+ *.md text eol=lf
+ *.uproject text eol=lf
++
++# Vendored third-party plugin: keep files byte-identical to upstream (no EOL normalisation)
++Plugins/VoxelFree/** -text
+diff --git a/.gitignore b/.gitignore
+index be4c2d9..19fe74e 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -21,3 +21,6 @@ Plugins/*/Intermediate/
+ # Local tool builds
+ Tools/WorldGenHarness/worldgen_harness
+ Tools/ConvertHarness/convert_harness
++
++# Local tool builds
++Tools/TerrainHarness/terrain_harness
+diff --git a/Shaman.uproject b/Shaman.uproject
+index 09f61f0..0abe68c 100644
+--- a/Shaman.uproject
++++ b/Shaman.uproject
+@@ -13,12 +13,25 @@
+ 				"AIModule",
+ 				"GameplayTags"
+ 			]
++		},
++		{
++			"Name": "ShamanVoxel",
++			"Type": "Runtime",
++			"LoadingPhase": "Default",
++			"AdditionalDependencies": [
++				"Engine",
++				"Shaman"
++			]
+ 		}
+ 	],
+ 	"Plugins": [
+ 		{
+ 			"Name": "ProceduralMeshComponent",
+ 			"Enabled": true
++		},
++		{
++			"Name": "VoxelFree",
++			"Enabled": true
+ 		}
+ 	]
+ }
+\ No newline at end of file
+diff --git a/Source/Shaman.Target.cs b/Source/Shaman.Target.cs
+index 8eaf50c..0bd58eb 100644
+--- a/Source/Shaman.Target.cs
++++ b/Source/Shaman.Target.cs
+@@ -5,6 +5,6 @@ public class ShamanTarget : TargetRules
+ 	{
+ 		Type = TargetType.Game;
+ 		DefaultBuildSettings = BuildSettingsVersion.V2;
+-		ExtraModuleNames.Add("Shaman");
++		ExtraModuleNames.AddRange(new string[] { "Shaman", "ShamanVoxel" });
+ 	}
+ }
+diff --git a/Source/Shaman/Private/Characters/ShamanCharacter.cpp b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+index 73f58b2..cbb2406 100644
+--- a/Source/Shaman/Private/Characters/ShamanCharacter.cpp
++++ b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+@@ -1,5 +1,6 @@
+ #include "Characters/ShamanCharacter.h"
+ #include "Characters/HealthComponent.h"
++#include "Terrain/ShamanSpace.h"
+ #include "SpellComponent.h"
+ #include "ProgressionComponent.h"
+ #include "SpellProjectile.h"
+@@ -21,7 +22,8 @@
+ #include "Core/ShamanLog.h"
+ #include "DrawDebugHelpers.h"
+ 
+-AShamanCharacter::AShamanCharacter()
++AShamanCharacter::AShamanCharacter(const FObjectInitializer& ObjectInitializer)
++	: Super(ObjectInitializer)
+ {
+ 	PrimaryActorTick.TickInterval = 0.f; // player: per-frame focus/aim updates
+ 
+@@ -71,7 +73,7 @@ FVector AShamanCharacter::GetAimPoint() const
+ 	const AController* C = GetController();
+ 	FVector ViewLoc; FRotator ViewRot;
+ 	if (const APlayerController* PC = Cast<APlayerController>(C)) PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+-	else { ViewLoc = GetActorLocation() + FVector(0, 0, 60); ViewRot = GetActorRotation(); }
++	else { ViewLoc = GetActorLocation() + FShamanSpace::GetUp(this, GetActorLocation()) * 60.f; ViewRot = GetActorRotation(); }
+ 	const FVector End = ViewLoc + ViewRot.Vector() * AimTraceDistance;
+ 	FHitResult Hit;
+ 	FCollisionQueryParams Params(TEXT("ShamanAim"), true, this);
+@@ -88,7 +90,7 @@ bool AShamanCharacter::TryCastSpell(FName SpellId, FVector AimPoint)
+ 	else
+ 	{
+ 		const FVector To = AimPoint - GetActorLocation();
+-		SetActorRotation(FRotator(0.f, To.Rotation().Yaw, 0.f)); // projectiles leave from the Shaman's front
++		SetActorRotation(FShamanSpace::UprightRotation(this, GetActorLocation(), To)); // projectiles leave from the Shaman's front
+ 		Spells->CastSpell(SpellId, AimPoint);
+ 		if (ShamanDebug::IsEnabled())
+ 		{
+@@ -124,12 +126,66 @@ void AShamanCharacter::Reincarnate(const FVector& Location, const FRotator& Rota
+ 		EnableInput(PC);
+ 		PC->SetControlRotation(FRotator(-15.f, Rotation.Yaw, 0.f));
+ 	}
++	ResetPlanetView();
+ }
+ 
+ void AShamanCharacter::Tick(float DeltaSeconds)
+ {
+ 	Super::Tick(DeltaSeconds);
+-	if (IsPlayerControlled()) UpdateFocus();
++	if (IsPlayerControlled())
++	{
++		UpdatePlanetCamera();
++		UpdateFocus();
++	}
++}
++
++// --- Planet camera ------------------------------------------------------------------------------------------------
++
++void AShamanCharacter::ResetPlanetView()
++{
++	FPlanetFrame Planet;
++	if (!FShamanSpace::GetPlanet(this, Planet)) return;
++	PlanetViewForward = Planet.ProjectOntoTangent(GetActorForwardVector(), GetActorLocation()).GetSafeNormal();
++	PlanetViewPitch = -15.f;
++}
++
++void AShamanCharacter::UpdatePlanetCamera()
++{
++	FPlanetFrame Planet;
++	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
++	if (bPlanet != bPlanetCamera)
++	{
++		bPlanetCamera = bPlanet;
++		CameraBoom->bUsePawnControlRotation = !bPlanet;
++		CameraBoom->SetUsingAbsoluteRotation(bPlanet);
++		if (bPlanet) ResetPlanetView();
++		else CameraBoom->SetRelativeRotation(FRotator::ZeroRotator);
++	}
++	if (!bPlanet) return;
++
++	FVector Fwd, Right, Up;
++	Planet.GetTangentBasis(GetActorLocation(), PlanetViewForward, Fwd, Right, Up); // parallel transport to the new tangent plane
++	PlanetViewForward = Fwd;
++	const float P = FMath::DegreesToRadians(PlanetViewPitch);
++	const FVector ViewDir = Fwd * FMath::Cos(P) + Up * FMath::Sin(P);
++	CameraBoom->SetWorldRotation(FRotationMatrix::MakeFromXZ(ViewDir, Up).ToQuat());
++}
++
++void AShamanCharacter::InputTurn(float V)
++{
++	if (!bPlanetCamera) { AddControllerYawInput(V); return; }
++	if (V == 0.f) return;
++	const APlayerController* PC = Cast<APlayerController>(GetController());
++	const float Deg = V * (PC ? PC->InputYawScale : 2.5f);
++	PlanetViewForward = PlanetViewForward.RotateAngleAxis(Deg, FShamanSpace::GetUp(this, GetActorLocation()));
++}
++
++void AShamanCharacter::InputLookUp(float V)
++{
++	if (!bPlanetCamera) { AddControllerPitchInput(V); return; }
++	if (V == 0.f) return;
++	const APlayerController* PC = Cast<APlayerController>(GetController());
++	PlanetViewPitch = FMath::Clamp(PlanetViewPitch + V * (PC ? PC->InputPitchScale : -2.5f), PlanetPitchMin, PlanetPitchMax);
+ }
+ 
+ // --- Interaction ---------------------------------------------------------------------------------------------
+@@ -151,7 +207,7 @@ void AShamanCharacter::UpdateFocus()
+ 	FVector ViewLoc; FRotator ViewRot;
+ 	if (const APlayerController* PC = Cast<APlayerController>(GetController())) PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+ 	else ViewRot = GetActorRotation();
+-	const FVector ViewDir = ViewRot.Vector().GetSafeNormal2D();
++	const FVector ViewDir = FShamanSpace::HorizontalNormal(this, GetActorLocation(), ViewRot.Vector());
+ 
+ 	float BestScore = -1.f;
+ 	for (const FOverlapResult& H : Hits)
+@@ -159,10 +215,9 @@ void AShamanCharacter::UpdateFocus()
+ 		AActor* A = H.GetActor();
+ 		IShamanInteractable* I = Cast<IShamanInteractable>(A);
+ 		if (!I || !I->CanInteract(this)) continue;
+-		const FVector To = A->GetActorLocation() - GetActorLocation();
+-		const float Facing = FVector::DotProduct(To.GetSafeNormal2D(), ViewDir);
++		const float Facing = FVector::DotProduct(FShamanSpace::HorizontalDirection(this, GetActorLocation(), A->GetActorLocation()), ViewDir);
+ 		if (Facing < 0.25f) continue;
+-		const float Score = Facing * 2.f + (1.f - To.Size2D() / (Range + 400.f));
++		const float Score = Facing * 2.f + (1.f - FShamanSpace::HorizontalDistance(this, GetActorLocation(), A->GetActorLocation()) / (Range + 400.f));
+ 		if (Score > BestScore) { BestScore = Score; FocusedInteractable = A; }
+ 	}
+ }
+@@ -180,8 +235,8 @@ void AShamanCharacter::SetupPlayerInputComponent(UInputComponent* Input)
+ 	Super::SetupPlayerInputComponent(Input);
+ 	Input->BindAxis("MoveForward", this, &AShamanCharacter::MoveForward);
+ 	Input->BindAxis("MoveRight", this, &AShamanCharacter::MoveRight);
+-	Input->BindAxis("Turn", this, &APawn::AddControllerYawInput);
+-	Input->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
++	Input->BindAxis("Turn", this, &AShamanCharacter::InputTurn);     // = AddControllerYawInput on flat worlds
++	Input->BindAxis("LookUp", this, &AShamanCharacter::InputLookUp); // = AddControllerPitchInput on flat worlds
+ 	Input->BindAxis("TurnRate", this, &AShamanCharacter::TurnAtRate);
+ 	Input->BindAxis("LookUpRate", this, &AShamanCharacter::LookUpAtRate);
+ 	Input->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+@@ -198,6 +253,7 @@ void AShamanCharacter::SetupPlayerInputComponent(UInputComponent* Input)
+ void AShamanCharacter::MoveForward(float V)
+ {
+ 	if (!Controller || V == 0.f || !IsAlive()) return;
++	if (bPlanetCamera) { AddMovementInput(PlanetViewForward, V); return; }
+ 	const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+ 	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::X), V);
+ }
+@@ -205,12 +261,13 @@ void AShamanCharacter::MoveForward(float V)
+ void AShamanCharacter::MoveRight(float V)
+ {
+ 	if (!Controller || V == 0.f || !IsAlive()) return;
++	if (bPlanetCamera) { AddMovementInput(FVector::CrossProduct(FShamanSpace::GetUp(this, GetActorLocation()), PlanetViewForward), V); return; }
+ 	const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+ 	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y), V);
+ }
+ 
+-void AShamanCharacter::TurnAtRate(float V) { AddControllerYawInput(V * BaseTurnRate * GetWorld()->GetDeltaSeconds()); }
+-void AShamanCharacter::LookUpAtRate(float V) { AddControllerPitchInput(V * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
++void AShamanCharacter::TurnAtRate(float V) { InputTurn(V * BaseTurnRate * GetWorld()->GetDeltaSeconds()); }
++void AShamanCharacter::LookUpAtRate(float V) { InputLookUp(V * BaseLookUpRate * GetWorld()->GetDeltaSeconds()); }
+ 
+ void AShamanCharacter::InputCast()
+ {
+@@ -243,7 +300,7 @@ void AShamanCharacter::InputRally()
+ 	const float R = UShamanGameData::Get(this)->RallyRadius;
+ 	if (UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>())
+ 		for (AShamanUnitBase* F : Tribes->GetFollowers(GetTribeId()))
+-			if (FVector::Dist(F->GetActorLocation(), GetActorLocation()) <= R)
++			if (FVector::Dist(F->GetActorLocation(), GetActorLocation()) <= R) // 3D distance: valid on planets too
+ 				F->SetOrder(EFollowerOrder::FollowShaman, GetActorLocation());
+ }
+ 
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+index 8be2c2c..8a4931b 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+@@ -6,6 +6,9 @@
+ #include "Tribes/TribeSubsystem.h"
+ #include "Buildings/BuildingActor.h"
+ #include "Core/ShamanTargetRules.h"
++#include "Terrain/ShamanSpace.h"
++#include "Terrain/ShamanTerrainSubsystem.h"
++#include "Navigation/ShamanSurfaceNavigation.h"
+ #include "Navigation/PathFollowingComponent.h"
+ #include "Engine/World.h"
+ 
+@@ -42,13 +45,52 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
+ 	if (!U || !U->IsAlive() || U->IsRagdolling())
+ 	{
+ 		Target = nullptr;
++		bHasSurfaceGoal = false;
+ 		return;
+ 	}
++	FPlanetFrame Planet;
++	if (FShamanSpace::GetPlanet(this, Planet))
++	{
++		// Planet: steer every frame (no path following component), think 4x per second as before.
++		if (PrimaryActorTick.TickInterval > 0.f) SetActorTickInterval(0.f);
++		DecisionTimer -= DeltaSeconds;
++		if (DecisionTimer <= 0.f)
++		{
++			DecisionTimer = 0.25f;
++			Think(U);
++		}
++		SteerOnSurface(U);
++		return;
++	}
++	if (PrimaryActorTick.TickInterval == 0.f) SetActorTickInterval(0.25f); // planet went away: back to the flat cadence
++	Think(U);
++}
++
++void AShamanUnitAIController::Think(AShamanUnitBase* U)
++{
+ 	UpdateTarget(U);
+ 	if (AActor* T = Target.Get()) Engage(U, T);
+ 	else FollowOrders(U);
+ }
+ 
++void AShamanUnitAIController::StopMovement()
++{
++	bHasSurfaceGoal = false;
++	Super::StopMovement();
++}
++
++void AShamanUnitAIController::SteerOnSurface(AShamanUnitBase* U)
++{
++	if (!bHasSurfaceGoal) return;
++	const FVector Here = U->GetActorLocation();
++	if (FShamanSpace::HorizontalDistance(this, Here, SurfaceGoal) <= SurfaceAcceptance)
++	{
++		bHasSurfaceGoal = false;
++		return;
++	}
++	U->AddMovementInput(FShamanSpace::HorizontalDirection(this, Here, SurfaceGoal), 1.f);
++}
++
+ FVector AShamanUnitAIController::GetLeashAnchor(AShamanUnitBase* U) const
+ {
+ 	switch (U->GetOrder())
+@@ -73,7 +115,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
+ 	if (AActor* T = Target.Get())
+ 	{
+ 		const bool bValid = FShamanTargetRules::CanAffect(U, T, ESpellTargetFilter::EnemiesOnly, false)
+-			&& FVector::Dist2D(T->GetActorLocation(), Anchor) <= Row.LeashRadius;
++			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Row.LeashRadius;
+ 		if (bValid) return;
+ 		Target = nullptr;
+ 	}
+@@ -86,7 +128,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
+ 	{
+ 		AActor* A = H.GetActor();
+ 		if (!A || !FShamanTargetRules::CanAffect(U, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
+-		if (FVector::Dist2D(A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
++		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
+ 		const float D = FVector::DistSquared(A->GetActorLocation(), U->GetActorLocation());
+ 		if (D < BestD) { BestD = D; Target = A; }
+ 	}
+@@ -114,7 +156,7 @@ void AShamanUnitAIController::Engage(AShamanUnitBase* U, AActor* T)
+ {
+ 	if (TryCastAt(U, T)) return;
+ 	const float Reach = U->GetMeleeReach(T);
+-	if (FVector::Dist2D(U->GetActorLocation(), T->GetActorLocation()) <= Reach)
++	if (FShamanSpace::HorizontalDistance(this, U->GetActorLocation(), T->GetActorLocation()) <= Reach)
+ 	{
+ 		StopMovement();
+ 		LastMoveGoal = FVector(FLT_MAX);
+@@ -141,24 +183,24 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 			// Shaman is reincarnating: wait at the circle.
+ 			const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
+ 			const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
+-			if (FVector::Dist2D(Here, Wait) > 600.f) MoveToward(Wait + FormationOffset * 400.f, 120.f);
++			if (FShamanSpace::HorizontalDistance(this, Here, Wait) > 600.f) MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
+ 			return;
+ 		}
+ 		const float FollowDist = Data->FollowDistance;
+-		if (FVector::Dist2D(Here, S->GetActorLocation()) > FollowDist)
+-			MoveToward(S->GetActorLocation() + FormationOffset * FollowDist * 0.7f, 100.f);
++		if (FShamanSpace::HorizontalDistance(this, Here, S->GetActorLocation()) > FollowDist)
++			MoveToward(FShamanSpace::OffsetAlongGround(this, S->GetActorLocation(), FVector2D(FormationOffset) * FollowDist * 0.7f), 100.f);
+ 		return;
+ 	}
+ 	case EFollowerOrder::HoldPosition:
+ 	{
+-		const FVector Spot = U->GetOrderLocation() + FormationOffset * 180.f;
+-		if (FVector::Dist2D(Here, Spot) > 150.f) MoveToward(Spot, 80.f);
++		const FVector Spot = FShamanSpace::OffsetAlongGround(this, U->GetOrderLocation(), FVector2D(FormationOffset) * 180.f);
++		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 150.f) MoveToward(Spot, 80.f);
+ 		return;
+ 	}
+ 	case EFollowerOrder::GuardHome:
+ 	{
+ 		const FVector Spot = U->GetHomeLocation();
+-		if (FVector::Dist2D(Here, Spot) > 400.f) MoveToward(Spot, 120.f);
++		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 400.f) MoveToward(Spot, 120.f);
+ 		return;
+ 	}
+ 	case EFollowerOrder::Wander:
+@@ -168,7 +210,8 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 		if (Now < NextWanderTime) return;
+ 		NextWanderTime = Now + 4.0 + RandFloat() * 5.0;
+ 		const float A = RandFloat() * 2.f * PI;
+-		const FVector Spot = U->GetHomeLocation() + FVector(FMath::Cos(A), FMath::Sin(A), 0.f) * (RandFloat() * 450.f);
++		const float Dist = RandFloat() * 450.f;
++		const FVector Spot = FShamanSpace::OffsetAlongGround(this, U->GetHomeLocation(), FVector2D(FMath::Cos(A), FMath::Sin(A)) * Dist);
+ 		MoveToward(Spot, 60.f);
+ 		return;
+ 	}
+@@ -177,6 +220,18 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 
+ void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
+ {
++	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
++		if (Terrain->IsPlanetActive())
++		{
++			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
++			LastMoveGoal = Dest;
++			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, GetPawn()->GetActorLocation(), Dest);
++			bHasSurfaceGoal = Path.bValid && Path.Points.Num() > 0;
++			if (bHasSurfaceGoal) SurfaceGoal = Path.Points.Last();
++			SurfaceAcceptance = Acceptance;
++			return;
++		}
++
+ 	const bool bMoving = GetMoveStatus() == EPathFollowingStatus::Moving;
+ 	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
+ 	LastMoveGoal = Dest;
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+index f0c8db7..ac6c331 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+@@ -1,5 +1,8 @@
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/HealthComponent.h"
++#include "Characters/ShamanCharacterMovementComponent.h"
++#include "Terrain/ShamanSpace.h"
++#include "Terrain/ShamanTerrainSubsystem.h"
+ #include "Characters/ShamanUnitAIController.h"
+ #include "RagdollReactionComponent.h"
+ #include "HitReactionConfig.h"
+@@ -28,7 +31,8 @@
+ 
+ #define LOCTEXT_NAMESPACE "ShamanUnits"
+ 
+-AShamanUnitBase::AShamanUnitBase()
++AShamanUnitBase::AShamanUnitBase(const FObjectInitializer& ObjectInitializer)
++	: Super(ObjectInitializer.SetDefaultSubobjectClass<UShamanCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
+ {
+ 	PrimaryActorTick.bCanEverTick = true;
+ 	PrimaryActorTick.TickInterval = 0.2f;
+@@ -238,8 +242,8 @@ AActor* AShamanUnitBase::FindMeleeTarget() const
+ 		AActor* A = H.GetActor();
+ 		if (!A || A == this || !FShamanTargetRules::CanAffect(this, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
+ 		const FVector To = A->GetActorLocation() - GetActorLocation();
+-		if (FVector::DotProduct(To.GetSafeNormal2D(), GetActorForwardVector()) < 0.2f) continue;
+-		if (To.Size2D() > GetMeleeReach(A)) continue;
++		if (FVector::DotProduct(FShamanSpace::HorizontalDirection(this, GetActorLocation(), A->GetActorLocation()), GetActorForwardVector()) < 0.2f) continue;
++		if (FShamanSpace::HorizontalDistance(this, GetActorLocation(), A->GetActorLocation()) > GetMeleeReach(A)) continue;
+ 		if (To.SizeSquared() < BestD) { BestD = To.SizeSquared(); Best = A; }
+ 	}
+ 	return Best;
+@@ -251,10 +255,10 @@ bool AShamanUnitBase::TryMeleeAttack(AActor* Target)
+ 	if (!Target) Target = FindMeleeTarget();
+ 	if (!Target || !FShamanTargetRules::CanAffect(this, Target, ESpellTargetFilter::EnemiesOnly, false)) return false;
+ 	const FVector To = Target->GetActorLocation() - GetActorLocation();
+-	if (To.Size2D() > GetMeleeReach(Target)) return false;
++	if (FShamanSpace::HorizontalDistance(this, GetActorLocation(), Target->GetActorLocation()) > GetMeleeReach(Target)) return false;
+ 
+ 	LastMeleeTime = GetWorld()->GetTimeSeconds();
+-	SetActorRotation(FRotator(0.f, To.Rotation().Yaw, 0.f));
++	SetActorRotation(FShamanSpace::UprightRotation(this, GetActorLocation(), To));
+ 	UGameplayStatics::ApplyDamage(Target, Row.MeleeDamage, GetController(), this, UDamageType::StaticClass());
+ 	if (URagdollReactionComponent* Rag = Target->FindComponentByClass<URagdollReactionComponent>())
+ 		Rag->ApplyHit(Row.MeleeDamage * Row.MeleeKnockback, To);
+@@ -284,7 +288,7 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
+ 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+ 
+ 	FVector Dir = GetActorForwardVector() * -1.f;
+-	if (Killer) Dir = (GetActorLocation() - Killer->GetActorLocation()).GetSafeNormal2D();
++	if (Killer) Dir = FShamanSpace::HorizontalDirection(this, Killer->GetActorLocation(), GetActorLocation());
+ 	// Launch first, and keep a movement mode that applies it (MOVE_None would discard a pending launch).
+ 	HitReaction->EnterDeathRagdoll(Dir, FMath::Max(Health->GetLastDamage(), 1.f));
+ 	if (GetMesh()->SkeletalMesh) GetCharacterMovement()->DisableMovement(); // real ragdoll takes over
+@@ -317,7 +321,18 @@ void AShamanUnitBase::Reincarnate(const FVector& Location, const FRotator& Rotat
+ 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+ 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+ 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+-	SetActorLocationAndRotation(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
++	FPlanetFrame Planet;
++	const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this);
++	if (Terrain && FShamanSpace::GetPlanet(this, Planet))
++	{
++		// Planet: re-project onto the ground under Location (callers may still add world-Z offsets) and stand upright.
++		const FVector Where = Terrain->QueryTerrain(Location).Location + Planet.GetUp(Location) * (GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 10.f);
++		SetActorLocationAndRotation(Where, FShamanSpace::UprightRotation(this, Where, Rotation.Vector()), false, nullptr, ETeleportType::TeleportPhysics);
++	}
++	else
++	{
++		SetActorLocationAndRotation(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
++	}
+ 	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+ 	TribeMember->bConvertible = true;
+ 	if (IsShaman())
+@@ -335,6 +350,32 @@ void AShamanUnitBase::UpdateWater(float DeltaSeconds)
+ {
+ 	const UShamanGameData* Data = UShamanGameData::Get(this);
+ 	const FVector Body = GetBodyLocation();
++
++	FPlanetFrame Planet;
++	if (FShamanSpace::GetPlanet(this, Planet))
++	{
++		// Planet: sea level is a sphere; depth and "out of the world" are measured radially.
++		const UShamanTerrainSubsystem* T = UShamanTerrainSubsystem::Get(this);
++		const FVector Up = Planet.GetUp(Body);
++		const FVector Feet = Body - Up * (IsRagdolling() ? 30.f : GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
++		const FPlanetSettings& PS = T->GetPlanetSettings();
++		if (Planet.GetAltitude(Feet) < -(PS.SeabedDepth + PS.Radius * 0.25f) || Planet.GetAltitude(Feet) > PS.Radius * 2.f)
++		{
++			UE_LOG(LogShaman, Warning, TEXT("%s left the planet (altitude %.0f)"), *GetName(), Planet.GetAltitude(Feet));
++			Health->Kill(nullptr);
++			return;
++		}
++		const bool bDeepPlanet = T->GetWaterDepthAt(Feet) > PS.FordableDepth;
++		if (!bDeepPlanet || !Row.bDrowns) { DrownTimer = 0.f; return; }
++		DrownTimer += DeltaSeconds;
++		if (DrownTimer >= Row.DrownTime)
++		{
++			DrownTimer = 0.f;
++			Health->Kill(nullptr);
++		}
++		return;
++	}
++
+ 	const float FeetZ = IsRagdolling() ? Body.Z - 30.f : Body.Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+ 
+ 	// Out-of-world safety net: never leave a unit falling forever.
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index 807be6b..1b76cf9 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -309,6 +309,11 @@ void AShamanGameMode::DestroyWorld()
+ }
+ 
+ void AShamanGameMode::ShamanRegenerate(int32 Seed)
++{
++	RegenerateWorld(Seed);
++}
++
++void AShamanGameMode::RegenerateWorld(int32 Seed)
+ {
+ 	DestroyWorld();
+ 	SeedOverride = Seed;
+diff --git a/Source/Shaman/Public/Characters/ShamanCharacter.h b/Source/Shaman/Public/Characters/ShamanCharacter.h
+index a5039e8..b4ac4bc 100644
+--- a/Source/Shaman/Public/Characters/ShamanCharacter.h
++++ b/Source/Shaman/Public/Characters/ShamanCharacter.h
+@@ -19,7 +19,7 @@ class SHAMAN_API AShamanCharacter : public AShamanUnitBase
+ {
+ 	GENERATED_BODY()
+ public:
+-	AShamanCharacter();
++	AShamanCharacter(const FObjectInitializer& ObjectInitializer);
+ 
+ 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) USpringArmComponent* CameraBoom;
+ 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) UCameraComponent* FollowCamera;
+@@ -60,6 +60,11 @@ protected:
+ 	void MoveRight(float V);
+ 	void TurnAtRate(float V);
+ 	void LookUpAtRate(float V);
++	void InputTurn(float V);
++	void InputLookUp(float V);
++	/** Planet camera: boom uses an absolute rotation built from the radial up (control rotation is world-Z based). */
++	void UpdatePlanetCamera();
++	void ResetPlanetView();
+ 	void InputCast();
+ 	void InputMelee();
+ 	void InputInteract();
+@@ -73,4 +78,11 @@ protected:
+ 	TWeakObjectPtr<AActor> FocusedInteractable;
+ 	double LastCastFeedbackTime = -100.0;
+ 	ESpellCastResult LastCastFeedback = ESpellCastResult::Success;
++
++	// Planet camera state (unused on flat worlds)
++	bool bPlanetCamera = false;
++	FVector PlanetViewForward = FVector::ForwardVector; // tangent, parallel-transported as the Shaman moves
++	float PlanetViewPitch = -15.f;
++	UPROPERTY(EditAnywhere, Category="Planet") float PlanetPitchMin = -80.f;
++	UPROPERTY(EditAnywhere, Category="Planet") float PlanetPitchMax = 50.f;
+ };
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitAIController.h b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+index 055c2d6..78a918f 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitAIController.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+@@ -10,6 +10,8 @@ class AShamanUnitBase;
+  *   1. If hostile units are within AggroRadius and the leash allows it: engage (Shamans try spells first, then melee).
+  *   2. Otherwise follow the standing order: FollowShaman / HoldPosition / GuardHome / Wander.
+  * Uses the navmesh when present and falls back to straight-line moves when it is not.
++ * On planets (no navmesh possible) it asks FShamanSurfaceNavigation for a path and steers along the surface
++ * every frame; decisions still run 4x per second.
+  * Phase 2 replaces step 2 with work orders (gather, build) without changing step 1.
+  */
+ UCLASS()
+@@ -19,6 +21,9 @@ class SHAMAN_API AShamanUnitAIController : public AAIController
+ public:
+ 	AShamanUnitAIController();
+ 	virtual void Tick(float DeltaSeconds) override;
++	virtual void StopMovement() override;
++	/** Planet steering goal (debug/tests). */
++	bool HasSurfaceGoal() const { return bHasSurfaceGoal; }
+ 	AActor* GetCurrentTarget() const { return Target.Get(); }
+ 
+ protected:
+@@ -30,11 +35,18 @@ protected:
+ 	bool TryCastAt(AShamanUnitBase* U, AActor* T);
+ 	void MoveToward(const FVector& Dest, float Acceptance);
+ 	FVector GetLeashAnchor(AShamanUnitBase* U) const;
++	void Think(AShamanUnitBase* U);
++	void SteerOnSurface(AShamanUnitBase* U);
+ 
+ 	TWeakObjectPtr<AActor> Target;
+ 	FVector LastMoveGoal = FVector(FLT_MAX);
+ 	FVector FormationOffset = FVector::ZeroVector;   // stable per unit, so followers spread out
+ 	double NextWanderTime = 0.0;
+ 	uint64 RngState = 1;
++	// Planet movement (prototype navigation, see FShamanSurfaceNavigation)
++	bool bHasSurfaceGoal = false;
++	FVector SurfaceGoal = FVector::ZeroVector;
++	float SurfaceAcceptance = 100.f;
++	float DecisionTimer = 0.f;
+ 	float RandFloat();
+ };
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitBase.h b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+index 0e0be16..6dfd144 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitBase.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+@@ -26,7 +26,7 @@ class SHAMAN_API AShamanUnitBase : public ACharacter, public ITribeOwned, public
+ {
+ 	GENERATED_BODY()
+ public:
+-	AShamanUnitBase();
++	AShamanUnitBase(const FObjectInitializer& ObjectInitializer);
+ 
+ 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) UHealthComponent* Health;
+ 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) URagdollReactionComponent* HitReaction;
+diff --git a/Source/Shaman/Public/Game/ShamanGameMode.h b/Source/Shaman/Public/Game/ShamanGameMode.h
+index c555d57..82f6632 100644
+--- a/Source/Shaman/Public/Game/ShamanGameMode.h
++++ b/Source/Shaman/Public/Game/ShamanGameMode.h
+@@ -44,7 +44,10 @@ public:
+ 	UFUNCTION(Exec) void ShamanRegenerate(int32 Seed);
+ 
+ protected:
+-	void EnsureWorldGenerated();
++	/** Builds the world once (flat Phase 1 world here; AShamanPlanetGameMode builds a planet). */
++	virtual void EnsureWorldGenerated();
++	/** Body of the ShamanRegenerate console command. */
++	virtual void RegenerateWorld(int32 Seed);
+ 	void ResolveGameData();
+ 	void SpawnWorld();
+ 	void DestroyWorld();
+diff --git a/Source/ShamanEditor.Target.cs b/Source/ShamanEditor.Target.cs
+index a459e60..b08bb8e 100644
+--- a/Source/ShamanEditor.Target.cs
++++ b/Source/ShamanEditor.Target.cs
+@@ -5,6 +5,6 @@ public class ShamanEditorTarget : TargetRules
+ 	{
+ 		Type = TargetType.Editor;
+ 		DefaultBuildSettings = BuildSettingsVersion.V2;
+-		ExtraModuleNames.Add("Shaman");
++		ExtraModuleNames.AddRange(new string[] { "Shaman", "ShamanVoxel" });
+ 	}
+ }

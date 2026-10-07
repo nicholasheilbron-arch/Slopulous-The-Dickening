@@ -13,6 +13,11 @@
 #include "Core/ShamanLog.h"
 #include "ProceduralMeshComponent.h"
 #include "Engine/DataTable.h"
+#include "SpellRow.h"
+#include "Characters/UnitRow.h"
+#include "Buildings/BuildingRow.h"
+#include "World/ResourceRow.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -41,6 +46,25 @@ void AShamanGameMode::InitGame(const FString& MapName, const FString& Options, F
 	}
 }
 
+/** Finds a DataTable: the conventional path first, then any DataTable in the project whose row type matches. */
+static UDataTable* FindShamanTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct)
+{
+	if (UDataTable* T = LoadObject<UDataTable>(nullptr, DefaultPath, nullptr, LOAD_NoWarn | LOAD_Quiet)) return T;
+	FAssetRegistryModule& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	TArray<FAssetData> Assets;
+	Registry.Get().GetAssetsByClass(UDataTable::StaticClass()->GetFName(), Assets, true);
+	for (const FAssetData& A : Assets)
+	{
+		UDataTable* T = Cast<UDataTable>(A.GetAsset());
+		if (T && T->GetRowStruct() == RowStruct)
+		{
+			UE_LOG(LogShaman, Log, TEXT("Using %s for %s rows."), *A.ObjectPath.ToString(), *RowStruct->GetName());
+			return T;
+		}
+	}
+	return nullptr;
+}
+
 void AShamanGameMode::ResolveGameData()
 {
 	if (ActiveData) return;
@@ -50,14 +74,25 @@ void AShamanGameMode::ResolveGameData()
 	{
 		// Zero-config fallback: class defaults + tables imported at their conventional paths.
 		ActiveData = NewObject<UShamanGameData>(this, TEXT("TransientShamanGameData"));
-		ActiveData->SpellTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Spells.DT_Spells"));
-		ActiveData->UnitTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Units.DT_Units"));
-		ActiveData->BuildingTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Buildings.DT_Buildings"));
-		ActiveData->ResourceTable = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Resources.DT_Resources"));
-		UE_LOG(LogShaman, Warning, TEXT("No DA_ShamanGameData found; using defaults. Tables loaded: Spells=%d Units=%d Buildings=%d Resources=%d"),
-			ActiveData->SpellTable != nullptr, ActiveData->UnitTable != nullptr, ActiveData->BuildingTable != nullptr, ActiveData->ResourceTable != nullptr);
+		UE_LOG(LogShaman, Log, TEXT("No DA_ShamanGameData asset; using built-in defaults."));
 	}
-	if (!ActiveData->SpellTable) UE_LOG(LogShaman, Error, TEXT("No spell table: the Shaman cannot cast. Import Content/Data/Spells.csv as DT_Spells (row type SpellRow)."));
+	// Any table not assigned is looked up by name, then by row type anywhere in Content (asset names don't matter).
+	if (!ActiveData->SpellTable)    ActiveData->SpellTable    = FindShamanTable(TEXT("/Game/Data/DT_Spells.DT_Spells"), FSpellRow::StaticStruct());
+	if (!ActiveData->UnitTable)     ActiveData->UnitTable     = FindShamanTable(TEXT("/Game/Data/DT_Units.DT_Units"), FUnitRow::StaticStruct());
+	if (!ActiveData->BuildingTable) ActiveData->BuildingTable = FindShamanTable(TEXT("/Game/Data/DT_Buildings.DT_Buildings"), FBuildingRow::StaticStruct());
+	if (!ActiveData->ResourceTable) ActiveData->ResourceTable = FindShamanTable(TEXT("/Game/Data/DT_Resources.DT_Resources"), FResourceRow::StaticStruct());
+
+	FString Missing;
+	if (!ActiveData->SpellTable)    Missing += TEXT(" Spells.csv (SpellRow)");
+	if (!ActiveData->UnitTable)     Missing += TEXT(" Units.csv (UnitRow)");
+	if (!ActiveData->BuildingTable) Missing += TEXT(" Buildings.csv (BuildingRow)");
+	if (!ActiveData->ResourceTable) Missing += TEXT(" Resources.csv (ResourceRow)");
+	if (!Missing.IsEmpty())
+	{
+		const FString Msg = TEXT("Shaman: no DataTable found for") + Missing + TEXT(". Import those CSVs from Content/Data as DataTables with the row type in brackets.");
+		UE_LOG(LogShaman, Error, TEXT("%s"), *Msg);
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 30.f, FColor::Red, Msg);
+	}
 }
 
 void AShamanGameMode::EnsureWorldGenerated()

@@ -26,7 +26,7 @@ class SHAMAN_API AShamanUnitBase : public ACharacter, public ITribeOwned, public
 {
 	GENERATED_BODY()
 public:
-	AShamanUnitBase();
+	AShamanUnitBase(const FObjectInitializer& ObjectInitializer);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) UHealthComponent* Health;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) URagdollReactionComponent* HitReaction;

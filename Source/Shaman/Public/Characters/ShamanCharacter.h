@@ -19,7 +19,7 @@ class SHAMAN_API AShamanCharacter : public AShamanUnitBase
 {
 	GENERATED_BODY()
 public:
-	AShamanCharacter();
+	AShamanCharacter(const FObjectInitializer& ObjectInitializer);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) USpringArmComponent* CameraBoom;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) UCameraComponent* FollowCamera;
@@ -60,6 +60,11 @@ protected:
 	void MoveRight(float V);
 	void TurnAtRate(float V);
 	void LookUpAtRate(float V);
+	void InputTurn(float V);
+	void InputLookUp(float V);
+	/** Planet camera: boom uses an absolute rotation built from the radial up (control rotation is world-Z based). */
+	void UpdatePlanetCamera();
+	void ResetPlanetView();
 	void InputCast();
 	void InputMelee();
 	void InputInteract();
@@ -73,4 +78,11 @@ protected:
 	TWeakObjectPtr<AActor> FocusedInteractable;
 	double LastCastFeedbackTime = -100.0;
 	ESpellCastResult LastCastFeedback = ESpellCastResult::Success;
+
+	// Planet camera state (unused on flat worlds)
+	bool bPlanetCamera = false;
+	FVector PlanetViewForward = FVector::ForwardVector; // tangent, parallel-transported as the Shaman moves
+	float PlanetViewPitch = -15.f;
+	UPROPERTY(EditAnywhere, Category="Planet") float PlanetPitchMin = -80.f;
+	UPROPERTY(EditAnywhere, Category="Planet") float PlanetPitchMax = 50.f;
 };

@@ -21,3 +21,6 @@ Plugins/*/Intermediate/
 # Local tool builds
 Tools/WorldGenHarness/worldgen_harness
 Tools/ConvertHarness/convert_harness
+
+# Local tool builds
+Tools/TerrainHarness/terrain_harness

@@ -13,11 +13,24 @@
 				"AIModule",
 				"GameplayTags"
 			]
+		},
+		{
+			"Name": "ShamanVoxel",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine",
+				"Shaman"
+			]
 		}
 	],
 	"Plugins": [
 		{
 			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		},
+		{
+			"Name": "VoxelFree",
 			"Enabled": true
 		}
 	]

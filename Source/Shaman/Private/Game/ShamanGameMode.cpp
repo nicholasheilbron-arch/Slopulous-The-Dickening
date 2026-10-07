@@ -310,6 +310,11 @@ void AShamanGameMode::DestroyWorld()
 
 void AShamanGameMode::ShamanRegenerate(int32 Seed)
 {
+	RegenerateWorld(Seed);
+}
+
+void AShamanGameMode::RegenerateWorld(int32 Seed)
+{
 	DestroyWorld();
 	SeedOverride = Seed;
 	bHasSeedOverride = true;

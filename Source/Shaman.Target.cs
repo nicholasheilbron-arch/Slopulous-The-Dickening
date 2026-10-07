@@ -5,6 +5,6 @@ public class ShamanTarget : TargetRules
 	{
 		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.Add("Shaman");
+		ExtraModuleNames.AddRange(new string[] { "Shaman", "ShamanVoxel" });
 	}
 }

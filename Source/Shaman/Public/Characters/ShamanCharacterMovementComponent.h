@@ -82,4 +82,6 @@ private:
 	FPlanetFrame Frame;
 	TWeakObjectPtr<UShamanTerrainSubsystem> Terrain;
 	int32 GroundRescues = 0;
+	/** Walkable angle in use before the planet took over (restored when the planet goes away). */
+	float FlatWalkableFloorAngle = -1.f;
 };

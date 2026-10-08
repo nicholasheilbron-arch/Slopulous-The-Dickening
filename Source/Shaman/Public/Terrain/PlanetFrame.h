@@ -65,11 +65,15 @@ struct SHAMAN_API FPlanetFrame
 		OutRight = FVector::CrossProduct(OutUp, OutForward);
 	}
 
-	/** Great-circle distance along the base sphere between two world locations. */
+	/**
+	 * Great-circle distance along the base sphere between two world locations.
+	 * atan2(|a x b|, a . b) instead of acos(a . b): acos has no float resolution near 0 (one ulp below 1 is already
+	 * 3.45e-4 rad = 6.9 uu on a 20000 uu planet), so two points straight above each other could read ~7 uu apart.
+	 */
 	float GetSurfaceDistance(const FVector& A, const FVector& B) const
 	{
-		const float CosAngle = FMath::Clamp(FVector::DotProduct(GetUp(A), GetUp(B)), -1.f, 1.f);
-		return FMath::Acos(CosAngle) * Radius;
+		const FVector UA = GetUp(A), UB = GetUp(B);
+		return FMath::Atan2(FVector::CrossProduct(UA, UB).Size(), FVector::DotProduct(UA, UB)) * Radius;
 	}
 
 	/** Parallel-transports a tangent vector from one location's tangent plane to another's (keeps it tangent). */

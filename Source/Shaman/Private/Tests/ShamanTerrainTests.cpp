@@ -14,6 +14,8 @@
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/ShamanCharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Characters/HealthComponent.h"
+#include "Game/ShamanGameData.h"
 
 /**
  * Spherical terrain foundation tests. They run on the analytic backend (pure math, no Voxel Plugin), so they are
@@ -380,6 +382,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	// Flat world first: the movement component must behave exactly like UCharacterMovementComponent.
 	{
 		AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FVector(0, 0, 5000)));
+		U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId; // a real unit row, as the game spawns it
 		U->AutoPossessAI = EAutoPossessAI::Disabled;
 		U->FinishSpawning(FTransform(FVector(0, 0, 5000)));
 		UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
@@ -416,6 +419,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	const FVector Ground = T->GetSurfaceLocation(D);
 	const FVector SpawnLoc = Ground + D * 400.f; // drop from 400 uu
 	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
+	U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId;
 	U->AutoPossessAI = EAutoPossessAI::Disabled;
 	U->FinishSpawning(FTransform(SpawnLoc));
 	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
@@ -475,6 +479,121 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
 	TestTrue(TEXT("Raise under the unit"), T->ModifyTerrain(Mod).WasApplied());
 	Step(30);
 	TestTrue(FString::Printf(TEXT("On top of raised terrain (clearance %.1f)"), Clearance()), FMath::Abs(Clearance()) < 30.f);
+	return true;
+}
+
+
+SHAMAN_TERRAIN_TEST(FShamanTerrainShamanDeathTest, "Shaman.Terrain.ShamanDeathRebirth")
+bool FShamanTerrainShamanDeathTest::RunTest(const FString&)
+{
+	// Phase 1 acceptance regression: a dead Shaman on a planet must not keep moving (it used to be launched at
+	// ~8000 uu/s by a no-killer death and circle the planet), and a reincarnated Shaman must start at rest.
+	FTestWorld W;
+	const FPlanetSettings S = TestSettings();
+	UShamanTerrainSubsystem* T = W.MakePlanet(S);
+	if (!TestNotNull(TEXT("Planet"), T)) return false;
+	W.World->GetWorldSettings()->bEnableWorldBoundsChecks = false;
+	const FPlanetFrame F = T->GetPlanetFrame();
+	auto FlatLand = [T](const FVector& Dir, const FTerrainSample& Smp)
+	{
+		if (Dir.Z > -0.2f) return false; // away from world +Z, so world-Z assumptions would show
+		FVector Fwd, Right, Up; T->GetPlanetFrame().GetTangentBasis(Smp.Location, FVector(1, 0, 0), Fwd, Right, Up);
+		for (int32 k = -6; k <= 12; ++k)
+		{
+			const FTerrainSample Q = T->QueryTerrain(Smp.Location + Fwd * 150.f * k);
+			if (!Q.bWalkable || Q.bUnderwater || FMath::Abs(Q.Height - Smp.Height) > 250.f) return false;
+		}
+		return true;
+	};
+	FVector D;
+	if (!TestTrue(TEXT("Found a land strip"), FindLand(T, FlatLand, D))) return false;
+
+	const FVector SpawnLoc = T->GetSurfaceLocation(D) + D * 200.f;
+	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
+	U->UnitId = UShamanGameData::Get(W.World)->ShamanUnitId;
+	U->TribeId = 0;
+	U->AutoPossessAI = EAutoPossessAI::Disabled;
+	U->FinishSpawning(FTransform(SpawnLoc));
+	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
+	if (!TestNotNull(TEXT("Movement"), M)) return false;
+	TestTrue(TEXT("Unit is a Shaman"), U->IsShaman());
+	M->bRunPhysicsWithNoController = true;
+	M->SetMovementMode(MOVE_Falling);
+
+	const float Dt = 1.f / 60.f;
+	auto Step = [&](int32 Frames)
+	{
+		for (int32 i = 0; i < Frames; ++i)
+		{
+			W.World->Tick(LEVELTICK_TimeOnly, Dt);
+			M->TickComponent(Dt, LEVELTICK_All, &M->PrimaryComponentTick);
+		}
+	};
+	const float Half = U->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	auto Clearance = [&]() { return F.GetDistanceFromCenter(U->GetActorLocation()) - Half - (S.Radius + T->GetTerrainHeight(U->GetActorLocation())); };
+	Step(120);
+	TestTrue(TEXT("Alive Shaman landed"), M->IsMovingOnGround());
+
+	// Die in mid-air (after a jump): the body is laid on the ground and stays there.
+	U->Jump();
+	Step(6);
+	TestTrue(FString::Printf(TEXT("In the air before dying (clearance %.1f)"), Clearance()), Clearance() > 10.f);
+	U->Health->Kill(nullptr); // no killer: like drowning / leaving the world
+	TestFalse(TEXT("Dead"), U->IsAlive());
+	TestTrue(TEXT("Dead Shaman: movement disabled"), M->MovementMode == MOVE_None);
+	TestTrue(TEXT("Dead Shaman: no velocity"), M->Velocity.IsNearlyZero(1.f));
+	TestTrue(FString::Printf(TEXT("Dead Shaman lies on the ground (clearance %.1f)"), Clearance()), FMath::Abs(Clearance()) < 30.f);
+	const FVector Corpse = U->GetActorLocation();
+	U->AddMovementInput(F.ProjectOntoTangent(U->GetActorForwardVector(), Corpse).GetSafeNormal(), 1.f);
+	Step(180); // 3 s with input pressed
+	TestTrue(FString::Printf(TEXT("Dead Shaman does not move (%.1f uu in 3 s)"), FVector::Dist(Corpse, U->GetActorLocation())), FVector::Dist(Corpse, U->GetActorLocation()) < 5.f);
+
+	// Reincarnate further along the strip (as UTribeSubsystem::DoRebirth does at the circle).
+	FVector Fwd, Right, Up; F.GetTangentBasis(Corpse, FVector(1, 0, 0), Fwd, Right, Up);
+	const FVector Circle = T->GetSurfaceLocation(F.GetDirection(Corpse + Fwd * 900.f));
+	U->Reincarnate(Circle + F.GetUp(Circle) * 100.f, FRotator::ZeroRotator);
+	TestTrue(TEXT("Alive again"), U->IsAlive());
+	TestTrue(FString::Printf(TEXT("Reborn at the circle (%.0f uu away)"), F.GetSurfaceDistance(Circle, U->GetActorLocation())), F.GetSurfaceDistance(Circle, U->GetActorLocation()) < 50.f);
+	TestTrue(TEXT("Reborn on the ground"), FMath::Abs(Clearance()) < 30.f && M->IsMovingOnGround());
+	TestTrue(TEXT("Reborn at rest"), M->Velocity.IsNearlyZero(1.f));
+	const FVector Reborn = U->GetActorLocation();
+	Step(30);
+	TestTrue(FString::Printf(TEXT("No carried-over velocity (%.1f uu drift)"), F.GetSurfaceDistance(Reborn, U->GetActorLocation())), F.GetSurfaceDistance(Reborn, U->GetActorLocation()) < 5.f);
+	for (int32 i = 0; i < 90; ++i)
+	{
+		FVector F2, R2, U2; F.GetTangentBasis(U->GetActorLocation(), Fwd, F2, R2, U2);
+		U->AddMovementInput(F2, 1.f);
+		Step(1);
+	}
+	TestTrue(FString::Printf(TEXT("Moves normally after rebirth (%.0f uu)"), F.GetSurfaceDistance(Reborn, U->GetActorLocation())), F.GetSurfaceDistance(Reborn, U->GetActorLocation()) > 300.f);
+	TestTrue(TEXT("Still on the ground after moving"), M->IsMovingOnGround() && FMath::Abs(Clearance()) < 30.f);
+	return true;
+}
+
+SHAMAN_TERRAIN_TEST(FShamanTerrainWalkableSlopeTest, "Shaman.Terrain.WalkableSlope")
+bool FShamanTerrainWalkableSlopeTest::RunTest(const FString&)
+{
+	// Movement and terrain queries use one walkable-slope limit on planets (FPlanetSettings::MaxWalkableSlopeDeg).
+	FTestWorld W;
+	const FPlanetSettings S = TestSettings();
+	UShamanTerrainSubsystem* T = W.MakePlanet(S);
+	if (!TestNotNull(TEXT("Planet"), T)) return false;
+	const FVector Loc = T->GetSurfaceLocation(FVector(0, 0, 1)) + FVector(0, 0, 300.f);
+	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(Loc));
+	U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId;
+	U->AutoPossessAI = EAutoPossessAI::Disabled;
+	U->FinishSpawning(FTransform(Loc));
+	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
+	if (!TestNotNull(TEXT("Movement"), M)) return false;
+	M->TickComponent(1.f / 60.f, LEVELTICK_All, &M->PrimaryComponentTick); // picks up the planet
+	TestTrue(TEXT("On planet"), M->IsOnPlanet());
+	TestEqual(TEXT("Walkable angle = terrain MaxWalkableSlopeDeg"), M->GetWalkableFloorAngle(), S.MaxWalkableSlopeDeg, 0.01f);
+	T->ShutdownTerrain();
+	M->TickComponent(1.f / 60.f, LEVELTICK_All, &M->PrimaryComponentTick);
+	TestFalse(TEXT("Planet gone"), M->IsOnPlanet());
+	TestEqual(TEXT("Flat-world walkable angle restored"), M->GetWalkableFloorAngle(), GetDefault<UCharacterMovementComponent>()->GetWalkableFloorAngle(), 0.01f);
 	return true;
 }
 

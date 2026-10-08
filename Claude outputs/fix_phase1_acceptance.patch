@@ -1,0 +1,437 @@
+diff --git a/Source/Shaman/Private/Characters/ShamanCharacterMovementComponent.cpp b/Source/Shaman/Private/Characters/ShamanCharacterMovementComponent.cpp
+index 835c3fe..0272c16 100644
+--- a/Source/Shaman/Private/Characters/ShamanCharacterMovementComponent.cpp
++++ b/Source/Shaman/Private/Characters/ShamanCharacterMovementComponent.cpp
+@@ -35,6 +35,11 @@ void UShamanCharacterMovementComponent::RefreshPlanet()
+ 	bPlanetActive = bNow;
+ 	if (bPlanetActive)
+ 	{
++		// One definition of "walkable" on planets: the terrain's MaxWalkableSlopeDeg (also used by ITerrainQuery,
++		// AI paths and the start-site search). The engine default (44.77 deg) made slopes the terrain reports as
++		// walkable (up to 50 deg) unclimbable, which cut off many mountain tops.
++		FlatWalkableFloorAngle = GetWalkableFloorAngle();
++		SetWalkableFloorAngle(FMath::Clamp(T->GetPlanetSettings().MaxWalkableSlopeDeg, 0.f, 89.f));
+ 		// RVO avoidance is 2D (world XY) and the navmesh is Z-up: neither is valid on a sphere.
+ 		if (bUseRVOAvoidance) SetAvoidanceEnabled(false);
+ 		if (MovementMode == MOVE_Walking || MovementMode == MOVE_NavWalking) SetMovementMode(MOVE_Walking);
+@@ -43,6 +48,7 @@ void UShamanCharacterMovementComponent::RefreshPlanet()
+ 	else
+ 	{
+ 		Terrain.Reset();
++		if (FlatWalkableFloorAngle >= 0.f) SetWalkableFloorAngle(FlatWalkableFloorAngle);
+ 		if (IsPlanetMode(EShamanCustomMove::PlanetWalk)) SetMovementMode(MOVE_Walking);
+ 		else if (IsPlanetMode(EShamanCustomMove::PlanetFall)) SetMovementMode(MOVE_Falling);
+ 	}
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+index ac6c331..9cc5dac 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+@@ -289,9 +289,13 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
+ 
+ 	FVector Dir = GetActorForwardVector() * -1.f;
+ 	if (Killer) Dir = FShamanSpace::HorizontalDirection(this, Killer->GetActorLocation(), GetActorLocation());
+-	// Launch first, and keep a movement mode that applies it (MOVE_None would discard a pending launch).
+-	HitReaction->EnterDeathRagdoll(Dir, FMath::Max(Health->GetLastDamage(), 1.f));
++	// Death launch (hit-reaction stand-in) only for deaths dealt by something. Deaths without a killer (drowning,
++	// left the world) used the whole remaining health as "damage": ~8000 uu/s for a Shaman, enough to circle a
++	// planet. Shamans never get a death launch: their body must stay put until reincarnation.
++	const float LaunchDamage = (Killer && !IsShaman()) ? FMath::Max(Health->GetLastDamage(), 1.f) : 0.f;
++	HitReaction->EnterDeathRagdoll(Dir, LaunchDamage);
+ 	if (GetMesh()->SkeletalMesh) GetCharacterMovement()->DisableMovement(); // real ragdoll takes over
++	if (IsShaman()) FreezeCorpse();
+ 
+ 	if (!GetMesh()->SkeletalMesh) // placeholder: lay the cylinder down
+ 	{
+@@ -312,9 +316,31 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
+ 	}
+ }
+ 
++void AShamanUnitBase::FreezeCorpse()
++{
++	UCharacterMovementComponent* Move = GetCharacterMovement();
++	Move->StopMovementImmediately();
++	Move->ClearAccumulatedForces(); // pending impulse/force/launch
++	FPlanetFrame Planet;
++	const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this);
++	if (Terrain && FShamanSpace::GetPlanet(this, Planet))
++	{
++		// Planet: lay the body on the ground below it and stop all movement (no radial gravity integration, no input).
++		const FVector Loc = GetActorLocation();
++		const FVector Ground = Terrain->QueryTerrain(Loc).Location;
++		if (Planet.GetDistanceFromCenter(Loc) - GetCapsuleComponent()->GetScaledCapsuleHalfHeight() > Planet.GetDistanceFromCenter(Ground) + 5.f)
++			SetActorLocation(Ground + Planet.GetUp(Loc) * (GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
++		Move->DisableMovement();
++	}
++	// Flat worlds keep their mode: with zero velocity the body only drops straight down onto the ground.
++}
++
+ void AShamanUnitBase::Reincarnate(const FVector& Location, const FRotator& Rotation)
+ {
+ 	HitReaction->ForceRecover();
++	// Nothing from the previous life may carry over (velocity, a launch queued while movement was disabled).
++	GetCharacterMovement()->StopMovementImmediately();
++	GetCharacterMovement()->ClearAccumulatedForces(); // pending impulse/force/launch
+ 	Health->ResetHealth();
+ 	DrownTimer = 0.f;
+ 	PlaceholderBody->SetRelativeTransform(PlaceholderRestTransform);
+diff --git a/Source/Shaman/Private/Game/ShamanGameData.cpp b/Source/Shaman/Private/Game/ShamanGameData.cpp
+index fe79cc5..dfe020b 100644
+--- a/Source/Shaman/Private/Game/ShamanGameData.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameData.cpp
+@@ -2,6 +2,14 @@
+ #include "Game/ShamanGameMode.h"
+ #include "Spells/DefaultSpellProjectile.h"
+ #include "Engine/World.h"
++#include "Engine/DataTable.h"
++#include "AssetRegistry/AssetRegistryModule.h"
++#include "Modules/ModuleManager.h"
++#include "SpellRow.h"
++#include "Characters/UnitRow.h"
++#include "Buildings/BuildingRow.h"
++#include "World/ResourceRow.h"
++#include "Core/ShamanLog.h"
+ 
+ UShamanGameData::UShamanGameData()
+ {
+@@ -32,3 +40,39 @@ const UShamanGameData* UShamanGameData::Get(const UObject* WorldContext)
+ 		if (const UShamanGameData* D = GM->GetGameData()) return D;
+ 	return GetDefault<UShamanGameData>();
+ }
++
++UDataTable* UShamanGameData::FindTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct)
++{
++	if (UDataTable* T = LoadObject<UDataTable>(nullptr, DefaultPath, nullptr, LOAD_NoWarn | LOAD_Quiet)) return T;
++	FAssetRegistryModule& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
++	if (Registry.Get().IsLoadingAssets()) Registry.Get().SearchAllAssets(true); // e.g. automation right after editor start
++	TArray<FAssetData> Assets;
++	Registry.Get().GetAssetsByClass(UDataTable::StaticClass()->GetFName(), Assets, true);
++	for (const FAssetData& A : Assets)
++	{
++		UDataTable* T = Cast<UDataTable>(A.GetAsset());
++		if (T && T->GetRowStruct() == RowStruct)
++		{
++			UE_LOG(LogShaman, Log, TEXT("Using %s for %s rows."), *A.ObjectPath.ToString(), *RowStruct->GetName());
++			return T;
++		}
++	}
++	return nullptr;
++}
++
++UShamanGameData* UShamanGameData::Resolve(UObject* Outer, UShamanGameData* Assigned, const TSoftObjectPtr<UShamanGameData>& DefaultPath)
++{
++	UShamanGameData* Data = Assigned;
++	if (!Data && !DefaultPath.IsNull()) Data = DefaultPath.LoadSynchronous();
++	if (!Data)
++	{
++		// Zero-config fallback: class defaults + tables found below.
++		Data = Outer ? NewObject<UShamanGameData>(Outer, TEXT("TransientShamanGameData")) : NewObject<UShamanGameData>(GetTransientPackage());
++		UE_LOG(LogShaman, Log, TEXT("No DA_ShamanGameData asset; using built-in defaults."));
++	}
++	if (!Data->SpellTable)    Data->SpellTable    = FindTable(TEXT("/Game/Data/DT_Spells.DT_Spells"), FSpellRow::StaticStruct());
++	if (!Data->UnitTable)     Data->UnitTable     = FindTable(TEXT("/Game/Data/DT_Units.DT_Units"), FUnitRow::StaticStruct());
++	if (!Data->BuildingTable) Data->BuildingTable = FindTable(TEXT("/Game/Data/DT_Buildings.DT_Buildings"), FBuildingRow::StaticStruct());
++	if (!Data->ResourceTable) Data->ResourceTable = FindTable(TEXT("/Game/Data/DT_Resources.DT_Resources"), FResourceRow::StaticStruct());
++	return Data;
++}
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index 1b76cf9..3541f1f 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -17,7 +17,6 @@
+ #include "Characters/UnitRow.h"
+ #include "Buildings/BuildingRow.h"
+ #include "World/ResourceRow.h"
+-#include "AssetRegistry/AssetRegistryModule.h"
+ #include "Engine/World.h"
+ #include "Engine/Engine.h"
+ #include "EngineUtils.h"
+@@ -46,41 +45,10 @@ void AShamanGameMode::InitGame(const FString& MapName, const FString& Options, F
+ 	}
+ }
+ 
+-/** Finds a DataTable: the conventional path first, then any DataTable in the project whose row type matches. */
+-static UDataTable* FindShamanTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct)
+-{
+-	if (UDataTable* T = LoadObject<UDataTable>(nullptr, DefaultPath, nullptr, LOAD_NoWarn | LOAD_Quiet)) return T;
+-	FAssetRegistryModule& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+-	TArray<FAssetData> Assets;
+-	Registry.Get().GetAssetsByClass(UDataTable::StaticClass()->GetFName(), Assets, true);
+-	for (const FAssetData& A : Assets)
+-	{
+-		UDataTable* T = Cast<UDataTable>(A.GetAsset());
+-		if (T && T->GetRowStruct() == RowStruct)
+-		{
+-			UE_LOG(LogShaman, Log, TEXT("Using %s for %s rows."), *A.ObjectPath.ToString(), *RowStruct->GetName());
+-			return T;
+-		}
+-	}
+-	return nullptr;
+-}
+-
+ void AShamanGameMode::ResolveGameData()
+ {
+ 	if (ActiveData) return;
+-	ActiveData = GameData;
+-	if (!ActiveData && !DefaultGameDataPath.IsNull()) ActiveData = DefaultGameDataPath.LoadSynchronous();
+-	if (!ActiveData)
+-	{
+-		// Zero-config fallback: class defaults + tables imported at their conventional paths.
+-		ActiveData = NewObject<UShamanGameData>(this, TEXT("TransientShamanGameData"));
+-		UE_LOG(LogShaman, Log, TEXT("No DA_ShamanGameData asset; using built-in defaults."));
+-	}
+-	// Any table not assigned is looked up by name, then by row type anywhere in Content (asset names don't matter).
+-	if (!ActiveData->SpellTable)    ActiveData->SpellTable    = FindShamanTable(TEXT("/Game/Data/DT_Spells.DT_Spells"), FSpellRow::StaticStruct());
+-	if (!ActiveData->UnitTable)     ActiveData->UnitTable     = FindShamanTable(TEXT("/Game/Data/DT_Units.DT_Units"), FUnitRow::StaticStruct());
+-	if (!ActiveData->BuildingTable) ActiveData->BuildingTable = FindShamanTable(TEXT("/Game/Data/DT_Buildings.DT_Buildings"), FBuildingRow::StaticStruct());
+-	if (!ActiveData->ResourceTable) ActiveData->ResourceTable = FindShamanTable(TEXT("/Game/Data/DT_Resources.DT_Resources"), FResourceRow::StaticStruct());
++	ActiveData = UShamanGameData::Resolve(this, GameData, DefaultGameDataPath);
+ 
+ 	FString Missing;
+ 	if (!ActiveData->SpellTable)    Missing += TEXT(" Spells.csv (SpellRow)");
+diff --git a/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp b/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
+index b917dc8..4f29576 100644
+--- a/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
+@@ -221,6 +221,12 @@ void AShamanPlanetGameMode::StartPlay()
+ 	EnsureWorldGenerated();
+ 	AGameModeBase::StartPlay(); // skip the flat-world navmesh warning in AShamanGameMode::StartPlay
+ 	FpsWindowStart = FPlatformTime::Seconds();
++	// This mode is the spherical-terrain test bed (PlanetTest map), not the Phase 1 scenario: say so, so a map whose
++	// GameMode Override was switched to it is not mistaken for a broken Phase 1 start.
++	const FString Msg = FString::Printf(TEXT("Planet terrain test mode (ShamanPlanetGameMode) on map '%s': circle, 1 Brave, Wildmen only. ")
++		TEXT("The Phase 1 start (settlements, resources, enemy tribe) is ShamanGameMode on ShamanPrototype."), *UWorld::RemovePIEPrefix(GetWorld()->GetMapName()));
++	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
++	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Yellow, Msg);
+ }
+ 
+ void AShamanPlanetGameMode::RestartPlayer(AController* NewPlayer)
+diff --git a/Source/Shaman/Private/Tests/ShamanRuleTests.cpp b/Source/Shaman/Private/Tests/ShamanRuleTests.cpp
+index dea0497..f52a5ef 100644
+--- a/Source/Shaman/Private/Tests/ShamanRuleTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanRuleTests.cpp
+@@ -4,6 +4,8 @@
+ #include "Core/ShamanTargetRules.h"
+ #include "Tribes/TribeSubsystem.h"
+ #include "Engine/DataTable.h"
++#include "Game/ShamanGameData.h"
++#include "Game/ShamanGameMode.h"
+ 
+ #if WITH_DEV_AUTOMATION_TESTS
+ 
+@@ -125,17 +127,26 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTakaPreservedTest, "Shaman.Data.TakaPres
+ 	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+ bool FShamanTakaPreservedTest::RunTest(const FString& Parameters)
+ {
+-	// Guards against silent rebalancing of TAKA (spec: report any change first).
+-	UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Spells.DT_Spells"));
+-	if (!Table) { AddWarning(TEXT("DT_Spells not imported yet; skipped.")); return true; }
++	// Guards against silent rebalancing of TAKA (spec: report any change first). Checks the table production play
++	// actually uses: same resolution as AShamanGameMode (assigned data asset > DA_ShamanGameData > defaults; spell
++	// table by path, then by row type), so renaming the imported table cannot turn this test into a no-op.
++	const AShamanGameMode* GM = GetDefault<AShamanGameMode>();
++	const UShamanGameData* Data = UShamanGameData::Resolve(nullptr, GM->GameData, GM->DefaultGameDataPath);
++	const UDataTable* Table = Data ? Data->SpellTable : nullptr;
++	if (!TestNotNull(TEXT("Production spell table found (import Content/Data/Spells.csv, row type SpellRow)"), Table)) return false;
++	AddInfo(FString::Printf(TEXT("Spell table: %s"), *Table->GetPathName()));
++	TestTrue(TEXT("Blast is a starting spell"), Data->StartingSpells.Contains(FName(TEXT("Blast"))));
++
+ 	const FSpellRow* Blast = Table->FindRow<FSpellRow>(TEXT("Blast"), TEXT("Test"), false);
+ 	if (!TestNotNull(TEXT("Blast row exists"), Blast)) return false;
++	TestTrue(TEXT("Blast projectile class registered for its EffectId"), Data->ProjectileClasses.Contains(Blast->EffectId));
+ 	TestTrue(TEXT("Blast targeting"), Blast->Targeting == ESpellTargeting::Projectile);
+ 	TestEqual(TEXT("Blast mana"), Blast->ManaCost, 5.f);
+ 	TestEqual(TEXT("Blast range"), Blast->RangeRaw, 10.f);
+ 	TestEqual(TEXT("Blast radius"), Blast->Radius, 300.f);
+ 	TestEqual(TEXT("Blast damage"), Blast->Damage, 40.f);
+ 	TestEqual(TEXT("Blast knockback"), Blast->Knockback, 1.f);
++	TestEqual(TEXT("Blast cooldown"), Blast->Cooldown, 1.f);
+ 	TestTrue(TEXT("Blast homing"), Blast->bHoming);
+ 	TestTrue(TEXT("Blast effect"), Blast->EffectId == FName(TEXT("FireBlast")));
+ 	TestTrue(TEXT("Blast filter"), Blast->TargetFilter == ESpellTargetFilter::AllUnits);
+diff --git a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+index 3ff0765..6f09d98 100644
+--- a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+@@ -14,6 +14,8 @@
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/ShamanCharacterMovementComponent.h"
+ #include "Components/CapsuleComponent.h"
++#include "Characters/HealthComponent.h"
++#include "Game/ShamanGameData.h"
+ 
+ /**
+  * Spherical terrain foundation tests. They run on the analytic backend (pure math, no Voxel Plugin), so they are
+@@ -478,4 +480,118 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	return true;
+ }
+ 
++
++SHAMAN_TERRAIN_TEST(FShamanTerrainShamanDeathTest, "Shaman.Terrain.ShamanDeathRebirth")
++bool FShamanTerrainShamanDeathTest::RunTest(const FString&)
++{
++	// Phase 1 acceptance regression: a dead Shaman on a planet must not keep moving (it used to be launched at
++	// ~8000 uu/s by a no-killer death and circle the planet), and a reincarnated Shaman must start at rest.
++	FTestWorld W;
++	const FPlanetSettings S = TestSettings();
++	UShamanTerrainSubsystem* T = W.MakePlanet(S);
++	if (!TestNotNull(TEXT("Planet"), T)) return false;
++	W.World->GetWorldSettings()->bEnableWorldBoundsChecks = false;
++	const FPlanetFrame F = T->GetPlanetFrame();
++	auto FlatLand = [T](const FVector& Dir, const FTerrainSample& Smp)
++	{
++		if (Dir.Z > -0.2f) return false; // away from world +Z, so world-Z assumptions would show
++		FVector Fwd, Right, Up; T->GetPlanetFrame().GetTangentBasis(Smp.Location, FVector(1, 0, 0), Fwd, Right, Up);
++		for (int32 k = -6; k <= 12; ++k)
++		{
++			const FTerrainSample Q = T->QueryTerrain(Smp.Location + Fwd * 150.f * k);
++			if (!Q.bWalkable || Q.bUnderwater || FMath::Abs(Q.Height - Smp.Height) > 250.f) return false;
++		}
++		return true;
++	};
++	FVector D;
++	if (!TestTrue(TEXT("Found a land strip"), FindLand(T, FlatLand, D))) return false;
++
++	const FVector SpawnLoc = T->GetSurfaceLocation(D) + D * 200.f;
++	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
++	U->UnitId = UShamanGameData::Get(W.World)->ShamanUnitId;
++	U->TribeId = 0;
++	U->AutoPossessAI = EAutoPossessAI::Disabled;
++	U->FinishSpawning(FTransform(SpawnLoc));
++	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
++	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
++	if (!TestNotNull(TEXT("Movement"), M)) return false;
++	TestTrue(TEXT("Unit is a Shaman"), U->IsShaman());
++	M->bRunPhysicsWithNoController = true;
++	M->SetMovementMode(MOVE_Falling);
++
++	const float Dt = 1.f / 60.f;
++	auto Step = [&](int32 Frames)
++	{
++		for (int32 i = 0; i < Frames; ++i)
++		{
++			W.World->Tick(LEVELTICK_TimeOnly, Dt);
++			M->TickComponent(Dt, LEVELTICK_All, &M->PrimaryComponentTick);
++		}
++	};
++	const float Half = U->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
++	auto Clearance = [&]() { return F.GetDistanceFromCenter(U->GetActorLocation()) - Half - (S.Radius + T->GetTerrainHeight(U->GetActorLocation())); };
++	Step(120);
++	TestTrue(TEXT("Alive Shaman landed"), M->IsMovingOnGround());
++
++	// Die in mid-air (after a jump): the body is laid on the ground and stays there.
++	U->Jump();
++	Step(6);
++	TestTrue(FString::Printf(TEXT("In the air before dying (clearance %.1f)"), Clearance()), Clearance() > 10.f);
++	U->Health->Kill(nullptr); // no killer: like drowning / leaving the world
++	TestFalse(TEXT("Dead"), U->IsAlive());
++	TestTrue(TEXT("Dead Shaman: movement disabled"), M->MovementMode == MOVE_None);
++	TestTrue(TEXT("Dead Shaman: no velocity"), M->Velocity.IsNearlyZero(1.f));
++	TestTrue(FString::Printf(TEXT("Dead Shaman lies on the ground (clearance %.1f)"), Clearance()), FMath::Abs(Clearance()) < 30.f);
++	const FVector Corpse = U->GetActorLocation();
++	U->AddMovementInput(F.ProjectOntoTangent(U->GetActorForwardVector(), Corpse).GetSafeNormal(), 1.f);
++	Step(180); // 3 s with input pressed
++	TestTrue(FString::Printf(TEXT("Dead Shaman does not move (%.1f uu in 3 s)"), FVector::Dist(Corpse, U->GetActorLocation())), FVector::Dist(Corpse, U->GetActorLocation()) < 5.f);
++
++	// Reincarnate further along the strip (as UTribeSubsystem::DoRebirth does at the circle).
++	FVector Fwd, Right, Up; F.GetTangentBasis(Corpse, FVector(1, 0, 0), Fwd, Right, Up);
++	const FVector Circle = T->GetSurfaceLocation(F.GetDirection(Corpse + Fwd * 900.f));
++	U->Reincarnate(Circle + F.GetUp(Circle) * 100.f, FRotator::ZeroRotator);
++	TestTrue(TEXT("Alive again"), U->IsAlive());
++	TestTrue(FString::Printf(TEXT("Reborn at the circle (%.0f uu away)"), F.GetSurfaceDistance(Circle, U->GetActorLocation())), F.GetSurfaceDistance(Circle, U->GetActorLocation()) < 50.f);
++	TestTrue(TEXT("Reborn on the ground"), FMath::Abs(Clearance()) < 30.f && M->IsMovingOnGround());
++	TestTrue(TEXT("Reborn at rest"), M->Velocity.IsNearlyZero(1.f));
++	const FVector Reborn = U->GetActorLocation();
++	Step(30);
++	TestTrue(FString::Printf(TEXT("No carried-over velocity (%.1f uu drift)"), F.GetSurfaceDistance(Reborn, U->GetActorLocation())), F.GetSurfaceDistance(Reborn, U->GetActorLocation()) < 5.f);
++	for (int32 i = 0; i < 90; ++i)
++	{
++		FVector F2, R2, U2; F.GetTangentBasis(U->GetActorLocation(), Fwd, F2, R2, U2);
++		U->AddMovementInput(F2, 1.f);
++		Step(1);
++	}
++	TestTrue(FString::Printf(TEXT("Moves normally after rebirth (%.0f uu)"), F.GetSurfaceDistance(Reborn, U->GetActorLocation())), F.GetSurfaceDistance(Reborn, U->GetActorLocation()) > 300.f);
++	TestTrue(TEXT("Still on the ground after moving"), M->IsMovingOnGround() && FMath::Abs(Clearance()) < 30.f);
++	return true;
++}
++
++SHAMAN_TERRAIN_TEST(FShamanTerrainWalkableSlopeTest, "Shaman.Terrain.WalkableSlope")
++bool FShamanTerrainWalkableSlopeTest::RunTest(const FString&)
++{
++	// Movement and terrain queries use one walkable-slope limit on planets (FPlanetSettings::MaxWalkableSlopeDeg).
++	FTestWorld W;
++	const FPlanetSettings S = TestSettings();
++	UShamanTerrainSubsystem* T = W.MakePlanet(S);
++	if (!TestNotNull(TEXT("Planet"), T)) return false;
++	const FVector Loc = T->GetSurfaceLocation(FVector(0, 0, 1)) + FVector(0, 0, 300.f);
++	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(Loc));
++	U->AutoPossessAI = EAutoPossessAI::Disabled;
++	U->FinishSpawning(FTransform(Loc));
++	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
++	UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
++	if (!TestNotNull(TEXT("Movement"), M)) return false;
++	M->TickComponent(1.f / 60.f, LEVELTICK_All, &M->PrimaryComponentTick); // picks up the planet
++	TestTrue(TEXT("On planet"), M->IsOnPlanet());
++	TestEqual(TEXT("Walkable angle = terrain MaxWalkableSlopeDeg"), M->GetWalkableFloorAngle(), S.MaxWalkableSlopeDeg, 0.01f);
++	T->ShutdownTerrain();
++	M->TickComponent(1.f / 60.f, LEVELTICK_All, &M->PrimaryComponentTick);
++	TestFalse(TEXT("Planet gone"), M->IsOnPlanet());
++	TestEqual(TEXT("Flat-world walkable angle restored"), M->GetWalkableFloorAngle(), GetDefault<UCharacterMovementComponent>()->GetWalkableFloorAngle(), 0.01f);
++	return true;
++}
++
+ #endif // WITH_DEV_AUTOMATION_TESTS
+diff --git a/Source/Shaman/Public/Characters/ShamanCharacterMovementComponent.h b/Source/Shaman/Public/Characters/ShamanCharacterMovementComponent.h
+index 426e5f8..bffc623 100644
+--- a/Source/Shaman/Public/Characters/ShamanCharacterMovementComponent.h
++++ b/Source/Shaman/Public/Characters/ShamanCharacterMovementComponent.h
+@@ -82,4 +82,6 @@ private:
+ 	FPlanetFrame Frame;
+ 	TWeakObjectPtr<UShamanTerrainSubsystem> Terrain;
+ 	int32 GroundRescues = 0;
++	/** Walkable angle in use before the planet took over (restored when the planet goes away). */
++	float FlatWalkableFloorAngle = -1.f;
+ };
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitBase.h b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+index 6dfd144..5005d02 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitBase.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+@@ -85,6 +85,8 @@ protected:
+ 	virtual void Tick(float DeltaSeconds) override;
+ 
+ 	UFUNCTION() virtual void HandleDeath(AActor* Killer, AController* KillerController);
++	/** Shaman death: stop all movement where the body lies (planets: on the ground, movement disabled). */
++	void FreezeCorpse();
+ 	/** In-place conversion (e.g. Convert with no ConvertedFollowerClass): become a Brave of the new tribe. */
+ 	UFUNCTION() void HandleConverted(UTribeMemberComponent* From, UTribeMemberComponent* To, EConversionKind Kind);
+ 	void LoadRow();
+diff --git a/Source/Shaman/Public/Game/ShamanGameData.h b/Source/Shaman/Public/Game/ShamanGameData.h
+index 3a1ccd1..3c6d562 100644
+--- a/Source/Shaman/Public/Game/ShamanGameData.h
++++ b/Source/Shaman/Public/Game/ShamanGameData.h
+@@ -12,8 +12,8 @@ class UMaterialInterface;
+ 
+ /**
+  * Single entry point for all Phase 1 tuning (DA_ShamanGameData). Every balance value lives here or in the
+- * data tables it references. If the asset does not exist, AShamanGameMode builds a transient one and loads
+- * the tables from their default paths (/Game/Data/DT_Spells, DT_Units, DT_Buildings, DT_Resources).
++ * data tables it references. If the asset does not exist, a transient one is built (see Resolve) and the tables
++ * are found by their default paths (/Game/Data/DT_Spells, ...) or, failing that, by row type.
+  */
+ UCLASS(BlueprintType)
+ class SHAMAN_API UShamanGameData : public UPrimaryDataAsset
+@@ -25,6 +25,15 @@ public:
+ 	/** Game data for the current world (from AShamanGameMode), or the class defaults if none. Never null. */
+ 	static const UShamanGameData* Get(const UObject* WorldContext);
+ 
++	/**
++	 * The game data production play uses: Assigned, else the asset at DefaultPath, else a transient default object
++	 * (outer: Outer). Tables left empty are resolved by their conventional path, then by row type anywhere in
++	 * Content (asset names do not matter). Used by AShamanGameMode and by the data tests. Never null.
++	 */
++	static UShamanGameData* Resolve(UObject* Outer, UShamanGameData* Assigned, const TSoftObjectPtr<UShamanGameData>& DefaultPath);
++	/** DataTable at DefaultPath, else the first DataTable in the project whose row type is RowStruct. */
++	static UDataTable* FindTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct);
++
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tables") UDataTable* SpellTable = nullptr;     // FSpellRow
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tables") UDataTable* UnitTable = nullptr;      // FUnitRow
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tables") UDataTable* BuildingTable = nullptr;  // FBuildingRow

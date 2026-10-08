@@ -35,6 +35,11 @@ void UShamanCharacterMovementComponent::RefreshPlanet()
 	bPlanetActive = bNow;
 	if (bPlanetActive)
 	{
+		// One definition of "walkable" on planets: the terrain's MaxWalkableSlopeDeg (also used by ITerrainQuery,
+		// AI paths and the start-site search). The engine default (44.77 deg) made slopes the terrain reports as
+		// walkable (up to 50 deg) unclimbable, which cut off many mountain tops.
+		FlatWalkableFloorAngle = GetWalkableFloorAngle();
+		SetWalkableFloorAngle(FMath::Clamp(T->GetPlanetSettings().MaxWalkableSlopeDeg, 0.f, 89.f));
 		// RVO avoidance is 2D (world XY) and the navmesh is Z-up: neither is valid on a sphere.
 		if (bUseRVOAvoidance) SetAvoidanceEnabled(false);
 		if (MovementMode == MOVE_Walking || MovementMode == MOVE_NavWalking) SetMovementMode(MOVE_Walking);
@@ -43,6 +48,7 @@ void UShamanCharacterMovementComponent::RefreshPlanet()
 	else
 	{
 		Terrain.Reset();
+		if (FlatWalkableFloorAngle >= 0.f) SetWalkableFloorAngle(FlatWalkableFloorAngle);
 		if (IsPlanetMode(EShamanCustomMove::PlanetWalk)) SetMovementMode(MOVE_Walking);
 		else if (IsPlanetMode(EShamanCustomMove::PlanetFall)) SetMovementMode(MOVE_Falling);
 	}

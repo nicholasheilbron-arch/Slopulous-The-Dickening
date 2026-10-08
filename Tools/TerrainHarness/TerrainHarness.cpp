@@ -38,6 +38,13 @@ int main()
 		CHECK(std::fabs(Fw.Size() - 1.f) < 1e-4f, "degenerate hint fallback");
 		const float D = F.GetSurfaceDistance(S.Center + FVector(1, 0, 0), S.Center + FVector(0, 1, 0));
 		CHECK(std::fabs(D - S.Radius * PI * 0.5f) < 1.f, "quarter great circle %f", D);
+		// Small angles: two points on the same radial line are 0 apart (acos lost ~7 uu here in float).
+		const FVector Q = S.Center + FVector(0.31f, -0.52f, -0.79f).GetSafeNormal() * 20000.f;
+		const FVector Q2 = S.Center + (Q - S.Center).GetSafeNormal() * 20311.7f;
+		CHECK(F.GetSurfaceDistance(Q, Q2) < 0.01f, "radial-only surface distance %f", F.GetSurfaceDistance(Q, Q2));
+		FVector QF, QR, QU; F.GetTangentBasis(Q, FVector(1, 0, 0), QF, QR, QU);
+		const float D3 = F.GetSurfaceDistance(Q, Q + QF * 3.f);
+		CHECK(std::fabs(D3 - 3.f) < 0.05f, "3 uu tangential step reads %f", D3);
 	}
 
 	// 2. Determinism + seed sensitivity

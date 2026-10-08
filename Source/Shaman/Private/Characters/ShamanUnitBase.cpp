@@ -279,19 +279,27 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
 
 	// Leave the tribe roster now (corpses do not count toward population or mana) and stop being a target.
 	TribeMember->bConvertible = false;
-	if (TribeMember->IsFollower())
+	const bool bWasFollower = TribeMember->IsFollower();
+	UTribeComponent* Tribe = UTribeRegistrySubsystem::Get(this) ? UTribeRegistrySubsystem::Get(this)->FindTribe(GetTribeId()) : nullptr;
+	if (bWasFollower)
 	{
 		TribeMember->UnitKind = EUnitKind::Other;
-		if (UTribeComponent* Tribe = UTribeRegistrySubsystem::Get(this) ? UTribeRegistrySubsystem::Get(this)->FindTribe(GetTribeId()) : nullptr)
-			Tribe->UnregisterFollower(TribeMember);
+		if (Tribe) Tribe->UnregisterFollower(TribeMember);
 	}
+	UE_LOG(LogShaman, Log, TEXT("%s died (%s, tribe %d, killed by %s, last hit %.0f).%s"), *GetName(), *UnitId.ToString(), GetTribeId(),
+		Killer ? *Killer->GetName() : TEXT("no one (drowned / out of world)"), Health->GetLastDamage(),
+		Tribe ? *FString::Printf(TEXT(" Tribe %d followers now %d."), GetTribeId(), Tribe->GetFollowerCount()) : TEXT(""));
 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
 
 	FVector Dir = GetActorForwardVector() * -1.f;
 	if (Killer) Dir = FShamanSpace::HorizontalDirection(this, Killer->GetActorLocation(), GetActorLocation());
-	// Launch first, and keep a movement mode that applies it (MOVE_None would discard a pending launch).
-	HitReaction->EnterDeathRagdoll(Dir, FMath::Max(Health->GetLastDamage(), 1.f));
+	// Death launch (hit-reaction stand-in) only for deaths dealt by something. Deaths without a killer (drowning,
+	// left the world) used the whole remaining health as "damage": ~8000 uu/s for a Shaman, enough to circle a
+	// planet. Shamans never get a death launch: their body must stay put until reincarnation.
+	const float LaunchDamage = (Killer && !IsShaman()) ? FMath::Max(Health->GetLastDamage(), 1.f) : 0.f;
+	HitReaction->EnterDeathRagdoll(Dir, LaunchDamage);
 	if (GetMesh()->SkeletalMesh) GetCharacterMovement()->DisableMovement(); // real ragdoll takes over
+	if (IsShaman()) FreezeCorpse();
 
 	if (!GetMesh()->SkeletalMesh) // placeholder: lay the cylinder down
 	{
@@ -312,9 +320,31 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
 	}
 }
 
+void AShamanUnitBase::FreezeCorpse()
+{
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	Move->StopMovementImmediately();
+	Move->ClearAccumulatedForces(); // pending impulse/force/launch
+	FPlanetFrame Planet;
+	const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this);
+	if (Terrain && FShamanSpace::GetPlanet(this, Planet))
+	{
+		// Planet: lay the body on the ground below it and stop all movement (no radial gravity integration, no input).
+		const FVector Loc = GetActorLocation();
+		const FVector Ground = Terrain->QueryTerrain(Loc).Location;
+		if (Planet.GetDistanceFromCenter(Loc) - GetCapsuleComponent()->GetScaledCapsuleHalfHeight() > Planet.GetDistanceFromCenter(Ground) + 5.f)
+			SetActorLocation(Ground + Planet.GetUp(Loc) * (GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f), false, nullptr, ETeleportType::TeleportPhysics);
+		Move->DisableMovement();
+	}
+	// Flat worlds keep their mode: with zero velocity the body only drops straight down onto the ground.
+}
+
 void AShamanUnitBase::Reincarnate(const FVector& Location, const FRotator& Rotation)
 {
 	HitReaction->ForceRecover();
+	// Nothing from the previous life may carry over (velocity, a launch queued while movement was disabled).
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->ClearAccumulatedForces(); // pending impulse/force/launch
 	Health->ResetHealth();
 	DrownTimer = 0.f;
 	PlaceholderBody->SetRelativeTransform(PlaceholderRestTransform);

@@ -1,0 +1,521 @@
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+index 9cc5dac..f244894 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+@@ -279,12 +279,16 @@ void AShamanUnitBase::HandleDeath(AActor* Killer, AController*)
+ 
+ 	// Leave the tribe roster now (corpses do not count toward population or mana) and stop being a target.
+ 	TribeMember->bConvertible = false;
+-	if (TribeMember->IsFollower())
++	const bool bWasFollower = TribeMember->IsFollower();
++	UTribeComponent* Tribe = UTribeRegistrySubsystem::Get(this) ? UTribeRegistrySubsystem::Get(this)->FindTribe(GetTribeId()) : nullptr;
++	if (bWasFollower)
+ 	{
+ 		TribeMember->UnitKind = EUnitKind::Other;
+-		if (UTribeComponent* Tribe = UTribeRegistrySubsystem::Get(this) ? UTribeRegistrySubsystem::Get(this)->FindTribe(GetTribeId()) : nullptr)
+-			Tribe->UnregisterFollower(TribeMember);
++		if (Tribe) Tribe->UnregisterFollower(TribeMember);
+ 	}
++	UE_LOG(LogShaman, Log, TEXT("%s died (%s, tribe %d, killed by %s, last hit %.0f).%s"), *GetName(), *UnitId.ToString(), GetTribeId(),
++		Killer ? *Killer->GetName() : TEXT("no one (drowned / out of world)"), Health->GetLastDamage(),
++		Tribe ? *FString::Printf(TEXT(" Tribe %d followers now %d."), GetTribeId(), Tribe->GetFollowerCount()) : TEXT(""));
+ 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+ 
+ 	FVector Dir = GetActorForwardVector() * -1.f;
+diff --git a/Source/Shaman/Private/Game/ShamanGameData.cpp b/Source/Shaman/Private/Game/ShamanGameData.cpp
+index dfe020b..06bfca2 100644
+--- a/Source/Shaman/Private/Game/ShamanGameData.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameData.cpp
+@@ -38,7 +38,19 @@ const UShamanGameData* UShamanGameData::Get(const UObject* WorldContext)
+ 	const UWorld* World = WorldContext ? WorldContext->GetWorld() : nullptr;
+ 	if (const AShamanGameMode* GM = World ? World->GetAuthGameMode<AShamanGameMode>() : nullptr)
+ 		if (const UShamanGameData* D = GM->GetGameData()) return D;
+-	return GetDefault<UShamanGameData>();
++	// No Shaman game mode in this world (automation test worlds, other maps): use the same data production play
++	// resolves (tables included), not bare class defaults with no tables. Resolved once per session.
++	static TWeakObjectPtr<UShamanGameData> Fallback;
++	static bool bResolved = false;
++	if (!bResolved || !Fallback.IsValid())
++	{
++		bResolved = true;
++		const AShamanGameMode* CDO = GetDefault<AShamanGameMode>();
++		UShamanGameData* D = Resolve(nullptr, CDO->GameData, CDO->DefaultGameDataPath);
++		if (!D->IsRooted()) D->AddToRoot(); // transient fallback object must survive GC
++		Fallback = D;
++	}
++	return Fallback.IsValid() ? Fallback.Get() : GetDefault<UShamanGameData>();
+ }
+ 
+ UDataTable* UShamanGameData::FindTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct)
+diff --git a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+index 6f09d98..a11385a 100644
+--- a/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanTerrainTests.cpp
+@@ -382,6 +382,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	// Flat world first: the movement component must behave exactly like UCharacterMovementComponent.
+ 	{
+ 		AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FVector(0, 0, 5000)));
++		U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId; // a real unit row, as the game spawns it
+ 		U->AutoPossessAI = EAutoPossessAI::Disabled;
+ 		U->FinishSpawning(FTransform(FVector(0, 0, 5000)));
+ 		UShamanCharacterMovementComponent* M = Cast<UShamanCharacterMovementComponent>(U->GetCharacterMovement());
+@@ -418,6 +419,7 @@ bool FShamanTerrainMovementTest::RunTest(const FString&)
+ 	const FVector Ground = T->GetSurfaceLocation(D);
+ 	const FVector SpawnLoc = Ground + D * 400.f; // drop from 400 uu
+ 	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(FShamanSpace::UprightRotation(W.World, SpawnLoc, FVector(1, 0, 0)), SpawnLoc));
++	U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId;
+ 	U->AutoPossessAI = EAutoPossessAI::Disabled;
+ 	U->FinishSpawning(FTransform(SpawnLoc));
+ 	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+@@ -579,6 +581,7 @@ bool FShamanTerrainWalkableSlopeTest::RunTest(const FString&)
+ 	if (!TestNotNull(TEXT("Planet"), T)) return false;
+ 	const FVector Loc = T->GetSurfaceLocation(FVector(0, 0, 1)) + FVector(0, 0, 300.f);
+ 	AShamanUnitBase* U = W.World->SpawnActorDeferred<AShamanUnitBase>(AShamanUnitBase::StaticClass(), FTransform(Loc));
++	U->UnitId = UShamanGameData::Get(W.World)->BraveUnitId;
+ 	U->AutoPossessAI = EAutoPossessAI::Disabled;
+ 	U->FinishSpawning(FTransform(Loc));
+ 	if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+diff --git a/Source/Shaman/Private/Tests/ShamanTribeTests.cpp b/Source/Shaman/Private/Tests/ShamanTribeTests.cpp
+new file mode 100644
+index 0000000..a610aa1
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanTribeTests.cpp
+@@ -0,0 +1,192 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "CoreGlobals.h"
++#include "Engine/Engine.h"
++#include "Engine/World.h"
++#include "GameFramework/WorldSettings.h"
++#include "GameFramework/DamageType.h"
++#include "Kismet/GameplayStatics.h"
++#include "TimerManager.h"
++#include "Game/ShamanGameData.h"
++#include "Tribes/TribeSubsystem.h"
++#include "TribeComponent.h"
++#include "SpellComponent.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Characters/ShamanCharacter.h"
++#include "Characters/HealthComponent.h"
++#include "Buildings/BuildingActor.h"
++
++/**
++ * Tribe rules on real production data (units/buildings resolve their rows like the game does): follower roster
++ * updates on death (mana regen and rebirth time follow it) and enemy-tribe elimination / level win.
++ * Flat test world, no movement simulated.
++ */
++namespace ShamanTribeTestsPrivate
++{
++	struct FTribeTestWorld
++	{
++		UWorld* World = nullptr;
++		UTribeSubsystem* Tribes = nullptr;
++		const UShamanGameData* Data = nullptr;
++
++		FTribeTestWorld()
++		{
++			World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("ShamanTribeTestWorld"));
++			FWorldContext& Ctx = GEngine->CreateNewWorldContext(EWorldType::Game);
++			Ctx.SetCurrentWorld(World);
++			World->InitializeActorsForPlay(FURL());
++			World->BeginPlay();
++			if (!World->HasBegunPlay()) World->GetWorldSettings()->NotifyBeginPlay();
++			Data = UShamanGameData::Get(World);
++			Tribes = World->GetSubsystem<UTribeSubsystem>();
++			Tribes->InitTribes(Data->Tribes, Data->Reincarnation); // tribe 0 = player, 1 = enemy (game defaults)
++		}
++		~FTribeTestWorld()
++		{
++			GEngine->DestroyWorldContext(World);
++			World->DestroyWorld(false);
++			World->RemoveFromRoot();
++		}
++
++		/** Runs the world's timers (rebirth, end-of-frame death checks). The test runs inside one engine frame, so
++		 *  the frame counter is advanced for FTimerManager's once-per-frame guard. */
++		void AdvanceTimers(float Seconds)
++		{
++			++GFrameCounter;
++			World->GetTimerManager().Tick(Seconds);
++		}
++
++		template<class T>
++		T* SpawnUnit(FName UnitId, int32 Tribe, const FVector& Where)
++		{
++			T* U = World->SpawnActorDeferred<T>(T::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++			U->UnitId = UnitId;
++			U->TribeId = Tribe;
++			U->AutoPossessAI = EAutoPossessAI::Disabled;
++			U->FinishSpawning(FTransform(Where));
++			if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
++			return U;
++		}
++		ABuildingActor* SpawnCircle(int32 Tribe, const FVector& Where)
++		{
++			ABuildingActor* B = World->SpawnActorDeferred<ABuildingActor>(ABuildingActor::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++			B->BuildingId = Data->CircleBuildingId;
++			B->TribeId = Tribe;
++			B->FinishSpawning(FTransform(Where));
++			if (!B->HasActorBegunPlay()) B->DispatchBeginPlay();
++			return B;
++		}
++	};
++}
++using namespace ShamanTribeTestsPrivate;
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanFollowerCountOnDeathTest, "Shaman.Tribes.FollowerCountOnDeath",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanFollowerCountOnDeathTest::RunTest(const FString& Parameters)
++{
++	FTribeTestWorld W;
++	if (!TestNotNull(TEXT("Unit table (production data)"), W.Data->UnitTable)) return false;
++
++	// Same order as the game: some followers begin play before their Shaman (adopted when the tribe registers).
++	TArray<AShamanUnitBase*> Braves;
++	for (int32 i = 0; i < 3; ++i) Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * i, 500.f, 100.f)));
++	AShamanCharacter* S = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++	for (int32 i = 3; i < 6; ++i) Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * i, 500.f, 100.f)));
++
++	UTribeComponent* TC = W.Tribes->GetTribeComponent(0);
++	if (!TestNotNull(TEXT("Player tribe registered"), TC)) return false;
++	auto Check = [&](int32 Expected, const TCHAR* When)
++	{
++		TestEqual(FString::Printf(TEXT("%s: follower count"), When), TC->GetFollowerCount(), Expected);
++		TestEqual(FString::Printf(TEXT("%s: HUD count (population used)"), When), TC->GetPopulationUsed(), Expected);
++		TestEqual(FString::Printf(TEXT("%s: subsystem count"), When), W.Tribes->GetFollowerCount(0), Expected);
++		TestEqual(FString::Printf(TEXT("%s: mana-regen follower count"), When), S->Spells->FollowerCount, Expected);
++	};
++	Check(6, TEXT("Start"));
++	const float Regen6 = S->Spells->GetManaRegen();
++
++	// A non-lethal hit (Blast centre damage 40 vs Brave health) does not change the roster.
++	UGameplayStatics::ApplyDamage(Braves[0], 40.f, nullptr, S, UDamageType::StaticClass());
++	TestTrue(TEXT("40 damage does not kill a Brave"), Braves[0]->IsAlive());
++	Check(6, TEXT("After a non-lethal hit"));
++
++	Braves[1]->Health->Kill(S);
++	Check(5, TEXT("After 1 death"));
++	TestTrue(TEXT("Mana regen drops with the follower count"), S->Spells->GetManaRegen() < Regen6);
++	Braves[2]->Health->Kill(nullptr); // e.g. drowned
++	Check(4, TEXT("After 2 deaths"));
++	TestEqual(TEXT("Rebirth time uses the live count"),
++		UTribeSubsystem::ComputeRebirthTime(W.Data->Reincarnation, W.Tribes->GetFollowerCount(0)),
++		UTribeSubsystem::ComputeRebirthTime(W.Data->Reincarnation, 4));
++	Braves[1]->Destroy(); // corpse removal changes nothing
++	Check(4, TEXT("After a corpse is removed"));
++	return true;
++}
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeEliminationTest, "Shaman.Tribes.Elimination",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeEliminationTest::RunTest(const FString& Parameters)
++{
++	{
++		FTribeTestWorld W;
++		if (!TestNotNull(TEXT("Building table (production data)"), W.Data->BuildingTable)) return false;
++		ABuildingActor* PlayerCircle = W.SpawnCircle(0, FVector(0.f, 0.f, 0.f));
++		ABuildingActor* EnemyCircle = W.SpawnCircle(1, FVector(9000.f, 0.f, 0.f));
++		AShamanCharacter* Player = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 400.f, 100.f));
++		AShamanCharacter* Enemy = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 400.f, 100.f));
++		AShamanUnitBase* EnemyBrave = W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 1, FVector(9300.f, 400.f, 100.f));
++		TestTrue(TEXT("Circles registered"), W.Tribes->GetReincarnationCircle(0) == PlayerCircle && W.Tribes->GetReincarnationCircle(1) == EnemyCircle);
++		TestEqual(TEXT("Enemy has 1 follower"), W.Tribes->GetFollowerCount(1), 1);
++
++		// 1) Enemy Shaman dies while its tribe still has a follower: normal reincarnation, circle stays.
++		Enemy->Health->Kill(Player);
++		W.AdvanceTimers(0.01f);
++		TestFalse(TEXT("With followers: not eliminated"), W.Tribes->IsTribeEliminated(1));
++		TestTrue(TEXT("With followers: rebirth scheduled"), W.Tribes->GetRebirthRemaining(1) > 0.f);
++		TestTrue(TEXT("With followers: circle stands"), IsValid(EnemyCircle) && !EnemyCircle->IsPendingKillPending());
++		W.AdvanceTimers(60.f);
++		TestTrue(TEXT("Enemy Shaman reincarnated"), Enemy->IsAlive());
++
++		// 2) Its last follower dies, then the Shaman dies with 0 followers: circle destroyed, tribe eliminated, level won.
++		EnemyBrave->Health->Kill(Player);
++		TestEqual(TEXT("Enemy has 0 followers"), W.Tribes->GetFollowerCount(1), 0);
++		Enemy->Health->Kill(Player);
++		W.AdvanceTimers(0.01f);
++		TestTrue(TEXT("0 followers: tribe eliminated"), W.Tribes->IsTribeEliminated(1));
++		TestTrue(TEXT("0 followers: enemy circle destroyed"), !IsValid(EnemyCircle) || EnemyCircle->IsPendingKillPending());
++		TestNull(TEXT("0 followers: no circle left for the tribe"), W.Tribes->GetReincarnationCircle(1));
++		TestEqual(TEXT("0 followers: no rebirth scheduled"), W.Tribes->GetRebirthRemaining(1), -1.f);
++		TestTrue(TEXT("Last enemy tribe eliminated: level won"), W.Tribes->IsLevelWon());
++		W.AdvanceTimers(60.f);
++		TestFalse(TEXT("Eliminated Shaman never comes back"), Enemy->IsAlive());
++
++		// 3) The player's Shaman dies with 0 followers: player circle untouched, normal reincarnation.
++		TestEqual(TEXT("Player has 0 followers"), W.Tribes->GetFollowerCount(0), 0);
++		Player->Health->Kill(nullptr);
++		W.AdvanceTimers(0.01f);
++		TestFalse(TEXT("Player tribe never eliminated by this rule"), W.Tribes->IsTribeEliminated(0));
++		TestTrue(TEXT("Player circle stands"), IsValid(PlayerCircle) && !PlayerCircle->IsPendingKillPending());
++		TestTrue(TEXT("Player rebirth scheduled"), W.Tribes->GetRebirthRemaining(0) > 0.f);
++		W.AdvanceTimers(60.f);
++		TestTrue(TEXT("Player reincarnated"), Player->IsAlive());
++	}
++	{
++		// 4) One event kills the enemy Shaman first and its last follower right after (Blast overlap order):
++		//    decided after both deaths, so the tribe is eliminated.
++		FTribeTestWorld W;
++		ABuildingActor* EnemyCircle = W.SpawnCircle(1, FVector(9000.f, 0.f, 0.f));
++		W.SpawnCircle(0, FVector(0.f, 0.f, 0.f));
++		AShamanCharacter* Enemy = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 400.f, 100.f));
++		AShamanUnitBase* EnemyBrave = W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 1, FVector(9300.f, 400.f, 100.f));
++		Enemy->Health->Kill(nullptr);
++		EnemyBrave->Health->Kill(nullptr);
++		W.AdvanceTimers(0.01f);
++		TestTrue(TEXT("Same event: eliminated"), W.Tribes->IsTribeEliminated(1));
++		TestTrue(TEXT("Same event: circle destroyed"), !IsValid(EnemyCircle) || EnemyCircle->IsPendingKillPending());
++	}
++	return true;
++}
++
++#endif
+diff --git a/Source/Shaman/Private/Tribes/TribeSubsystem.cpp b/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
+index 20d2d4e..7721c79 100644
+--- a/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
++++ b/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
+@@ -11,8 +11,15 @@
+ void UTribeSubsystem::InitTribes(const TArray<FTribeDefinition>& Definitions, const FReincarnationConfig& InRebirth)
+ {
+ 	if (UWorld* W = GetWorld())
+-		for (FTribeState& T : Tribes) W->GetTimerManager().ClearTimer(T.RebirthTimer); // no stale rebirths after a regenerate
++	{
++		for (FTribeState& T : Tribes) // no stale rebirths / death checks after a regenerate
++		{
++			W->GetTimerManager().ClearTimer(T.RebirthTimer);
++			W->GetTimerManager().ClearTimer(T.DeathCheckTimer);
++		}
++	}
+ 	Tribes.Reset();
++	bLevelWon = false;
+ 	Rebirth = InRebirth;
+ 	for (int32 I = 0; I < Definitions.Num(); ++I)
+ 	{
+@@ -132,19 +139,69 @@ void UTribeSubsystem::NotifyShamanDied(AShamanUnitBase* Shaman)
+ 	FTribeState* T = Shaman ? Find(Shaman->GetTribeId()) : nullptr;
+ 	if (!T) return;
+ 	OnShamanDied.Broadcast(T->TribeId, Shaman);
++	// Decide once this frame's other deaths are in (a Blast can kill the Shaman and its last followers together;
++	// overlap order is arbitrary).
++	FTimerDelegate D = FTimerDelegate::CreateUObject(this, &UTribeSubsystem::ResolveShamanDeath, T->TribeId);
++	T->DeathCheckTimer = GetWorld()->GetTimerManager().SetTimerForNextTick(D);
++}
+ 
+-	const bool bMayReincarnate = T->Def.bPlayerControlled || Rebirth.bEnemyShamansReincarnate;
+-	if (!T->Circle.IsValid() || !bMayReincarnate)
+-	{
+-		T->bShamanEliminated = true; // Phase 4: tribe defeat / Shaman-kill reward hooks go here
+-		UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d permanently eliminated."), T->TribeId);
+-		return;
+-	}
+-	const float Delay = ComputeRebirthTime(Rebirth, GetFollowerCount(T->TribeId));
++void UTribeSubsystem::ResolveShamanDeath(int32 TribeId)
++{
++	FTribeState* T = Find(TribeId);
++	if (!T || T->bShamanEliminated) return;
++	const AShamanUnitBase* S = T->Shaman.Get();
++	if (S && S->IsAlive()) return; // already back (e.g. regenerate)
++
++	const int32 Followers = GetFollowerCount(T->TribeId);
++	const bool bPlayer = T->Def.bPlayerControlled;
++	if (!T->Circle.IsValid()) { EliminateTribe(*T, TEXT("no Reincarnation Circle")); return; }
++	if (!bPlayer && !Rebirth.bEnemyShamansReincarnate) { EliminateTribe(*T, TEXT("enemy reincarnation disabled")); return; }
++	if (!bPlayer && Followers == 0) { EliminateTribe(*T, TEXT("Shaman died with 0 followers")); return; }
++
++	const float Delay = ComputeRebirthTime(Rebirth, Followers);
+ 	T->RebirthAt = GetWorld()->GetTimeSeconds() + Delay;
+ 	FTimerDelegate D = FTimerDelegate::CreateUObject(this, &UTribeSubsystem::DoRebirth, T->TribeId);
+ 	GetWorld()->GetTimerManager().SetTimer(T->RebirthTimer, D, Delay, false);
+-	UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d reborn in %.1fs."), T->TribeId, Delay);
++	UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d reborn in %.1fs (%d followers)."), T->TribeId, Delay, Followers);
++}
++
++void UTribeSubsystem::EliminateTribe(FTribeState& T, const TCHAR* Reason)
++{
++	T.bShamanEliminated = true;
++	T.RebirthAt = -1.0;
++	GetWorld()->GetTimerManager().ClearTimer(T.RebirthTimer);
++	// The player's own circle is never destroyed here; an enemy circle goes with its tribe.
++	if (!T.Def.bPlayerControlled)
++		if (ABuildingActor* C = T.Circle.Get())
++		{
++			T.Circle = nullptr;
++			C->Destroy(); // EndPlay unregisters the building
++		}
++	UE_LOG(LogShaman, Log, TEXT("Tribe %d eliminated (%s)%s."), T.TribeId, Reason, T.Def.bPlayerControlled ? TEXT("") : TEXT("; its Reincarnation Circle is destroyed"));
++	OnTribeEliminated.Broadcast(T.TribeId);
++	CheckLevelWon();
++}
++
++bool UTribeSubsystem::IsTribeEliminated(int32 TribeId) const
++{
++	const FTribeState* T = Find(TribeId);
++	return T && T->bShamanEliminated;
++}
++
++void UTribeSubsystem::CheckLevelWon()
++{
++	if (bLevelWon) return;
++	int32 Enemies = 0;
++	for (const FTribeState& T : Tribes)
++	{
++		if (T.Def.bPlayerControlled) continue;
++		++Enemies;
++		if (!T.bShamanEliminated) return;
++	}
++	if (Enemies == 0) return;
++	bLevelWon = true;
++	UE_LOG(LogShaman, Log, TEXT("Level won: all %d enemy tribe(s) eliminated."), Enemies);
++	OnLevelWon.Broadcast();
+ }
+ 
+ void UTribeSubsystem::DoRebirth(int32 TribeId)
+@@ -154,7 +211,7 @@ void UTribeSubsystem::DoRebirth(int32 TribeId)
+ 	T->RebirthAt = -1.0;
+ 	AShamanUnitBase* S = T->Shaman.Get();
+ 	ABuildingActor* C = T->Circle.Get();
+-	if (!S || !C) { T->bShamanEliminated = true; return; }
++	if (!S || !C) { EliminateTribe(*T, TEXT("Shaman or circle gone at rebirth")); return; }
+ 	S->Reincarnate(C->GetRebirthLocation(), C->GetActorRotation());
+ 	OnShamanReborn.Broadcast(TribeId, S);
+ }
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index cd3085b..dda3ec8 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -111,10 +111,15 @@ void AShamanHUD::DrawHUD()
+ 		const float T = Tribes ? Tribes->GetRebirthRemaining(MyTribe) : -1.f;
+ 		const FString Msg = T >= 0.f
+ 			? FString::Printf(TEXT("You have fallen. Reborn at the Reincarnation Circle in %.1fs"), T)
+-			: FString(TEXT("You have fallen and no Reincarnation Circle remains."));
++			: (Tribes && Tribes->IsTribeEliminated(MyTribe)) ? FString(TEXT("You have fallen and no Reincarnation Circle remains."))
++			: FString(TEXT("You have fallen."));
+ 		DrawLine(Msg, SW * 0.5f, SH * 0.4f, FLinearColor(1.f, 0.85f, 0.6f), 1.6f * UI, true);
+ 	}
+ 
++	// Level complete (every enemy tribe eliminated). Minimal presentation: a banner; no end-of-level flow yet.
++	if (Tribes && Tribes->IsLevelWon())
++		DrawLine(TEXT("VICTORY - every enemy tribe is eliminated"), SW * 0.5f, SH * 0.2f, FLinearColor(1.f, 0.85f, 0.2f), 2.f * UI, true);
++
+ 	// Enemy Shaman status (top-left).
+ 	if (Tribes)
+ 	{
+@@ -123,7 +128,8 @@ void AShamanHUD::DrawHUD()
+ 			if (Id == MyTribe) continue;
+ 			const AShamanUnitBase* E = Tribes->GetShaman(Id);
+ 			const float T = Tribes->GetRebirthRemaining(Id);
+-			const FString State = !E ? TEXT("unknown") : E->IsAlive() ? TEXT("alive") : T >= 0.f ? FString::Printf(TEXT("reincarnating (%.0fs)"), T) : TEXT("eliminated");
++			const FString State = Tribes->IsTribeEliminated(Id) ? TEXT("eliminated (circle destroyed)") : !E ? TEXT("unknown") : E->IsAlive() ? TEXT("alive")
++				: T >= 0.f ? FString::Printf(TEXT("reincarnating (%.0fs)"), T) : TEXT("dead");
+ 			DrawLine(FString::Printf(TEXT("Enemy Shaman: %s   followers %d"), *State, Tribes->GetFollowerCount(Id)), 20.f, 12.f + 22.f * UI * (Id - 1), Tribes->GetTribeColor(Id), 0.85f * UI);
+ 		}
+ 	}
+diff --git a/Source/Shaman/Public/Terrain/PlanetFrame.h b/Source/Shaman/Public/Terrain/PlanetFrame.h
+index 80667dd..cb65818 100644
+--- a/Source/Shaman/Public/Terrain/PlanetFrame.h
++++ b/Source/Shaman/Public/Terrain/PlanetFrame.h
+@@ -65,11 +65,15 @@ struct SHAMAN_API FPlanetFrame
+ 		OutRight = FVector::CrossProduct(OutUp, OutForward);
+ 	}
+ 
+-	/** Great-circle distance along the base sphere between two world locations. */
++	/**
++	 * Great-circle distance along the base sphere between two world locations.
++	 * atan2(|a x b|, a . b) instead of acos(a . b): acos has no float resolution near 0 (one ulp below 1 is already
++	 * 3.45e-4 rad = 6.9 uu on a 20000 uu planet), so two points straight above each other could read ~7 uu apart.
++	 */
+ 	float GetSurfaceDistance(const FVector& A, const FVector& B) const
+ 	{
+-		const float CosAngle = FMath::Clamp(FVector::DotProduct(GetUp(A), GetUp(B)), -1.f, 1.f);
+-		return FMath::Acos(CosAngle) * Radius;
++		const FVector UA = GetUp(A), UB = GetUp(B);
++		return FMath::Atan2(FVector::CrossProduct(UA, UB).Size(), FVector::DotProduct(UA, UB)) * Radius;
+ 	}
+ 
+ 	/** Parallel-transports a tangent vector from one location's tangent plane to another's (keeps it tangent). */
+diff --git a/Source/Shaman/Public/Tribes/TribeSubsystem.h b/Source/Shaman/Public/Tribes/TribeSubsystem.h
+index ba35fd5..a1c5fd4 100644
+--- a/Source/Shaman/Public/Tribes/TribeSubsystem.h
++++ b/Source/Shaman/Public/Tribes/TribeSubsystem.h
+@@ -19,9 +19,12 @@ struct FTribeState
+ 	double RebirthAt = -1.0;                              // world time of pending rebirth, -1 = none
+ 	bool bShamanEliminated = false;
+ 	FTimerHandle RebirthTimer;
++	FTimerHandle DeathCheckTimer;
+ };
+ 
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnShamanEvent, int32, TribeId, AShamanUnitBase*, Shaman);
++DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeEvent, int32, TribeId);
++DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLevelWon);
+ 
+ /**
+  * Tribe game state for the world: definitions, Shamans, buildings, population capacity and reincarnation.
+@@ -53,9 +56,22 @@ public:
+ 	TArray<AShamanUnitBase*> GetFollowers(int32 TribeId) const;
+ 	int32 GetNumTribes() const { return Tribes.Num(); }
+ 
+-	/** Called by a Shaman when it dies. Starts the rebirth timer if the tribe still has a circle. */
++	/**
++	 * Called by a Shaman when it dies. Resolved at the end of the frame, after every other death of the same event
++	 * (e.g. one Blast killing the Shaman and its last followers):
++	 *  - enemy tribe with 0 followers left: its Reincarnation Circle is destroyed and the tribe is eliminated;
++	 *  - otherwise (and always for the player's tribe): rebirth timer at the tribe's circle, as before.
++	 */
+ 	void NotifyShamanDied(AShamanUnitBase* Shaman);
+ 
++	/** Tribe's Shaman can no longer return (circle destroyed / gone). */
++	UFUNCTION(BlueprintCallable) bool IsTribeEliminated(int32 TribeId) const;
++	/** Every enemy (non-player-controlled) tribe is eliminated: the level is won. */
++	UFUNCTION(BlueprintCallable) bool IsLevelWon() const { return bLevelWon; }
++
++	UPROPERTY(BlueprintAssignable) FOnTribeEvent OnTribeEliminated;
++	UPROPERTY(BlueprintAssignable) FOnLevelWon OnLevelWon;
++
+ 	static float ComputeRebirthTime(const FReincarnationConfig& Config, int32 Followers);
+ 
+ 	UPROPERTY(BlueprintAssignable) FOnShamanEvent OnShamanDied;
+@@ -67,7 +83,11 @@ private:
+ 	int32 ComputeCapacity(const FTribeState& T) const;
+ 	void RefreshCapacity(int32 TribeId);
+ 	void DoRebirth(int32 TribeId);
++	void ResolveShamanDeath(int32 TribeId);
++	void EliminateTribe(FTribeState& T, const TCHAR* Reason);
++	void CheckLevelWon();
+ 
+ 	TArray<FTribeState> Tribes;
++	bool bLevelWon = false;
+ 	FReincarnationConfig Rebirth;
+ };
+diff --git a/Tools/TerrainHarness/TerrainHarness.cpp b/Tools/TerrainHarness/TerrainHarness.cpp
+index 3affaef..1d2f2f4 100644
+--- a/Tools/TerrainHarness/TerrainHarness.cpp
++++ b/Tools/TerrainHarness/TerrainHarness.cpp
+@@ -38,6 +38,13 @@ int main()
+ 		CHECK(std::fabs(Fw.Size() - 1.f) < 1e-4f, "degenerate hint fallback");
+ 		const float D = F.GetSurfaceDistance(S.Center + FVector(1, 0, 0), S.Center + FVector(0, 1, 0));
+ 		CHECK(std::fabs(D - S.Radius * PI * 0.5f) < 1.f, "quarter great circle %f", D);
++		// Small angles: two points on the same radial line are 0 apart (acos lost ~7 uu here in float).
++		const FVector Q = S.Center + FVector(0.31f, -0.52f, -0.79f).GetSafeNormal() * 20000.f;
++		const FVector Q2 = S.Center + (Q - S.Center).GetSafeNormal() * 20311.7f;
++		CHECK(F.GetSurfaceDistance(Q, Q2) < 0.01f, "radial-only surface distance %f", F.GetSurfaceDistance(Q, Q2));
++		FVector QF, QR, QU; F.GetTangentBasis(Q, FVector(1, 0, 0), QF, QR, QU);
++		const float D3 = F.GetSurfaceDistance(Q, Q + QF * 3.f);
++		CHECK(std::fabs(D3 - 3.f) < 0.05f, "3 uu tangential step reads %f", D3);
+ 	}
+ 
+ 	// 2. Determinism + seed sensitivity
+diff --git a/Tools/TerrainHarness/shim/CoreMinimal.h b/Tools/TerrainHarness/shim/CoreMinimal.h
+index c933f40..2ae7df2 100644
+--- a/Tools/TerrainHarness/shim/CoreMinimal.h
++++ b/Tools/TerrainHarness/shim/CoreMinimal.h
+@@ -23,6 +23,7 @@ struct FMath {
+ 	static float Cos(float v) { return std::cos(v); }
+ 	static float Sin(float v) { return std::sin(v); }
+ 	static float Acos(float v) { return std::acos(v); }
++	static float Atan2(float y, float x) { return std::atan2(y, x); }
+ 	static float Sqrt(float v) { return std::sqrt(v); }
+ 	static int32 FloorToInt(float v) { return (int32)std::floor(v); }
+ 	static bool IsFinite(float v) { return std::isfinite(v); }

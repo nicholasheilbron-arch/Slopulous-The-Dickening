@@ -221,6 +221,12 @@ void AShamanPlanetGameMode::StartPlay()
 	EnsureWorldGenerated();
 	AGameModeBase::StartPlay(); // skip the flat-world navmesh warning in AShamanGameMode::StartPlay
 	FpsWindowStart = FPlatformTime::Seconds();
+	// This mode is the spherical-terrain test bed (PlanetTest map), not the Phase 1 scenario: say so, so a map whose
+	// GameMode Override was switched to it is not mistaken for a broken Phase 1 start.
+	const FString Msg = FString::Printf(TEXT("Planet terrain test mode (ShamanPlanetGameMode) on map '%s': circle, 1 Brave, Wildmen only. ")
+		TEXT("The Phase 1 start (settlements, resources, enemy tribe) is ShamanGameMode on ShamanPrototype."), *UWorld::RemovePIEPrefix(GetWorld()->GetMapName()));
+	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Yellow, Msg);
 }
 
 void AShamanPlanetGameMode::RestartPlayer(AController* NewPlayer)

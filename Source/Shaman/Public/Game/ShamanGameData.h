@@ -12,8 +12,8 @@ class UMaterialInterface;
 
 /**
  * Single entry point for all Phase 1 tuning (DA_ShamanGameData). Every balance value lives here or in the
- * data tables it references. If the asset does not exist, AShamanGameMode builds a transient one and loads
- * the tables from their default paths (/Game/Data/DT_Spells, DT_Units, DT_Buildings, DT_Resources).
+ * data tables it references. If the asset does not exist, a transient one is built (see Resolve) and the tables
+ * are found by their default paths (/Game/Data/DT_Spells, ...) or, failing that, by row type.
  */
 UCLASS(BlueprintType)
 class SHAMAN_API UShamanGameData : public UPrimaryDataAsset
@@ -24,6 +24,15 @@ public:
 
 	/** Game data for the current world (from AShamanGameMode), or the class defaults if none. Never null. */
 	static const UShamanGameData* Get(const UObject* WorldContext);
+
+	/**
+	 * The game data production play uses: Assigned, else the asset at DefaultPath, else a transient default object
+	 * (outer: Outer). Tables left empty are resolved by their conventional path, then by row type anywhere in
+	 * Content (asset names do not matter). Used by AShamanGameMode and by the data tests. Never null.
+	 */
+	static UShamanGameData* Resolve(UObject* Outer, UShamanGameData* Assigned, const TSoftObjectPtr<UShamanGameData>& DefaultPath);
+	/** DataTable at DefaultPath, else the first DataTable in the project whose row type is RowStruct. */
+	static UDataTable* FindTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct);
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tables") UDataTable* SpellTable = nullptr;     // FSpellRow
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tables") UDataTable* UnitTable = nullptr;      // FUnitRow

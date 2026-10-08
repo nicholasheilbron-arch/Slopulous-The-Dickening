@@ -23,6 +23,7 @@ struct FMath {
 	static float Cos(float v) { return std::cos(v); }
 	static float Sin(float v) { return std::sin(v); }
 	static float Acos(float v) { return std::acos(v); }
+	static float Atan2(float y, float x) { return std::atan2(y, x); }
 	static float Sqrt(float v) { return std::sqrt(v); }
 	static int32 FloorToInt(float v) { return (int32)std::floor(v); }
 	static bool IsFinite(float v) { return std::isfinite(v); }

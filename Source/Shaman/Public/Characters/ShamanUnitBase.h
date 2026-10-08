@@ -85,6 +85,8 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 	UFUNCTION() virtual void HandleDeath(AActor* Killer, AController* KillerController);
+	/** Shaman death: stop all movement where the body lies (planets: on the ground, movement disabled). */
+	void FreezeCorpse();
 	/** In-place conversion (e.g. Convert with no ConvertedFollowerClass): become a Brave of the new tribe. */
 	UFUNCTION() void HandleConverted(UTribeMemberComponent* From, UTribeMemberComponent* To, EConversionKind Kind);
 	void LoadRow();

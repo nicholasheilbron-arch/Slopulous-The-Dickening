@@ -11,8 +11,15 @@
 void UTribeSubsystem::InitTribes(const TArray<FTribeDefinition>& Definitions, const FReincarnationConfig& InRebirth)
 {
 	if (UWorld* W = GetWorld())
-		for (FTribeState& T : Tribes) W->GetTimerManager().ClearTimer(T.RebirthTimer); // no stale rebirths after a regenerate
+	{
+		for (FTribeState& T : Tribes) // no stale rebirths / death checks after a regenerate
+		{
+			W->GetTimerManager().ClearTimer(T.RebirthTimer);
+			W->GetTimerManager().ClearTimer(T.DeathCheckTimer);
+		}
+	}
 	Tribes.Reset();
+	bLevelWon = false;
 	Rebirth = InRebirth;
 	for (int32 I = 0; I < Definitions.Num(); ++I)
 	{
@@ -132,19 +139,69 @@ void UTribeSubsystem::NotifyShamanDied(AShamanUnitBase* Shaman)
 	FTribeState* T = Shaman ? Find(Shaman->GetTribeId()) : nullptr;
 	if (!T) return;
 	OnShamanDied.Broadcast(T->TribeId, Shaman);
+	// Decide once this frame's other deaths are in (a Blast can kill the Shaman and its last followers together;
+	// overlap order is arbitrary).
+	FTimerDelegate D = FTimerDelegate::CreateUObject(this, &UTribeSubsystem::ResolveShamanDeath, T->TribeId);
+	T->DeathCheckTimer = GetWorld()->GetTimerManager().SetTimerForNextTick(D);
+}
 
-	const bool bMayReincarnate = T->Def.bPlayerControlled || Rebirth.bEnemyShamansReincarnate;
-	if (!T->Circle.IsValid() || !bMayReincarnate)
-	{
-		T->bShamanEliminated = true; // Phase 4: tribe defeat / Shaman-kill reward hooks go here
-		UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d permanently eliminated."), T->TribeId);
-		return;
-	}
-	const float Delay = ComputeRebirthTime(Rebirth, GetFollowerCount(T->TribeId));
+void UTribeSubsystem::ResolveShamanDeath(int32 TribeId)
+{
+	FTribeState* T = Find(TribeId);
+	if (!T || T->bShamanEliminated) return;
+	const AShamanUnitBase* S = T->Shaman.Get();
+	if (S && S->IsAlive()) return; // already back (e.g. regenerate)
+
+	const int32 Followers = GetFollowerCount(T->TribeId);
+	const bool bPlayer = T->Def.bPlayerControlled;
+	if (!T->Circle.IsValid()) { EliminateTribe(*T, TEXT("no Reincarnation Circle")); return; }
+	if (!bPlayer && !Rebirth.bEnemyShamansReincarnate) { EliminateTribe(*T, TEXT("enemy reincarnation disabled")); return; }
+	if (!bPlayer && Followers == 0) { EliminateTribe(*T, TEXT("Shaman died with 0 followers")); return; }
+
+	const float Delay = ComputeRebirthTime(Rebirth, Followers);
 	T->RebirthAt = GetWorld()->GetTimeSeconds() + Delay;
 	FTimerDelegate D = FTimerDelegate::CreateUObject(this, &UTribeSubsystem::DoRebirth, T->TribeId);
 	GetWorld()->GetTimerManager().SetTimer(T->RebirthTimer, D, Delay, false);
-	UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d reborn in %.1fs."), T->TribeId, Delay);
+	UE_LOG(LogShaman, Log, TEXT("Shaman of tribe %d reborn in %.1fs (%d followers)."), T->TribeId, Delay, Followers);
+}
+
+void UTribeSubsystem::EliminateTribe(FTribeState& T, const TCHAR* Reason)
+{
+	T.bShamanEliminated = true;
+	T.RebirthAt = -1.0;
+	GetWorld()->GetTimerManager().ClearTimer(T.RebirthTimer);
+	// The player's own circle is never destroyed here; an enemy circle goes with its tribe.
+	if (!T.Def.bPlayerControlled)
+		if (ABuildingActor* C = T.Circle.Get())
+		{
+			T.Circle = nullptr;
+			C->Destroy(); // EndPlay unregisters the building
+		}
+	UE_LOG(LogShaman, Log, TEXT("Tribe %d eliminated (%s)%s."), T.TribeId, Reason, T.Def.bPlayerControlled ? TEXT("") : TEXT("; its Reincarnation Circle is destroyed"));
+	OnTribeEliminated.Broadcast(T.TribeId);
+	CheckLevelWon();
+}
+
+bool UTribeSubsystem::IsTribeEliminated(int32 TribeId) const
+{
+	const FTribeState* T = Find(TribeId);
+	return T && T->bShamanEliminated;
+}
+
+void UTribeSubsystem::CheckLevelWon()
+{
+	if (bLevelWon) return;
+	int32 Enemies = 0;
+	for (const FTribeState& T : Tribes)
+	{
+		if (T.Def.bPlayerControlled) continue;
+		++Enemies;
+		if (!T.bShamanEliminated) return;
+	}
+	if (Enemies == 0) return;
+	bLevelWon = true;
+	UE_LOG(LogShaman, Log, TEXT("Level won: all %d enemy tribe(s) eliminated."), Enemies);
+	OnLevelWon.Broadcast();
 }
 
 void UTribeSubsystem::DoRebirth(int32 TribeId)
@@ -154,7 +211,7 @@ void UTribeSubsystem::DoRebirth(int32 TribeId)
 	T->RebirthAt = -1.0;
 	AShamanUnitBase* S = T->Shaman.Get();
 	ABuildingActor* C = T->Circle.Get();
-	if (!S || !C) { T->bShamanEliminated = true; return; }
+	if (!S || !C) { EliminateTribe(*T, TEXT("Shaman or circle gone at rebirth")); return; }
 	S->Reincarnate(C->GetRebirthLocation(), C->GetActorRotation());
 	OnShamanReborn.Broadcast(TribeId, S);
 }

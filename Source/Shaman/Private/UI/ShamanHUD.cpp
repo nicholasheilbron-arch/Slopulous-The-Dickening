@@ -111,9 +111,14 @@ void AShamanHUD::DrawHUD()
 		const float T = Tribes ? Tribes->GetRebirthRemaining(MyTribe) : -1.f;
 		const FString Msg = T >= 0.f
 			? FString::Printf(TEXT("You have fallen. Reborn at the Reincarnation Circle in %.1fs"), T)
-			: FString(TEXT("You have fallen and no Reincarnation Circle remains."));
+			: (Tribes && Tribes->IsTribeEliminated(MyTribe)) ? FString(TEXT("You have fallen and no Reincarnation Circle remains."))
+			: FString(TEXT("You have fallen."));
 		DrawLine(Msg, SW * 0.5f, SH * 0.4f, FLinearColor(1.f, 0.85f, 0.6f), 1.6f * UI, true);
 	}
+
+	// Level complete (every enemy tribe eliminated). Minimal presentation: a banner; no end-of-level flow yet.
+	if (Tribes && Tribes->IsLevelWon())
+		DrawLine(TEXT("VICTORY - every enemy tribe is eliminated"), SW * 0.5f, SH * 0.2f, FLinearColor(1.f, 0.85f, 0.2f), 2.f * UI, true);
 
 	// Enemy Shaman status (top-left).
 	if (Tribes)
@@ -123,7 +128,8 @@ void AShamanHUD::DrawHUD()
 			if (Id == MyTribe) continue;
 			const AShamanUnitBase* E = Tribes->GetShaman(Id);
 			const float T = Tribes->GetRebirthRemaining(Id);
-			const FString State = !E ? TEXT("unknown") : E->IsAlive() ? TEXT("alive") : T >= 0.f ? FString::Printf(TEXT("reincarnating (%.0fs)"), T) : TEXT("eliminated");
+			const FString State = Tribes->IsTribeEliminated(Id) ? TEXT("eliminated (circle destroyed)") : !E ? TEXT("unknown") : E->IsAlive() ? TEXT("alive")
+				: T >= 0.f ? FString::Printf(TEXT("reincarnating (%.0fs)"), T) : TEXT("dead");
 			DrawLine(FString::Printf(TEXT("Enemy Shaman: %s   followers %d"), *State, Tribes->GetFollowerCount(Id)), 20.f, 12.f + 22.f * UI * (Id - 1), Tribes->GetTribeColor(Id), 0.85f * UI);
 		}
 	}

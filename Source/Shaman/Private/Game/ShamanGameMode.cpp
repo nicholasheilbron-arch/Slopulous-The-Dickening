@@ -17,7 +17,6 @@
 #include "Characters/UnitRow.h"
 #include "Buildings/BuildingRow.h"
 #include "World/ResourceRow.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -46,41 +45,10 @@ void AShamanGameMode::InitGame(const FString& MapName, const FString& Options, F
 	}
 }
 
-/** Finds a DataTable: the conventional path first, then any DataTable in the project whose row type matches. */
-static UDataTable* FindShamanTable(const TCHAR* DefaultPath, const UScriptStruct* RowStruct)
-{
-	if (UDataTable* T = LoadObject<UDataTable>(nullptr, DefaultPath, nullptr, LOAD_NoWarn | LOAD_Quiet)) return T;
-	FAssetRegistryModule& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-	TArray<FAssetData> Assets;
-	Registry.Get().GetAssetsByClass(UDataTable::StaticClass()->GetFName(), Assets, true);
-	for (const FAssetData& A : Assets)
-	{
-		UDataTable* T = Cast<UDataTable>(A.GetAsset());
-		if (T && T->GetRowStruct() == RowStruct)
-		{
-			UE_LOG(LogShaman, Log, TEXT("Using %s for %s rows."), *A.ObjectPath.ToString(), *RowStruct->GetName());
-			return T;
-		}
-	}
-	return nullptr;
-}
-
 void AShamanGameMode::ResolveGameData()
 {
 	if (ActiveData) return;
-	ActiveData = GameData;
-	if (!ActiveData && !DefaultGameDataPath.IsNull()) ActiveData = DefaultGameDataPath.LoadSynchronous();
-	if (!ActiveData)
-	{
-		// Zero-config fallback: class defaults + tables imported at their conventional paths.
-		ActiveData = NewObject<UShamanGameData>(this, TEXT("TransientShamanGameData"));
-		UE_LOG(LogShaman, Log, TEXT("No DA_ShamanGameData asset; using built-in defaults."));
-	}
-	// Any table not assigned is looked up by name, then by row type anywhere in Content (asset names don't matter).
-	if (!ActiveData->SpellTable)    ActiveData->SpellTable    = FindShamanTable(TEXT("/Game/Data/DT_Spells.DT_Spells"), FSpellRow::StaticStruct());
-	if (!ActiveData->UnitTable)     ActiveData->UnitTable     = FindShamanTable(TEXT("/Game/Data/DT_Units.DT_Units"), FUnitRow::StaticStruct());
-	if (!ActiveData->BuildingTable) ActiveData->BuildingTable = FindShamanTable(TEXT("/Game/Data/DT_Buildings.DT_Buildings"), FBuildingRow::StaticStruct());
-	if (!ActiveData->ResourceTable) ActiveData->ResourceTable = FindShamanTable(TEXT("/Game/Data/DT_Resources.DT_Resources"), FResourceRow::StaticStruct());
+	ActiveData = UShamanGameData::Resolve(this, GameData, DefaultGameDataPath);
 
 	FString Missing;
 	if (!ActiveData->SpellTable)    Missing += TEXT(" Spells.csv (SpellRow)");

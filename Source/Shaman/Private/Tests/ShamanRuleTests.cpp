@@ -4,6 +4,8 @@
 #include "Core/ShamanTargetRules.h"
 #include "Tribes/TribeSubsystem.h"
 #include "Engine/DataTable.h"
+#include "Game/ShamanGameData.h"
+#include "Game/ShamanGameMode.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -125,17 +127,26 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTakaPreservedTest, "Shaman.Data.TakaPres
 	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
 bool FShamanTakaPreservedTest::RunTest(const FString& Parameters)
 {
-	// Guards against silent rebalancing of TAKA (spec: report any change first).
-	UDataTable* Table = LoadObject<UDataTable>(nullptr, TEXT("/Game/Data/DT_Spells.DT_Spells"));
-	if (!Table) { AddWarning(TEXT("DT_Spells not imported yet; skipped.")); return true; }
+	// Guards against silent rebalancing of TAKA (spec: report any change first). Checks the table production play
+	// actually uses: same resolution as AShamanGameMode (assigned data asset > DA_ShamanGameData > defaults; spell
+	// table by path, then by row type), so renaming the imported table cannot turn this test into a no-op.
+	const AShamanGameMode* GM = GetDefault<AShamanGameMode>();
+	const UShamanGameData* Data = UShamanGameData::Resolve(nullptr, GM->GameData, GM->DefaultGameDataPath);
+	const UDataTable* Table = Data ? Data->SpellTable : nullptr;
+	if (!TestNotNull(TEXT("Production spell table found (import Content/Data/Spells.csv, row type SpellRow)"), Table)) return false;
+	AddInfo(FString::Printf(TEXT("Spell table: %s"), *Table->GetPathName()));
+	TestTrue(TEXT("Blast is a starting spell"), Data->StartingSpells.Contains(FName(TEXT("Blast"))));
+
 	const FSpellRow* Blast = Table->FindRow<FSpellRow>(TEXT("Blast"), TEXT("Test"), false);
 	if (!TestNotNull(TEXT("Blast row exists"), Blast)) return false;
+	TestTrue(TEXT("Blast projectile class registered for its EffectId"), Data->ProjectileClasses.Contains(Blast->EffectId));
 	TestTrue(TEXT("Blast targeting"), Blast->Targeting == ESpellTargeting::Projectile);
 	TestEqual(TEXT("Blast mana"), Blast->ManaCost, 5.f);
 	TestEqual(TEXT("Blast range"), Blast->RangeRaw, 10.f);
 	TestEqual(TEXT("Blast radius"), Blast->Radius, 300.f);
 	TestEqual(TEXT("Blast damage"), Blast->Damage, 40.f);
 	TestEqual(TEXT("Blast knockback"), Blast->Knockback, 1.f);
+	TestEqual(TEXT("Blast cooldown"), Blast->Cooldown, 1.f);
 	TestTrue(TEXT("Blast homing"), Blast->bHoming);
 	TestTrue(TEXT("Blast effect"), Blast->EffectId == FName(TEXT("FireBlast")));
 	TestTrue(TEXT("Blast filter"), Blast->TargetFilter == ESpellTargetFilter::AllUnits);

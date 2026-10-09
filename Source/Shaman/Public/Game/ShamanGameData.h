@@ -3,6 +3,7 @@
 #include "Engine/DataAsset.h"
 #include "World/WorldGenTypes.h"
 #include "Tribes/TribeDefinitions.h"
+#include "Tribes/TribeTaskExecution.h"
 #include "ShamanGameData.generated.h"
 
 class UDataTable;
@@ -51,6 +52,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") TArray<FTribeDefinition> Tribes;  // index = tribe id
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") FReincarnationConfig Reincarnation;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") FLinearColor WildmenColor = FLinearColor(0.55f, 0.42f, 0.28f, 1.f);
+	/** Phase 2.2: arrival radii and failure timeouts for executed tasks (move / move to actor / guard). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes|Tasks") FTribeTaskExecutionConfig TaskExecution;
 
 	/** Spells every Shaman starts with (spec: TAKA / Blast only). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TArray<FName> StartingSpells;

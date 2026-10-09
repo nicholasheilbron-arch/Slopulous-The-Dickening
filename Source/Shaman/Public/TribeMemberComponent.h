@@ -9,6 +9,8 @@ class UTribeComponent;
 class UTribeMemberComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnUnitConverted, UTribeMemberComponent*, From, UTribeMemberComponent*, To, EConversionKind, Kind);
+/** Native: the task this unit holds changed state (Assigned, Active, Completed, Failed, Cancelled). Phase 2.2. */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnMemberTaskStateChanged, UTribeMemberComponent* /*Member*/, int32 /*TaskId*/, ETribeTaskState /*NewState*/);
 
 /**
  * Gameplay identity of any unit for spell targeting and conversion: which tribe owns it, what kind of unit it is,
@@ -54,7 +56,7 @@ public:
 
 	// ---- Tribe simulation (Phase 2.1): availability and the unit's one primary task ------------------------------
 	// Tasks are owned and ended by the tribe (UTribeComponent::CreateTask/AssignTask/...); the member only records
-	// which one it holds. Execution (moving, gathering...) is not part of this foundation.
+	// which one it holds and relays its state changes (OnTaskStateChanged) to the unit's executor (Phase 2.2).
 
 	/** Owner is alive (IShamanDamageReceiver), not being destroyed. Members without health count as alive. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAlive() const;
@@ -66,13 +68,21 @@ public:
 	/** Id of the task this unit holds (Assigned or Active), or INDEX_NONE. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetCurrentTaskId() const { return CurrentTaskId; }
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool HasTask() const { return CurrentTaskId != INDEX_NONE; }
-	/** Derived: Dead > Unavailable > Working (holds a task) > current activity (Idle / Following / Guarding / Combat). */
+	/** Derived: Dead > Unavailable > task activity (Working, or Moving / Guarding while a task executes) > current
+	 *  activity (Idle / Following / Guarding / Combat). */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") EUnitSimState GetSimState() const;
 	/** What the unit's own AI is doing when it holds no task (set by the Phase 1 AI; Idle by default). */
 	void SetActivity(EUnitSimState NewActivity) { Activity = NewActivity; }
 
+	/** What the unit's task executor is doing while it holds a task (Phase 2.2; Working = not executed / waiting). */
+	void SetTaskActivity(EUnitSimState NewActivity) { TaskActivity = NewActivity; }
+
+	/** Fired by the owning tribe for the task this unit holds; the unit's FUnitTaskExecutor listens (Phase 2.2). */
+	FOnMemberTaskStateChanged OnTaskStateChanged;
+
 	/** Bookkeeping hooks for UTribeComponent only. */
 	void SetCurrentTaskId(int32 TaskId) { CurrentTaskId = TaskId; }
+	void NotifyTaskState(int32 TaskId, ETribeTaskState NewState) { OnTaskStateChanged.Broadcast(this, TaskId, NewState); }
 
 protected:
 	/** Applies a pending conversion identity (see UTribeRegistrySubsystem::BeginPendingConversion) before any BeginPlay runs. */
@@ -88,4 +98,5 @@ private:
 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") bool bUnavailable = false;
 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") int32 CurrentTaskId = INDEX_NONE;
 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState Activity = EUnitSimState::Idle;
+	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState TaskActivity = EUnitSimState::Working;
 };

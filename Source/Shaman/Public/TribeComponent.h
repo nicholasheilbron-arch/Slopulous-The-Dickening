@@ -17,7 +17,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeWorkersChanged, int32, Tribe
  * so the population cannot drift or double count.
  *
  * Phase 2.1 (tribe simulation foundation): the tribe also owns its task book (create / assign / start / complete /
- * fail / cancel) and answers worker-pool queries. Leaving the roster (death, conversion, tribe change, destruction)
+ * fail / cancel) and answers worker-pool queries. Phase 2.2: every state change of a held task is also relayed to the
+ * assignee (UTribeMemberComponent::OnTaskStateChanged), which is how the unit's executor learns to start or stop. Leaving the roster (death, conversion, tribe change, destruction)
  * fails the member's task, so no task can be held by a unit that is no longer a living follower of this tribe.
  * Food, housing, growth etc. arrive with later Phase 2 milestones.
  */
@@ -71,7 +72,8 @@ public:
 		AActor* TargetActor, FVector TargetLocation, bool bHasTargetLocation, FName Source);
 	/** Unassigned -> Assigned to Member. Refused if Member is not an available worker of this tribe (one primary task per unit). */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool AssignTask(int32 TaskId, UTribeMemberComponent* Member);
-	/** Assigned -> Active (the executor started). */
+	/** Assigned -> Active. Refused unless the assignee is still a living follower of this tribe holding the task.
+	 *  The unit's executor (Phase 2.2) starts executable task types (Task.MoveTo / MoveToActor / Guard) here. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool StartTask(int32 TaskId);
 	/** Active -> Completed. Frees the unit. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CompleteTask(int32 TaskId);
@@ -79,6 +81,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool FailTask(int32 TaskId, FName Reason);
 	/** Unassigned/Assigned/Active -> Cancelled. Frees the unit. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CancelTask(int32 TaskId, FName Reason);
+	/** Arrival radius override for an executed task (0 = config default). Only before assignment. */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool SetTaskAcceptanceRadius(int32 TaskId, float Radius);
 	/** Copy of a task (open or recently ended). False if unknown or already forgotten. */
 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool GetTask(int32 TaskId, FTribeTask& OutTask) const;
 	const FTribeTask* FindTask(int32 TaskId) const { return Tasks.Find(TaskId); }

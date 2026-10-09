@@ -163,7 +163,7 @@ EUnitSimState UTribeMemberComponent::GetSimState() const
 {
 	if (!IsAlive()) return EUnitSimState::Dead;
 	if (bUnavailable) return EUnitSimState::Unavailable;
-	if (CurrentTaskId != INDEX_NONE) return EUnitSimState::Working;
+	if (CurrentTaskId != INDEX_NONE) return TaskActivity;
 	return Activity;
 }
 

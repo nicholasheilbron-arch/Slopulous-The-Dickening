@@ -11,12 +11,14 @@
 #include "Navigation/ShamanSurfaceNavigation.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "TribeMemberComponent.h"
+#include "NavigationSystem.h"
 #include "Engine/World.h"
 
 AShamanUnitAIController::AShamanUnitAIController()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = 0.25f; // decisions 4x per second; movement itself is per-frame
+	TaskMover.Owner = this;
 }
 
 float AShamanUnitAIController::RandFloat()
@@ -37,6 +39,23 @@ void AShamanUnitAIController::OnPossess(APawn* InPawn)
 	const float A = RandFloat() * 2.f * PI;
 	FormationOffset = FVector(FMath::Cos(A), FMath::Sin(A), 0.f);
 	NextWanderTime = 0.0;
+	// Phase 2.2: this controller executes the pawn's tasks (event-driven through its tribe member).
+	if (const AShamanUnitBase* U = Cast<AShamanUnitBase>(InPawn))
+		if (U->TribeMember) TaskExecutor.Bind(U->TribeMember, &TaskMover);
+}
+
+void AShamanUnitAIController::OnUnPossess()
+{
+	TaskExecutor.Unbind(TEXT("ControllerLost")); // a task nobody executes any more must not keep the unit busy
+	Super::OnUnPossess();
+}
+
+void AShamanUnitAIController::EndPlay(const EEndPlayReason::Type Reason)
+{
+	// Editor stop / quit: no task-book calls during teardown. Otherwise a unit outliving its controller must not stay busy.
+	const bool bTeardown = Reason == EEndPlayReason::EndPlayInEditor || Reason == EEndPlayReason::Quit;
+	TaskExecutor.Unbind(bTeardown ? NAME_None : FName(TEXT("ControllerLost")));
+	Super::EndPlay(Reason);
 }
 
 void AShamanUnitAIController::Tick(float DeltaSeconds)
@@ -47,6 +66,8 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
 	{
 		Target = nullptr;
 		bHasSurfaceGoal = false;
+		// Knocked down: the task waits (death ends it through the tribe roster, not here).
+		if (U && U->IsAlive()) TaskExecutor.PauseWatchdog(GetWorld()->GetTimeSeconds());
 		return;
 	}
 	FPlanetFrame Planet;
@@ -69,10 +90,23 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
 
 void AShamanUnitAIController::Think(AShamanUnitBase* U)
 {
+	// Phase 2.2: an executing task outranks autonomous behaviour (combat, follow, guard-home, wander).
+	if (TaskExecutor.HasControl())
+	{
+		Target = nullptr;
+		TaskExecutor.Update(GetWorld()->GetTimeSeconds());
+		if (TaskExecutor.HasControl())
+		{
+			// A guard at its post defends itself (melee in reach, in front) but never leaves the post to chase.
+			if (TaskExecutor.GetKind() == ETaskExecKind::Guard && TaskExecutor.IsOnStation()) U->TryMeleeAttack(nullptr);
+			return;
+		}
+		// The task just ended: fall through to autonomous behaviour this same decision.
+	}
 	UpdateTarget(U);
 	if (AActor* T = Target.Get()) Engage(U, T);
 	else FollowOrders(U);
-	// Mirror what this AI is doing into the tribe simulation state (debug/inspection only; tasks are not executed yet).
+	// Mirror what this AI is doing into the tribe simulation state (shown while the unit holds no executing task).
 	if (U->TribeMember)
 	{
 		EUnitSimState Activity = EUnitSimState::Idle;
@@ -249,4 +283,67 @@ void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
 		/*bProjectDestinationToNavigation*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ true);
 	if (R == EPathFollowingRequestResult::Failed) // no navmesh here (or none at all): walk straight
 		MoveToLocation(Dest, Acceptance, true, false, false, false, nullptr, true);
+}
+
+// ---- Task execution movement (Phase 2.2) ------------------------------------------------------------------------------
+
+ETaskMoveRequest AShamanUnitAIController::RequestTaskMove(const FVector& Goal, AActor* GoalActor, float Acceptance)
+{
+	const APawn* P = GetPawn();
+	if (!P || Goal.ContainsNaN()) return ETaskMoveRequest::Failed;
+
+	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
+		if (Terrain->IsPlanetActive())
+		{
+			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, P->GetActorLocation(), Goal);
+			bHasSurfaceGoal = false;
+			if (!Path.bValid || Path.Points.Num() == 0) return ETaskMoveRequest::Failed;
+			// Tight tolerance: steering itself stops up to Acceptance short of the path end.
+			if (Path.bPartial && FShamanSpace::HorizontalDistance(this, Path.Points.Last(), Goal) > Acceptance * 0.25f) return ETaskMoveRequest::Unreachable;
+			SurfaceGoal = Path.Points.Last();
+			SurfaceAcceptance = Acceptance;
+			bHasSurfaceGoal = true;
+			LastMoveGoal = Goal;
+			return ETaskMoveRequest::Accepted;
+		}
+
+	LastMoveGoal = Goal;
+	EPathFollowingRequestResult::Type R;
+	if (GoalActor)
+	{
+		// To the actor itself: path following tracks it as it moves, and a partial path reaches the edge of actors
+		// whose centre is off the navmesh (buildings). bStopOnOverlap: stop on touching it.
+		R = MoveToActor(GoalActor, Acceptance, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ true);
+	}
+	else
+	{
+		// Full path only (a location the navmesh cannot reach is reported, not approached forever). bStopOnOverlap =
+		// false keeps the agent radius out of the reach test, so the move ends inside the executor's arrival radius.
+		R = MoveToLocation(Goal, Acceptance, /*bStopOnOverlap*/ false, /*bUsePathfinding*/ true,
+			/*bProjectDestinationToNavigation*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ false);
+	}
+	if (R != EPathFollowingRequestResult::Failed) return ETaskMoveRequest::Accepted;
+
+	UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	const bool bNavmeshUsable = Nav && Nav->GetNavigationBounds().Num() > 0 && !Nav->IsNavigationBuildInProgress();
+	if (bNavmeshUsable) return ETaskMoveRequest::Unreachable;
+
+	// No navmesh in this level (or still building): straight-line move, as the Phase 1 AI does. The executor's stuck
+	// watchdog fails the task if something blocks the way.
+	R = GoalActor ? MoveToActor(GoalActor, Acceptance, true, false, false, nullptr, true)
+		: MoveToLocation(Goal, Acceptance, false, false, false, false, nullptr, true);
+	return R == EPathFollowingRequestResult::Failed ? ETaskMoveRequest::Failed : ETaskMoveRequest::Accepted;
+}
+
+void AShamanUnitAIController::StopTaskMove()
+{
+	StopMovement();
+	LastMoveGoal = FVector(FLT_MAX);
+}
+
+bool AShamanUnitAIController::IsTaskMoveInProgress() const
+{
+	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
+		if (Terrain->IsPlanetActive()) return bHasSurfaceGoal;
+	return GetMoveStatus() == EPathFollowingStatus::Moving;
 }

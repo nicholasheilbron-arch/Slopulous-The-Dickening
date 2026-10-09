@@ -7,8 +7,11 @@
 #include "Buildings/BuildingActor.h"
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/ShamanCharacter.h"
+#include "Characters/ShamanUnitAIController.h"
 #include "Tribes/TribeSubsystem.h"
 #include "Tribes/TribeTaskTypes.h"
+#include "Tribes/TribeTaskExecution.h"
+#include "World/SurfaceProbeActor.h"
 #include "TribeComponent.h"
 #include "TribeMemberComponent.h"
 #include "Terrain/ShamanSpace.h"
@@ -369,6 +372,14 @@ void AShamanGameMode::DrawTribeSimDebug() const
 				else if (T->bHasTargetLocation) Txt += FString::Printf(TEXT(" -> %.0f uu away"), FVector::Dist(A->GetActorLocation(), T->TargetLocation));
 			}
 			const FVector Loc = A->GetActorLocation();
+			// Phase 2.2: what the unit's executor is doing (movement result / last failure reason).
+			const APawn* Pawn = Cast<APawn>(A);
+			if (const AShamanUnitAIController* AI = Pawn ? Cast<AShamanUnitAIController>(Pawn->GetController()) : nullptr)
+			{
+				const FUnitTaskExecutor& TaskExec = AI->GetTaskExecutor();
+				Txt += TEXT("\n") + TaskExec.Describe();
+				if (TaskExec.HasControl()) DrawDebugLine(W, Loc, TaskExec.GetGoal(), Color, false, -1.f, 0, 2.f);
+			}
 			DrawDebugString(W, Loc + FShamanSpace::GetUp(this, Loc) * 160.f, Txt, nullptr, Color, 0.f, true);
 		}
 	}
@@ -413,6 +424,24 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
 		return Best;
 	};
 
+	// Phase 2.2 targets: where the player aims (on the ground), and a debug marker actor for move-to-actor.
+	const AShamanCharacter* PlayerShaman = Cast<AShamanCharacter>(Player);
+	const FVector Aim = PlayerShaman ? PlayerShaman->GetAimPoint() : (Player ? Player->GetActorLocation() : FVector::ZeroVector);
+	auto CreateTyped = [&](const TCHAR* Tag, AActor* TargetActor, const FVector& Where, bool bHasWhere)
+	{
+		DebugTaskId = TC->CreateTask(FGameplayTag::RequestGameplayTag(Tag), ETribeTaskPriority::High, TargetActor, Where, bHasWhere, TEXT("Console"));
+		return DebugTaskId != INDEX_NONE;
+	};
+	auto SpawnMarker = [&]() -> AActor*
+	{
+		if (AActor* Old = DebugTargetActor.Get()) Old->Destroy();
+		FActorSpawnParameters P;
+		P.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AActor* Marker = GetWorld()->SpawnActor<ASurfaceProbeActor>(ASurfaceProbeActor::StaticClass(), FTransform(Aim), P);
+		DebugTargetActor = Marker;
+		return Marker;
+	};
+
 	bool bOk = false;
 	const FString A = Action.ToLower();
 	if (A == TEXT("create"))
@@ -421,12 +450,40 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
 			Player ? Player->GetActorLocation() : FVector::ZeroVector, Player != nullptr, TEXT("Console"));
 		bOk = DebugTaskId != INDEX_NONE;
 	}
+	else if (A == TEXT("move"))       bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, Aim, true);
+	else if (A == TEXT("guard"))      bOk = CreateTyped(TEXT("Task.Guard"), nullptr, Aim, true);
+	else if (A == TEXT("moveinvalid")) bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, FVector::ZeroVector, false); // no location: fails on start
+	else if (A == TEXT("moveunreachable"))
+	{
+		// Far outside the generated world (flat map): no navmesh path -> Unreachable on start.
+		const FVector From = Player ? Player->GetActorLocation() : FVector::ZeroVector;
+		const FVector Dir = Player ? FShamanSpace::HorizontalNormal(this, From, Player->GetActorForwardVector()) : FVector::ForwardVector;
+		bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, From + Dir * FMath::Max(50000.f, Layout.HalfSize * 4.f), true);
+	}
+	else if (A == TEXT("marker"))      bOk = SpawnMarker() != nullptr;
+	else if (A == TEXT("moveactor"))
+	{
+		AActor* Target = DebugTargetActor.IsValid() ? DebugTargetActor.Get() : SpawnMarker();
+		bOk = Target && CreateTyped(TEXT("Task.MoveToActor"), Target, FVector::ZeroVector, false);
+	}
+	else if (A == TEXT("destroytarget"))
+	{
+		if (AActor* T = DebugTargetActor.Get()) { T->Destroy(); bOk = true; }
+		DebugTargetActor = nullptr;
+	}
 	else if (A == TEXT("assign"))
 	{
 		UTribeMemberComponent* M = NearestAvailable();
 		bOk = M && TC->AssignTask(DebugTaskId, M);
 		if (bOk) DebugMember = M;
 	}
+	else if (A == TEXT("go"))
+	{
+		UTribeMemberComponent* M = NearestAvailable();
+		bOk = M && TC->AssignTask(DebugTaskId, M);
+		if (bOk) { DebugMember = M; bOk = TC->StartTask(DebugTaskId); }
+	}
+	else if (A == TEXT("info"))     bOk = true;
 	else if (A == TEXT("start"))    bOk = TC->StartTask(DebugTaskId);
 	else if (A == TEXT("complete")) bOk = TC->CompleteTask(DebugTaskId);
 	else if (A == TEXT("fail"))     bOk = TC->FailTask(DebugTaskId, TEXT("Console"));
@@ -444,9 +501,15 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
 	FTribeTask T;
 	const bool bHasTask = TC->GetTask(DebugTaskId, T);
 	const UTribeMemberComponent* Who = bHasTask ? T.Assignee.Get() : nullptr;
-	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s | unit %s %s | available workers %d"),
-		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"),
-		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""),
+	FString ExecInfo;
+	if (const APawn* WhoPawn = Who ? Cast<APawn>(Who->GetOwner()) : nullptr)
+		if (const AShamanUnitAIController* AI = Cast<AShamanUnitAIController>(WhoPawn->GetController()))
+			ExecInfo = FString::Printf(TEXT(" | %s"), *AI->GetTaskExecutor().Describe());
+	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s %s%s%s | unit %s %s%s | available workers %d"),
+		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? *T.Type.ToString() : TEXT(""),
+		bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"), (bHasTask && !T.EndReason.IsNone()) ? TEXT(" reason ") : TEXT(""),
+		(bHasTask && !T.EndReason.IsNone()) ? *T.EndReason.ToString() : TEXT(""),
+		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""), *ExecInfo,
 		TC->GetAvailableWorkerCount());
 	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
 	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, bOk ? FColor::Green : FColor::Red, Msg);

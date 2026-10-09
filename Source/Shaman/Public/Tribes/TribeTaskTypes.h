@@ -10,7 +10,8 @@ class UTribeMemberComponent;
  *
  * A task is what a unit has been asked to accomplish (gather wood, build, guard...). The owning tribe
  * (UTribeComponent) creates, assigns and ends tasks; executing them (moving, gathering, building) is the job of later
- * systems (Brave AI, Phase 2.2+). Ending a task only changes bookkeeping: it never kills, converts or moves a unit.
+ * systems (Phase 2.2: Tribes/TribeTaskExecution.h). Ending a task only changes bookkeeping: it never kills, converts or
+ * moves a unit.
  */
 
 /** Task lifecycle. Unassigned -> Assigned -> Active -> Completed | Failed | Cancelled (see FTribeTaskRules). */
@@ -39,13 +40,14 @@ enum class ETribeTaskPriority : uint8
 /**
  * What a unit is doing, as seen by the tribe simulation. Only Idle, Unavailable and Dead drive behaviour in 2.1
  * (worker availability); Working marks a unit holding a task; Following / Guarding / Combat mirror what the existing
- * Phase 1 AI is doing (debug visibility). The rest are reserved for later milestones and are never set yet.
+ * Phase 1 AI is doing (debug visibility). Phase 2.2: a unit executing a task shows Moving or Guarding instead of
+ * Working. The rest are reserved for later milestones and are never set yet.
  */
 UENUM(BlueprintType)
 enum class EUnitSimState : uint8
 {
 	Idle,
-	Moving,      // reserved
+	Moving,      // executing a move (Phase 2.2)
 	Working,     // holds an Assigned/Active task
 	Building,    // reserved
 	Gathering,   // reserved
@@ -75,6 +77,8 @@ struct SHAMAN_API FTribeTask
 	UPROPERTY() TWeakObjectPtr<AActor> TargetActor;
 	UPROPERTY(BlueprintReadOnly, Category="Task") FVector TargetLocation = FVector::ZeroVector;
 	UPROPERTY(BlueprintReadOnly, Category="Task") bool bHasTargetLocation = false;
+	/** Arrival radius for executed move/guard tasks; 0 = UShamanGameData::TaskExecution default (Phase 2.2). */
+	UPROPERTY(BlueprintReadOnly, Category="Task") float AcceptanceRadius = 0.f;
 	UPROPERTY() TWeakObjectPtr<UTribeMemberComponent> Assignee;
 	/** Who asked for it (system or command name), for debugging. */
 	UPROPERTY(BlueprintReadOnly, Category="Task") FName Source;

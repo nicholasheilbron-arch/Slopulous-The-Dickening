@@ -46,9 +46,16 @@ public:
 	/** Tribe simulation (Phase 2.1) report: members, living/available counts, open tasks, settlement anchor. */
 	UFUNCTION(Exec) void ShamanTribeReport();
 	/**
-	 * Developer test of the task foundation on the player's tribe (Task.Debug, no behaviour):
-	 * ShamanTaskTest Create | Assign | Start | Complete | Fail | Cancel | Unavailable | Available
-	 * Assign picks the available Brave nearest to the player; Unavailable/Available toggle that Brave.
+	 * Developer test of tasks on the player's tribe.
+	 *   Create                          Task.Debug at the player (bookkeeping only, no behaviour; Phase 2.1)
+	 *   Move | Guard                    Task.MoveTo / Task.Guard at the aim point (Phase 2.2, executed)
+	 *   Marker | MoveActor              spawn a debug marker at the aim point / Task.MoveToActor to it (spawns one if none)
+	 *   DestroyTarget                   destroy the marker (a running MoveToActor then fails with TargetLost)
+	 *   MoveInvalid | MoveUnreachable   MoveTo without a location / far outside the world (both fail on start)
+	 *   Assign | Start | Go             assign to the available Brave nearest the player / start / assign + start
+	 *   Complete | Fail | Cancel | Info end the task from the console / print task, unit and executor state
+	 *   Unavailable | Available         take that Brave out of / back into the worker pool
+	 * The last created task is the one Assign/Start/Go/Complete/Fail/Cancel/Info act on.
 	 */
 	UFUNCTION(Exec) void ShamanTaskTest(const FString& Action);
 	/** Developer test: moves the player's Brave nearest to the player into tribe NewTribeId (membership transfer). */
@@ -82,6 +89,7 @@ protected:
 	bool bWorldGenerated = false;
 	int32 DebugTaskId = INDEX_NONE;                       // ShamanTaskTest's current task
 	TWeakObjectPtr<class UTribeMemberComponent> DebugMember; // ShamanTaskTest Unavailable/Available target
+	TWeakObjectPtr<AActor> DebugTargetActor;                 // ShamanTaskTest Marker / MoveActor / DestroyTarget
 	int32 SeedOverride = 0;
 	bool bHasSeedOverride = false;
 };

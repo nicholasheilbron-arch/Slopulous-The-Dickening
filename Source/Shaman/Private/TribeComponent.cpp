@@ -178,8 +178,9 @@ bool UTribeComponent::AssignTask(int32 TaskId, UTribeMemberComponent* Member)
 	T->Assignee = Member;
 	T->AssignedTime = Now();
 	Member->SetCurrentTaskId(TaskId);
-	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
+	OnTaskChanged.Broadcast(TribeId, TaskId, ETribeTaskState::Assigned);
 	NotifyWorkerAvailabilityChanged();
+	Member->NotifyTaskState(TaskId, ETribeTaskState::Assigned); // last: listeners may act on the task book
 	return true;
 }
 
@@ -187,8 +188,22 @@ bool UTribeComponent::StartTask(int32 TaskId)
 {
 	FTribeTask* T = Tasks.Find(TaskId);
 	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Active)) return false;
+	// Only the unit this tribe assigned may execute it, and only while it is still a living follower holding it.
+	UTribeMemberComponent* Assignee = T->Assignee.Get();
+	if (!Assignee || Assignee->GetCurrentTaskId() != TaskId || Assignee->TribeId != TribeId || !IsFollower(Assignee) || !Assignee->IsAlive())
+		return false;
 	T->State = ETribeTaskState::Active;
-	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
+	OnTaskChanged.Broadcast(TribeId, TaskId, ETribeTaskState::Active);
+	// Last, and T is not used afterwards: the unit's executor starts here and may complete / fail the task at once.
+	Assignee->NotifyTaskState(TaskId, ETribeTaskState::Active);
+	return true;
+}
+
+bool UTribeComponent::SetTaskAcceptanceRadius(int32 TaskId, float Radius)
+{
+	FTribeTask* T = Tasks.Find(TaskId);
+	if (!T || T->State != ETribeTaskState::Unassigned) return false;
+	T->AcceptanceRadius = FMath::Max(0.f, Radius);
 	return true;
 }
 
@@ -204,11 +219,18 @@ bool UTribeComponent::EndTask(int32 TaskId, ETribeTaskState Final, FName Reason)
 	T->EndReason = Reason;
 	T->EndedTime = Now();
 	UTribeMemberComponent* Freed = T->Assignee.Get();
-	if (Freed && Freed->GetCurrentTaskId() == TaskId) Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
+	const bool bWasHeld = Freed && Freed->GetCurrentTaskId() == TaskId;
+	if (bWasHeld)
+	{
+		Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
+		Freed->SetTaskActivity(EUnitSimState::Working);
+	}
 	EndedTaskOrder.Add(TaskId);
 	OnTaskChanged.Broadcast(TribeId, TaskId, Final);
 	if (Freed) NotifyWorkerAvailabilityChanged();
 	ForgetOldEndedTasks();
+	// Last (T may be gone): the unit's executor stops its task-driven behaviour.
+	if (bWasHeld) Freed->NotifyTaskState(TaskId, Final);
 	return true;
 }
 

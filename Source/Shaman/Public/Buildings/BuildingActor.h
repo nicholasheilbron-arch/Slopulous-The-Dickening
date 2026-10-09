@@ -26,6 +26,7 @@ public:
 
 	const FBuildingRow& GetRow() const { return Row; }
 	UFUNCTION(BlueprintCallable) bool IsReincarnationSite() const { return Row.bIsReincarnationSite; }
+	UFUNCTION(BlueprintCallable) bool IsGatheringPoint() const { return Row.bIsGatheringPoint; }
 	UFUNCTION(BlueprintCallable) int32 GetPopulationCapacity() const { return Row.PopulationCapacity; }
 	/** Where a reborn Shaman appears (just beside the circle so it does not stand inside the mesh). */
 	UFUNCTION(BlueprintCallable) FVector GetRebirthLocation() const;

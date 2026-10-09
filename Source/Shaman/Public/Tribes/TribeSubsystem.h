@@ -7,6 +7,19 @@
 class AShamanUnitBase;
 class ABuildingActor;
 class UTribeComponent;
+class UTribeMemberComponent;
+
+/**
+ * Where a tribe lives. Phase 2.1 only records anchors from the buildings that already exist; storage, food sources,
+ * water access and housing state attach here in later Phase 2 milestones (not global variables).
+ */
+struct FTribeSettlement
+{
+	/** Settlement centre for future jobs (return home, deliver resources): the gathering point (campfire), else the circle. */
+	FVector Anchor = FVector::ZeroVector;
+	bool bHasAnchor = false;
+	TWeakObjectPtr<ABuildingActor> GatheringPoint;
+};
 
 /** Per-tribe game state that is not the follower roster: definition, Shaman, buildings, circle, rebirth. */
 struct FTribeState
@@ -16,6 +29,7 @@ struct FTribeState
 	TWeakObjectPtr<AShamanUnitBase> Shaman;
 	TArray<TWeakObjectPtr<ABuildingActor>> Buildings;
 	TWeakObjectPtr<ABuildingActor> Circle;
+	FTribeSettlement Settlement;
 	double RebirthAt = -1.0;                              // world time of pending rebirth, -1 = none
 	bool bShamanEliminated = false;
 	FTimerHandle RebirthTimer;
@@ -54,6 +68,19 @@ public:
 	/** Seconds until the tribe's Shaman is reborn, or -1 if not dead. */
 	UFUNCTION(BlueprintCallable) float GetRebirthRemaining(int32 TribeId) const;
 	TArray<AShamanUnitBase*> GetFollowers(int32 TribeId) const;
+
+	// ---- Tribe simulation view (Phase 2.1). Membership, tasks and the worker pool live on the tribe's UTribeComponent;
+	//      these are convenience reads by tribe id.
+	/** Living followers + the Shaman if alive. */
+	UFUNCTION(BlueprintCallable) int32 GetLivingMemberCount(int32 TribeId) const;
+	/** Followers that can take a task now (never the Shaman). */
+	TArray<UTribeMemberComponent*> GetAvailableWorkers(int32 TribeId) const;
+	UFUNCTION(BlueprintCallable) int32 GetAvailableWorkerCount(int32 TribeId) const;
+	/** Settlement anchor (gathering point, else circle). False if the tribe has neither. */
+	bool GetSettlementAnchor(int32 TribeId, FVector& OutAnchor) const;
+	/** Buildings registered to the tribe (valid ones only). */
+	TArray<ABuildingActor*> GetBuildings(int32 TribeId) const;
+	FName GetFactionTag(int32 TribeId) const;
 	int32 GetNumTribes() const { return Tribes.Num(); }
 
 	/**
@@ -84,6 +111,7 @@ private:
 	void RefreshCapacity(int32 TribeId);
 	void DoRebirth(int32 TribeId);
 	void ResolveShamanDeath(int32 TribeId);
+	void RefreshSettlement(FTribeState& T);
 	void EliminateTribe(FTribeState& T, const TCHAR* Reason);
 	void CheckLevelWon();
 

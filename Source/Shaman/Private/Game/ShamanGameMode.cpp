@@ -8,6 +8,13 @@
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/ShamanCharacter.h"
 #include "Tribes/TribeSubsystem.h"
+#include "Tribes/TribeTaskTypes.h"
+#include "TribeComponent.h"
+#include "TribeMemberComponent.h"
+#include "Terrain/ShamanSpace.h"
+#include "GameplayTagContainer.h"
+#include "Core/ShamanTargetRules.h"
+#include "GameFramework/PlayerController.h"
 #include "UI/ShamanHUD.h"
 #include "Core/ShamanDebug.h"
 #include "Core/ShamanLog.h"
@@ -302,7 +309,7 @@ void AShamanGameMode::RegenerateWorld(int32 Seed)
 void AShamanGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (ShamanDebug::IsEnabled()) DrawDebug();
+	if (ShamanDebug::IsEnabled()) { DrawDebug(); DrawTribeSimDebug(); }
 }
 
 void AShamanGameMode::DrawDebug() const
@@ -334,4 +341,136 @@ void AShamanGameMode::DrawDebug() const
 					UTribeSubsystem::ComputeRebirthTime(ActiveData->Reincarnation, Tribes->GetFollowerCount(Id)));
 				DrawDebugString(W, Circle->GetActorLocation() + FVector(0, 0, 300.f), Txt, nullptr, Tribes->GetTribeColor(Id).ToFColor(true), 0.f, true);
 			}
+}
+
+// --------------------------------------------------------------------------------------------------------
+// Tribe simulation debug (Phase 2.1)
+
+void AShamanGameMode::DrawTribeSimDebug() const
+{
+	UWorld* W = GetWorld();
+	const UTribeSubsystem* Tribes = W ? W->GetSubsystem<UTribeSubsystem>() : nullptr;
+	if (!Tribes) return;
+	for (int32 Id = 0; Id < Tribes->GetNumTribes(); ++Id)
+	{
+		const UTribeComponent* TC = Tribes->GetTribeComponent(Id);
+		if (!TC) continue;
+		const FColor Color = Tribes->GetTribeColor(Id).ToFColor(true);
+		for (const UTribeMemberComponent* M : TC->GetFollowers()) // this tribe's roster only, no world scan
+		{
+			const AActor* A = M->GetOwner();
+			if (!A) continue;
+			FString Txt = FString::Printf(TEXT("T%d %s%s"), M->TribeId, FTribeTaskRules::SimStateName(M->GetSimState()),
+				M->IsAvailableWorker() ? TEXT(" | available") : TEXT(" | busy"));
+			if (const FTribeTask* T = TC->FindTask(M->GetCurrentTaskId()))
+			{
+				Txt += FString::Printf(TEXT("\n#%d %s %s (%s)"), T->TaskId, *T->Type.ToString(), FTribeTaskRules::StateName(T->State), FTribeTaskRules::PriorityName(T->Priority));
+				if (const AActor* Target = T->TargetActor.Get()) Txt += FString::Printf(TEXT(" -> %s"), *Target->GetName());
+				else if (T->bHasTargetLocation) Txt += FString::Printf(TEXT(" -> %.0f uu away"), FVector::Dist(A->GetActorLocation(), T->TargetLocation));
+			}
+			const FVector Loc = A->GetActorLocation();
+			DrawDebugString(W, Loc + FShamanSpace::GetUp(this, Loc) * 160.f, Txt, nullptr, Color, 0.f, true);
+		}
+	}
+}
+
+void AShamanGameMode::ShamanTribeReport()
+{
+	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+	if (!Tribes) return;
+	for (int32 Id = 0; Id < Tribes->GetNumTribes(); ++Id)
+	{
+		const UTribeComponent* TC = Tribes->GetTribeComponent(Id);
+		FVector Anchor;
+		const bool bAnchor = Tribes->GetSettlementAnchor(Id, Anchor);
+		const FString Msg = FString::Printf(TEXT("Tribe %d (%s): followers %d, living members %d, available workers %d, open tasks %d, buildings %d, settlement %s%s"),
+			Id, *Tribes->GetFactionTag(Id).ToString(), Tribes->GetFollowerCount(Id), Tribes->GetLivingMemberCount(Id), Tribes->GetAvailableWorkerCount(Id),
+			TC ? TC->GetOpenTaskCount() : 0, Tribes->GetBuildings(Id).Num(), bAnchor ? TEXT("yes") : TEXT("none"),
+			Tribes->IsTribeEliminated(Id) ? TEXT(", ELIMINATED") : TEXT(""));
+		UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, Tribes->GetTribeColor(Id).ToFColor(true), Msg);
+	}
+}
+
+void AShamanGameMode::ShamanTaskTest(const FString& Action)
+{
+	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	const APawn* Player = PC ? PC->GetPawn() : nullptr;
+	const int32 MyTribe = Player ? FShamanTargetRules::GetTribeOf(Player) : 0;
+	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(MyTribe) : nullptr;
+	if (!TC) return;
+
+	auto NearestAvailable = [&]() -> UTribeMemberComponent*
+	{
+		UTribeMemberComponent* Best = nullptr;
+		float BestD = TNumericLimits<float>::Max();
+		for (UTribeMemberComponent* M : TC->GetAvailableWorkers())
+		{
+			const float D = Player ? FVector::DistSquared(M->GetOwner()->GetActorLocation(), Player->GetActorLocation()) : 0.f;
+			if (D < BestD) { BestD = D; Best = M; }
+		}
+		return Best;
+	};
+
+	bool bOk = false;
+	const FString A = Action.ToLower();
+	if (A == TEXT("create"))
+	{
+		DebugTaskId = TC->CreateTask(FGameplayTag::RequestGameplayTag(TEXT("Task.Debug")), ETribeTaskPriority::Normal, nullptr,
+			Player ? Player->GetActorLocation() : FVector::ZeroVector, Player != nullptr, TEXT("Console"));
+		bOk = DebugTaskId != INDEX_NONE;
+	}
+	else if (A == TEXT("assign"))
+	{
+		UTribeMemberComponent* M = NearestAvailable();
+		bOk = M && TC->AssignTask(DebugTaskId, M);
+		if (bOk) DebugMember = M;
+	}
+	else if (A == TEXT("start"))    bOk = TC->StartTask(DebugTaskId);
+	else if (A == TEXT("complete")) bOk = TC->CompleteTask(DebugTaskId);
+	else if (A == TEXT("fail"))     bOk = TC->FailTask(DebugTaskId, TEXT("Console"));
+	else if (A == TEXT("cancel"))   bOk = TC->CancelTask(DebugTaskId, TEXT("Console"));
+	else if (A == TEXT("unavailable"))
+	{
+		UTribeMemberComponent* M = DebugMember.IsValid() ? DebugMember.Get() : NearestAvailable();
+		if (M) { M->SetUnavailable(true); DebugMember = M; bOk = true; }
+	}
+	else if (A == TEXT("available"))
+	{
+		if (UTribeMemberComponent* M = DebugMember.Get()) { M->SetUnavailable(false); bOk = true; }
+	}
+
+	FTribeTask T;
+	const bool bHasTask = TC->GetTask(DebugTaskId, T);
+	const UTribeMemberComponent* Who = bHasTask ? T.Assignee.Get() : nullptr;
+	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s | unit %s %s | available workers %d"),
+		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"),
+		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""),
+		TC->GetAvailableWorkerCount());
+	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, bOk ? FColor::Green : FColor::Red, Msg);
+}
+
+void AShamanGameMode::ShamanTribeTransfer(int32 NewTribeId)
+{
+	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
+	const APawn* Player = PC ? PC->GetPawn() : nullptr;
+	if (!Tribes || !Player) return;
+	const int32 MyTribe = FShamanTargetRules::GetTribeOf(Player);
+	AShamanUnitBase* Best = nullptr;
+	float BestD = TNumericLimits<float>::Max();
+	for (AShamanUnitBase* F : Tribes->GetFollowers(MyTribe))
+	{
+		const float D = FVector::DistSquared(F->GetActorLocation(), Player->GetActorLocation());
+		if (D < BestD) { BestD = D; Best = F; }
+	}
+	const int32 OldBefore = Tribes->GetFollowerCount(MyTribe), NewBefore = Tribes->GetFollowerCount(NewTribeId);
+	if (Best && NewTribeId != MyTribe && NewTribeId >= 0 && NewTribeId < Tribes->GetNumTribes()) Best->ChangeTribe(NewTribeId);
+	const FString Msg = FString::Printf(TEXT("TribeTransfer %s -> tribe %d: tribe %d followers %d -> %d, tribe %d followers %d -> %d"),
+		Best ? *Best->GetName() : TEXT("(none)"), NewTribeId, MyTribe, OldBefore, Tribes->GetFollowerCount(MyTribe),
+		NewTribeId, NewBefore, Tribes->GetFollowerCount(NewTribeId));
+	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Msg);
 }

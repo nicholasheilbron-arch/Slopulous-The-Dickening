@@ -43,6 +43,20 @@ public:
 	/** Rebuild everything from a seed without restarting the editor session (console: ShamanRegenerate 42). */
 	UFUNCTION(Exec) void ShamanRegenerate(int32 Seed);
 
+	/** Tribe simulation (Phase 2.1) report: members, living/available counts, open tasks, settlement anchor. */
+	UFUNCTION(Exec) void ShamanTribeReport();
+	/**
+	 * Developer test of the task foundation on the player's tribe (Task.Debug, no behaviour):
+	 * ShamanTaskTest Create | Assign | Start | Complete | Fail | Cancel | Unavailable | Available
+	 * Assign picks the available Brave nearest to the player; Unavailable/Available toggle that Brave.
+	 */
+	UFUNCTION(Exec) void ShamanTaskTest(const FString& Action);
+	/** Developer test: moves the player's Brave nearest to the player into tribe NewTribeId (membership transfer). */
+	UFUNCTION(Exec) void ShamanTribeTransfer(int32 NewTribeId);
+
+	/** Per-unit tribe simulation labels (tribe, state, task, priority, target, availability). Debug mode only. */
+	void DrawTribeSimDebug() const;
+
 protected:
 	/** Builds the world once (flat Phase 1 world here; AShamanPlanetGameMode builds a planet). */
 	virtual void EnsureWorldGenerated();
@@ -66,6 +80,8 @@ protected:
 	FWorldLayout Layout;
 	TArray<FVector> MarkerGround;   // ground position per Layout.Markers entry (debug)
 	bool bWorldGenerated = false;
+	int32 DebugTaskId = INDEX_NONE;                       // ShamanTaskTest's current task
+	TWeakObjectPtr<class UTribeMemberComponent> DebugMember; // ShamanTaskTest Unavailable/Available target
 	int32 SeedOverride = 0;
 	bool bHasSeedOverride = false;
 };

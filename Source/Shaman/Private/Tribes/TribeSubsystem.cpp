@@ -69,6 +69,8 @@ void UTribeSubsystem::RegisterBuilding(ABuildingActor* B)
 	if (!T) return;
 	T->Buildings.AddUnique(B);
 	if (B->IsReincarnationSite()) T->Circle = B;
+	if (B->IsGatheringPoint()) T->Settlement.GatheringPoint = B;
+	RefreshSettlement(*T);
 	RefreshCapacity(T->TribeId);
 }
 
@@ -78,6 +80,8 @@ void UTribeSubsystem::UnregisterBuilding(ABuildingActor* B)
 	{
 		if (T.Buildings.Remove(B) > 0) RefreshCapacity(T.TribeId);
 		if (T.Circle.Get() == B) T.Circle = nullptr;
+		if (T.Settlement.GatheringPoint.Get() == B) T.Settlement.GatheringPoint = nullptr;
+		RefreshSettlement(T);
 	}
 }
 
@@ -214,4 +218,54 @@ void UTribeSubsystem::DoRebirth(int32 TribeId)
 	if (!S || !C) { EliminateTribe(*T, TEXT("Shaman or circle gone at rebirth")); return; }
 	S->Reincarnate(C->GetRebirthLocation(), C->GetActorRotation());
 	OnShamanReborn.Broadcast(TribeId, S);
+}
+
+// ---- Tribe simulation view ------------------------------------------------------------------------------------------
+
+void UTribeSubsystem::RefreshSettlement(FTribeState& T)
+{
+	const ABuildingActor* A = T.Settlement.GatheringPoint.Get();
+	if (!A) A = T.Circle.Get();
+	T.Settlement.bHasAnchor = A != nullptr;
+	if (A) T.Settlement.Anchor = A->GetActorLocation();
+}
+
+int32 UTribeSubsystem::GetLivingMemberCount(int32 TribeId) const
+{
+	const AShamanUnitBase* S = GetShaman(TribeId);
+	return GetFollowers(TribeId).Num() + (S && S->IsAlive() ? 1 : 0);
+}
+
+TArray<UTribeMemberComponent*> UTribeSubsystem::GetAvailableWorkers(int32 TribeId) const
+{
+	const UTribeComponent* TC = GetTribeComponent(TribeId);
+	return TC ? TC->GetAvailableWorkers() : TArray<UTribeMemberComponent*>();
+}
+
+int32 UTribeSubsystem::GetAvailableWorkerCount(int32 TribeId) const
+{
+	const UTribeComponent* TC = GetTribeComponent(TribeId);
+	return TC ? TC->GetAvailableWorkerCount() : 0;
+}
+
+bool UTribeSubsystem::GetSettlementAnchor(int32 TribeId, FVector& OutAnchor) const
+{
+	const FTribeState* T = Find(TribeId);
+	if (!T || !T->Settlement.bHasAnchor) return false;
+	OutAnchor = T->Settlement.Anchor;
+	return true;
+}
+
+TArray<ABuildingActor*> UTribeSubsystem::GetBuildings(int32 TribeId) const
+{
+	TArray<ABuildingActor*> Out;
+	if (const FTribeState* T = Find(TribeId))
+		for (const TWeakObjectPtr<ABuildingActor>& B : T->Buildings) if (B.IsValid()) Out.Add(B.Get());
+	return Out;
+}
+
+FName UTribeSubsystem::GetFactionTag(int32 TribeId) const
+{
+	const FTribeState* T = Find(TribeId);
+	return T ? T->Def.FactionTag : NAME_None;
 }

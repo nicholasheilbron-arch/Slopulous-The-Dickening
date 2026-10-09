@@ -1,6 +1,7 @@
 #include "TribeMemberComponent.h"
 #include "TribeComponent.h"
 #include "TribeRegistrySubsystem.h"
+#include "Core/ShamanInterfaces.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
 
@@ -141,4 +142,41 @@ UTribeMemberComponent* UTribeMemberComponent::ConvertToTribe(UTribeComponent* Ne
 		return nullptr;
 	}
 	return Result;
+}
+
+// ---- Tribe simulation ------------------------------------------------------------------------------------------------
+
+bool UTribeMemberComponent::IsAlive() const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner || Owner->IsPendingKillPending()) return false;
+	const IShamanDamageReceiver* Life = Cast<IShamanDamageReceiver>(const_cast<AActor*>(Owner));
+	return !Life || Life->IsAlive();
+}
+
+bool UTribeMemberComponent::IsAvailableWorker() const
+{
+	return IsFollower() && TribeId >= 0 && !bUnavailable && CurrentTaskId == INDEX_NONE && IsAlive();
+}
+
+EUnitSimState UTribeMemberComponent::GetSimState() const
+{
+	if (!IsAlive()) return EUnitSimState::Dead;
+	if (bUnavailable) return EUnitSimState::Unavailable;
+	if (CurrentTaskId != INDEX_NONE) return EUnitSimState::Working;
+	return Activity;
+}
+
+void UTribeMemberComponent::SetUnavailable(bool bNewUnavailable)
+{
+	if (bUnavailable == bNewUnavailable) return;
+	bUnavailable = bNewUnavailable;
+	NotifyAvailabilityChanged();
+}
+
+void UTribeMemberComponent::NotifyAvailabilityChanged() const
+{
+	if (const UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(this))
+		if (UTribeComponent* Tribe = R->FindTribe(TribeId))
+			Tribe->NotifyWorkerAvailabilityChanged();
 }

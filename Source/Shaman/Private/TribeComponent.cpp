@@ -3,6 +3,8 @@
 #include "TribeRegistrySubsystem.h"
 #include "SpellComponent.h"
 #include "GameFramework/Actor.h"
+#include "Engine/World.h"
+#include "Core/ShamanLog.h"
 
 UTribeComponent::UTribeComponent() { PrimaryComponentTick.bCanEverTick = false; }
 
@@ -16,6 +18,10 @@ void UTribeComponent::BeginPlay()
 
 void UTribeComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
+	// The task book goes with the tribe: release every unit still holding one of its tasks.
+	TArray<int32> Open;
+	for (const TPair<int32, FTribeTask>& P : Tasks) if (P.Value.IsOpen()) Open.Add(P.Key);
+	for (int32 Id : Open) EndTask(Id, ETribeTaskState::Cancelled, TEXT("TribeRemoved"));
 	if (UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(this)) R->UnregisterTribe(this);
 	Super::EndPlay(Reason);
 }
@@ -77,12 +83,20 @@ bool UTribeComponent::UnregisterFollower(UTribeMemberComponent* Member)
 {
 	const int32 Removed = Followers.RemoveAll([Member](const TWeakObjectPtr<UTribeMemberComponent>& M) { return M.Get() == Member; });
 	Prune();
+	// A unit leaving the roster (death, conversion, tribe change, destroyed) cannot keep working for this tribe.
+	// (Task ids are per tribe: only end the task if this tribe really assigned it to this unit.)
+	if (Member && Member->HasTask())
+	{
+		const FTribeTask* T = Tasks.Find(Member->GetCurrentTaskId());
+		if (T && T->IsHeld() && T->Assignee.Get() == Member) EndTask(T->TaskId, ETribeTaskState::Failed, TEXT("MemberLeftTribe"));
+	}
 	if (Removed > 0) NotifyChanged();
 	return Removed > 0;
 }
 
 void UTribeComponent::NotifyChanged()
 {
+	NotifyWorkerAvailabilityChanged();
 	const int32 Count = GetFollowerCount();
 	if (bDriveOwnerManaRegen)
 		if (USpellComponent* Spells = GetOwner() ? GetOwner()->FindComponentByClass<USpellComponent>() : nullptr)
@@ -97,4 +111,125 @@ UTribeComponent* UTribeComponent::FindTribeFor(const AActor* Actor)
 	if (const UTribeMemberComponent* M = UTribeMemberComponent::FindOn(Actor))
 		if (UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(Actor)) return R->FindTribe(M->TribeId);
 	return nullptr;
+}
+
+// ---- Worker pool -------------------------------------------------------------------------------------------------
+
+bool UTribeComponent::CanAssignTo(const UTribeMemberComponent* Member) const
+{
+	return Member && Member->TribeId == TribeId && Member->IsAvailableWorker() && IsFollower(Member);
+}
+
+TArray<UTribeMemberComponent*> UTribeComponent::GetAvailableWorkers() const
+{
+	TArray<UTribeMemberComponent*> Out;
+	for (const TWeakObjectPtr<UTribeMemberComponent>& W : Followers)
+		if (UTribeMemberComponent* M = W.Get())
+			if (M->TribeId == TribeId && M->IsAvailableWorker()) Out.Add(M);
+	return Out;
+}
+
+int32 UTribeComponent::GetAvailableWorkerCount() const
+{
+	int32 N = 0;
+	for (const TWeakObjectPtr<UTribeMemberComponent>& W : Followers)
+		if (const UTribeMemberComponent* M = W.Get())
+			if (M->TribeId == TribeId && M->IsAvailableWorker()) ++N;
+	return N;
+}
+
+void UTribeComponent::NotifyWorkerAvailabilityChanged()
+{
+	OnWorkersChanged.Broadcast(TribeId);
+}
+
+// ---- Task book ---------------------------------------------------------------------------------------------------
+
+float UTribeComponent::Now() const
+{
+	const UWorld* W = GetWorld();
+	return W ? W->GetTimeSeconds() : 0.f;
+}
+
+int32 UTribeComponent::CreateTask(FGameplayTag Type, ETribeTaskPriority Priority, AActor* TargetActor, FVector TargetLocation,
+	bool bHasTargetLocation, FName Source)
+{
+	FTribeTask T;
+	T.TaskId = NextTaskId++;
+	T.Type = Type;
+	T.Priority = Priority;
+	T.TribeId = TribeId;
+	T.TargetActor = TargetActor;
+	T.TargetLocation = TargetLocation;
+	T.bHasTargetLocation = bHasTargetLocation;
+	T.Source = Source;
+	T.CreatedTime = Now();
+	Tasks.Add(T.TaskId, T);
+	OnTaskChanged.Broadcast(TribeId, T.TaskId, T.State);
+	return T.TaskId;
+}
+
+bool UTribeComponent::AssignTask(int32 TaskId, UTribeMemberComponent* Member)
+{
+	FTribeTask* T = Tasks.Find(TaskId);
+	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Assigned)) return false;
+	if (!CanAssignTo(Member)) return false; // dead, unavailable, busy, Shaman, other tribe...
+	T->State = ETribeTaskState::Assigned;
+	T->Assignee = Member;
+	T->AssignedTime = Now();
+	Member->SetCurrentTaskId(TaskId);
+	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
+	NotifyWorkerAvailabilityChanged();
+	return true;
+}
+
+bool UTribeComponent::StartTask(int32 TaskId)
+{
+	FTribeTask* T = Tasks.Find(TaskId);
+	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Active)) return false;
+	T->State = ETribeTaskState::Active;
+	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
+	return true;
+}
+
+bool UTribeComponent::CompleteTask(int32 TaskId) { return EndTask(TaskId, ETribeTaskState::Completed, NAME_None); }
+bool UTribeComponent::FailTask(int32 TaskId, FName Reason) { return EndTask(TaskId, ETribeTaskState::Failed, Reason); }
+bool UTribeComponent::CancelTask(int32 TaskId, FName Reason) { return EndTask(TaskId, ETribeTaskState::Cancelled, Reason); }
+
+bool UTribeComponent::EndTask(int32 TaskId, ETribeTaskState Final, FName Reason)
+{
+	FTribeTask* T = Tasks.Find(TaskId);
+	if (!T || !FTribeTaskRules::CanTransition(T->State, Final)) return false;
+	T->State = Final;
+	T->EndReason = Reason;
+	T->EndedTime = Now();
+	UTribeMemberComponent* Freed = T->Assignee.Get();
+	if (Freed && Freed->GetCurrentTaskId() == TaskId) Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
+	EndedTaskOrder.Add(TaskId);
+	OnTaskChanged.Broadcast(TribeId, TaskId, Final);
+	if (Freed) NotifyWorkerAvailabilityChanged();
+	ForgetOldEndedTasks();
+	return true;
+}
+
+void UTribeComponent::ForgetOldEndedTasks()
+{
+	while (EndedTaskOrder.Num() > FMath::Max(0, MaxEndedTasksKept))
+	{
+		Tasks.Remove(EndedTaskOrder[0]);
+		EndedTaskOrder.RemoveAt(0);
+	}
+}
+
+bool UTribeComponent::GetTask(int32 TaskId, FTribeTask& OutTask) const
+{
+	if (const FTribeTask* T = Tasks.Find(TaskId)) { OutTask = *T; return true; }
+	return false;
+}
+
+int32 UTribeComponent::GetOpenTaskCount() const
+{
+	int32 N = 0;
+	for (const TPair<int32, FTribeTask>& P : Tasks) if (P.Value.IsOpen()) ++N;
+	return N;
 }

@@ -287,7 +287,7 @@ void AShamanPlanetGameMode::Tick(float DeltaSeconds)
 		}
 	}
 
-	if (ShamanDebug::IsEnabled()) DrawPlanetDebug();
+	if (ShamanDebug::IsEnabled()) { DrawPlanetDebug(); DrawTribeSimDebug(); }
 }
 
 void AShamanPlanetGameMode::DrawPlanetDebug() const

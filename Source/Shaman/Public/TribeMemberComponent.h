@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "TribeTypes.h"
+#include "Tribes/TribeTaskTypes.h"
 #include "TribeMemberComponent.generated.h"
 
 class UTribeComponent;
@@ -51,6 +52,28 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Tribe") static UTribeMemberComponent* FindOn(const AActor* Actor);
 
+	// ---- Tribe simulation (Phase 2.1): availability and the unit's one primary task ------------------------------
+	// Tasks are owned and ended by the tribe (UTribeComponent::CreateTask/AssignTask/...); the member only records
+	// which one it holds. Execution (moving, gathering...) is not part of this foundation.
+
+	/** Owner is alive (IShamanDamageReceiver), not being destroyed. Members without health count as alive. */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAlive() const;
+	/** Worker pool rule: a living follower of a tribe, not marked unavailable, holding no task. Never true for Shamans. */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAvailableWorker() const;
+	/** Temporarily remove/return this unit from/to its tribe's worker pool (stunned, scripted, in a cutscene...). */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") void SetUnavailable(bool bNewUnavailable);
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsUnavailable() const { return bUnavailable; }
+	/** Id of the task this unit holds (Assigned or Active), or INDEX_NONE. */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetCurrentTaskId() const { return CurrentTaskId; }
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool HasTask() const { return CurrentTaskId != INDEX_NONE; }
+	/** Derived: Dead > Unavailable > Working (holds a task) > current activity (Idle / Following / Guarding / Combat). */
+	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") EUnitSimState GetSimState() const;
+	/** What the unit's own AI is doing when it holds no task (set by the Phase 1 AI; Idle by default). */
+	void SetActivity(EUnitSimState NewActivity) { Activity = NewActivity; }
+
+	/** Bookkeeping hooks for UTribeComponent only. */
+	void SetCurrentTaskId(int32 TaskId) { CurrentTaskId = TaskId; }
+
 protected:
 	/** Applies a pending conversion identity (see UTribeRegistrySubsystem::BeginPendingConversion) before any BeginPlay runs. */
 	virtual void InitializeComponent() override;
@@ -58,5 +81,11 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
+	/** Tells the owning tribe that this unit's worker availability may have changed. */
+	void NotifyAvailabilityChanged() const;
+
 	bool bConversionInProgress = false;
+	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") bool bUnavailable = false;
+	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") int32 CurrentTaskId = INDEX_NONE;
+	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState Activity = EUnitSimState::Idle;
 };

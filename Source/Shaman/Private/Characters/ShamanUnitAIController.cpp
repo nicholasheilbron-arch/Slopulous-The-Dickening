@@ -10,6 +10,7 @@
 #include "Terrain/ShamanTerrainSubsystem.h"
 #include "Navigation/ShamanSurfaceNavigation.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "TribeMemberComponent.h"
 #include "Engine/World.h"
 
 AShamanUnitAIController::AShamanUnitAIController()
@@ -71,6 +72,15 @@ void AShamanUnitAIController::Think(AShamanUnitBase* U)
 	UpdateTarget(U);
 	if (AActor* T = Target.Get()) Engage(U, T);
 	else FollowOrders(U);
+	// Mirror what this AI is doing into the tribe simulation state (debug/inspection only; tasks are not executed yet).
+	if (U->TribeMember)
+	{
+		EUnitSimState Activity = EUnitSimState::Idle;
+		if (Target.IsValid()) Activity = EUnitSimState::Combat;
+		else if (U->GetOrder() == EFollowerOrder::FollowShaman) Activity = EUnitSimState::Following;
+		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome) Activity = EUnitSimState::Guarding;
+		U->TribeMember->SetActivity(Activity);
+	}
 }
 
 void AShamanUnitAIController::StopMovement()

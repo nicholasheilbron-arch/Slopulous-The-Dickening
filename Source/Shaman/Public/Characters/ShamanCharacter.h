@@ -44,6 +44,9 @@ public:
 	FText GetFocusText() const;
 	ESpellCastResult GetLastCastFeedback(float& OutAge) const;
 	int32 GetSelectedSpellIndex() const { return SelectedSpellIndex; }
+	/** Makes a known spell the selected one (spell panel). Returns false (selection unchanged) if it is not known.
+	 *  Selecting never casts. */
+	UFUNCTION(BlueprintCallable) bool SelectSpell(FName SpellId);
 
 	virtual void Reincarnate(const FVector& Location, const FRotator& Rotation) override;
 

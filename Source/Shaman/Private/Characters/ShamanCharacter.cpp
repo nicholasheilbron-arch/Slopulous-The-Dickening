@@ -68,6 +68,14 @@ FName AShamanCharacter::GetSelectedSpellId() const
 	return Spells->KnownSpellIds.IsValidIndex(SelectedSpellIndex) ? Spells->KnownSpellIds[SelectedSpellIndex] : NAME_None;
 }
 
+bool AShamanCharacter::SelectSpell(FName SpellId)
+{
+	const int32 Index = Spells->KnownSpellIds.IndexOfByKey(SpellId);
+	if (Index == INDEX_NONE) return false;
+	SelectedSpellIndex = Index;
+	return true;
+}
+
 FVector AShamanCharacter::GetAimPoint() const
 {
 	const AController* C = GetController();

@@ -8,5 +8,7 @@ public class Shaman : ModuleRules
 			"Core", "CoreUObject", "Engine", "InputCore",
 			"AIModule", "NavigationSystem", "GameplayTags", "ProceduralMeshComponent", "AssetRegistry"
 		});
+		// UInputComponent::BindKey builds an FInputChord, which lives in Slate (RTS controls bind raw keys).
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
 	}
 }

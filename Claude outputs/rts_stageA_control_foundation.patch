@@ -1,0 +1,1532 @@
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index 1908673..c7bacc5 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -8,6 +8,7 @@
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/ShamanCharacter.h"
+ #include "Characters/ShamanUnitAIController.h"
++#include "Player/ShamanPlayerController.h"
+ #include "Tribes/TribeSubsystem.h"
+ #include "Tribes/TribeTaskTypes.h"
+ #include "Tribes/TribeTaskExecution.h"
+@@ -40,6 +41,7 @@ AShamanGameMode::AShamanGameMode()
+ 	PrimaryActorTick.bCanEverTick = true;
+ 	DefaultPawnClass = AShamanCharacter::StaticClass();
+ 	HUDClass = AShamanHUD::StaticClass();
++	PlayerControllerClass = AShamanPlayerController::StaticClass(); // RTS / Shaman hybrid controls (starts in RTS mode)
+ 	UnitClass = AShamanUnitBase::StaticClass();
+ 	ShamanClass = AShamanCharacter::StaticClass();
+ 	DefaultGameDataPath = TSoftObjectPtr<UShamanGameData>(FSoftObjectPath(TEXT("/Game/Data/DA_ShamanGameData.DA_ShamanGameData")));
+diff --git a/Source/Shaman/Private/Player/ShamanControlTypes.cpp b/Source/Shaman/Private/Player/ShamanControlTypes.cpp
+new file mode 100644
+index 0000000..e561c93
+--- /dev/null
++++ b/Source/Shaman/Private/Player/ShamanControlTypes.cpp
+@@ -0,0 +1,122 @@
++#include "Player/ShamanControlTypes.h"
++#include "Terrain/PlanetFrame.h"
++#include "Characters/ShamanUnitBase.h"
++#include "TribeMemberComponent.h"
++
++// ---- Camera rig --------------------------------------------------------------------------------------------------------
++
++FVector FShamanRTSCameraRig::UpAt(const FPlanetFrame* Planet, const FVector& Location)
++{
++	return Planet ? Planet->GetUp(Location) : FVector::UpVector;
++}
++
++void FShamanRTSCameraRig::Normalize(const FPlanetFrame* Planet)
++{
++	const FVector Up = UpAt(Planet, Focus);
++	FVector F = Forward - Up * FVector::DotProduct(Forward, Up);
++	if (F.SizeSquared() < 1e-6f)
++	{
++		// Heading parallel to up (degenerate input): pick any horizontal direction.
++		const FVector Alt = FMath::Abs(Up.Z) < 0.9f ? FVector::UpVector : FVector::ForwardVector;
++		F = Alt - Up * FVector::DotProduct(Alt, Up);
++	}
++	Forward = F.GetSafeNormal();
++}
++
++FVector FShamanRTSCameraRig::GetRight(const FPlanetFrame* Planet) const
++{
++	return FVector::CrossProduct(UpAt(Planet, Focus), Forward).GetSafeNormal(); // Unreal convention: Right = Up x Forward
++}
++
++void FShamanRTSCameraRig::Pan(const FPlanetFrame* Planet, float DForward, float DRight)
++{
++	Normalize(Planet);
++	const FVector Delta = Forward * DForward + GetRight(Planet) * DRight;
++	if (!Planet)
++	{
++		Focus += Delta;
++		return;
++	}
++	// Planet: step along the tangent, then back onto the sphere through the focus (same radius), and carry the
++	// heading into the new tangent plane (parallel transport) so it never flips.
++	const float R = Planet->GetDistanceFromCenter(Focus);
++	Focus = Planet->Center + ((Focus + Delta) - Planet->Center).GetSafeNormal() * R;
++	Normalize(Planet);
++}
++
++void FShamanRTSCameraRig::Orbit(const FPlanetFrame* Planet, float YawDeg, float PitchDeltaDeg, const FShamanRTSCameraSettings& Settings)
++{
++	Normalize(Planet);
++	if (YawDeg != 0.f) Forward = Forward.RotateAngleAxis(YawDeg, UpAt(Planet, Focus)).GetSafeNormal();
++	PitchDeg = FMath::Clamp(PitchDeg + PitchDeltaDeg, Settings.MinPitch, Settings.MaxPitch);
++}
++
++void FShamanRTSCameraRig::Zoom(float Steps, const FShamanRTSCameraSettings& Settings)
++{
++	const float Factor = FMath::Pow(1.f - Settings.ZoomStep, Steps); // Steps > 0: closer
++	Distance = FMath::Clamp(Distance * Factor, Settings.MinDistance, Settings.MaxDistance);
++}
++
++void FShamanRTSCameraRig::GetView(const FPlanetFrame* Planet, FVector& OutLocation, FRotator& OutRotation) const
++{
++	FShamanRTSCameraRig R = *this;
++	R.Normalize(Planet);
++	const FVector Up = UpAt(Planet, R.Focus);
++	const float P = FMath::DegreesToRadians(FMath::Clamp(R.PitchDeg, 1.f, 89.f));
++	const FVector ToCamera = -R.Forward * FMath::Cos(P) + Up * FMath::Sin(P);
++	OutLocation = R.Focus + ToCamera * R.Distance;
++	OutRotation = FRotationMatrix::MakeFromXZ(-ToCamera, Up).Rotator();
++}
++
++// ---- Selection rules -----------------------------------------------------------------------------------------------------
++
++bool FShamanSelectionRules::IsSelectable(const AShamanUnitBase* Unit, int32 PlayerTribe)
++{
++	if (!Unit || Unit->IsPendingKillPending() || PlayerTribe < 0) return false;
++	if (!Unit->IsAlive() || Unit->GetTribeId() != PlayerTribe) return false;
++	const UTribeMemberComponent* M = Unit->TribeMember;
++	return Unit->IsShaman() || (M && M->IsFollower());
++}
++
++bool FShamanSelectionRules::IsDrag(const FVector2D& Start, const FVector2D& Current, float ThresholdPx)
++{
++	return FVector2D::DistSquared(Start, Current) > FMath::Square(FMath::Max(1.f, ThresholdPx));
++}
++
++float FShamanSelectionRules::DistanceToSegment(const FVector2D& P, const FVector2D& A, const FVector2D& B)
++{
++	const FVector2D AB = B - A;
++	const float Len2 = AB.SizeSquared();
++	const float T = Len2 > KINDA_SMALL_NUMBER ? FMath::Clamp(FVector2D::DotProduct(P - A, AB) / Len2, 0.f, 1.f) : 0.f;
++	return FVector2D::Distance(P, A + AB * T);
++}
++
++int32 FShamanSelectionRules::PickClosest(const TArray<FShamanScreenCandidate>& Candidates, const FVector2D& Mouse, float RadiusPx)
++{
++	int32 Best = INDEX_NONE;
++	float BestD = TNumericLimits<float>::Max();
++	for (int32 i = 0; i < Candidates.Num(); ++i)
++	{
++		const FShamanScreenCandidate& C = Candidates[i];
++		if (!C.bOnScreen || !C.Unit.IsValid()) continue;
++		// Body tolerance grows with the unit's on-screen size so zoomed-in units are easy to click.
++		const float Tol = RadiusPx + 0.2f * FVector2D::Distance(C.Feet, C.Head);
++		const float D = DistanceToSegment(Mouse, C.Feet, C.Head);
++		if (D <= Tol && D < BestD) { BestD = D; Best = i; }
++	}
++	return Best;
++}
++
++void FShamanSelectionRules::BoxSelect(const TArray<FShamanScreenCandidate>& Candidates, const FVector2D& A, const FVector2D& B, TArray<int32>& OutIndices)
++{
++	OutIndices.Reset();
++	const FVector2D Min(FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y));
++	const FVector2D Max(FMath::Max(A.X, B.X), FMath::Max(A.Y, B.Y));
++	for (int32 i = 0; i < Candidates.Num(); ++i)
++	{
++		const FShamanScreenCandidate& C = Candidates[i];
++		if (!C.bOnScreen || !C.Unit.IsValid()) continue;
++		const FVector2D Mid = (C.Feet + C.Head) * 0.5f;
++		if (Mid.X >= Min.X && Mid.X <= Max.X && Mid.Y >= Min.Y && Mid.Y <= Max.Y) OutIndices.Add(i);
++	}
++}
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+new file mode 100644
+index 0000000..b3b6ea8
+--- /dev/null
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -0,0 +1,335 @@
++#include "Player/ShamanPlayerController.h"
++#include "Player/ShamanRTSCamera.h"
++#include "Player/ShamanSelectionComponent.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Tribes/TribeSubsystem.h"
++#include "Terrain/ShamanSpace.h"
++#include "Terrain/PlanetFrame.h"
++#include "Camera/PlayerCameraManager.h"
++#include "Core/ShamanTargetRules.h"
++#include "Core/ShamanDebug.h"
++#include "Core/ShamanLog.h"
++#include "Components/CapsuleComponent.h"
++#include "Components/InputComponent.h"
++#include "Engine/World.h"
++#include "InputCoreTypes.h"
++
++AShamanPlayerController::AShamanPlayerController()
++{
++	Selection = CreateDefaultSubobject<UShamanSelectionComponent>(TEXT("Selection"));
++	RTSCameraClass = AShamanRTSCamera::StaticClass();
++	bShowMouseCursor = false;
++}
++
++int32 AShamanPlayerController::GetPlayerTribe() const
++{
++	if (const APawn* P = GetPawn()) return FShamanTargetRules::GetTribeOf(P);
++	return Selection ? Selection->GetPlayerTribe() : 0;
++}
++
++// ---- Input layers ------------------------------------------------------------------------------------------------------
++
++void AShamanPlayerController::SetupInputComponent()
++{
++	Super::SetupInputComponent();
++	// Controller layer (active in Shaman mode; blocked by the RTS layer in RTS mode).
++	InputComponent->BindKey(EKeys::Enter, IE_Pressed, this, &AShamanPlayerController::OnToggleModePressed);
++}
++
++static UInputComponent* MakeRTSInput(AShamanPlayerController* PC)
++{
++	UInputComponent* In = NewObject<UInputComponent>(PC, TEXT("ShamanRTSInput"));
++	In->bBlockInput = true; // the Shaman's bindings and the controller layer never see RTS-mode input
++	In->RegisterComponent();
++	return In;
++}
++
++void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPossess)
++{
++	CancelSelectGesture();
++	bOrbiting = false;
++	if (!bFirstTime && !bFromPossess && PlayerInput) FlushPressedKeys(); // nothing held during a switch carries over
++	const float Blend = (bFirstTime || bFromPossess) ? 0.f : CameraSettings.ModeBlendTime;
++
++	if (Mode == EShamanControlMode::RTS)
++	{
++		const bool bNewCamera = EnsureRTSCamera();
++		if (bNewCamera || bFirstTime) PlaceCameraAtStart();
++		else if (!bFromPossess) FocusCameraOnShaman();
++		RTSCamera->SetActorTickEnabled(true);
++		SetViewTargetWithBlend(RTSCamera, Blend);
++
++		if (!RTSInput)
++		{
++			RTSInput = MakeRTSInput(this);
++			RTSInput->BindKey(EKeys::Enter, IE_Pressed, this, &AShamanPlayerController::OnToggleModePressed);
++			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShamanPlayerController::OnSelectPressed);
++			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShamanPlayerController::OnSelectReleased);
++			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AShamanPlayerController::OnOrbitPressed);
++			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AShamanPlayerController::OnOrbitReleased);
++			RTSInput->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShamanPlayerController::OnZoomIn);
++			RTSInput->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AShamanPlayerController::OnZoomOut);
++			RTSInput->BindKey(EKeys::F, IE_Pressed, this, &AShamanPlayerController::OnFocusSelection);
++			RTSInput->BindKey(EKeys::Home, IE_Pressed, this, &AShamanPlayerController::OnFocusShaman);
++			RTSInput->BindKey(EKeys::Escape, IE_Pressed, this, &AShamanPlayerController::OnClearSelection);
++			RTSInput->BindKey(EKeys::BackSpace, IE_Pressed, this, &AShamanPlayerController::OnClearSelection);
++			RTSInput->BindKey(EKeys::F3, IE_Pressed, this, &AShamanPlayerController::OnToggleDebug);
++		}
++		if (!bRTSInputPushed) { PushInputComponent(RTSInput); bRTSInputPushed = true; }
++
++		bShowMouseCursor = true;
++		if (GetLocalPlayer())
++		{
++			FInputModeGameAndUI InputMode;
++			InputMode.SetHideCursorDuringCapture(false);
++			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
++			SetInputMode(InputMode);
++		}
++	}
++	else
++	{
++		if (RTSInput && bRTSInputPushed) { PopInputComponent(RTSInput); bRTSInputPushed = false; }
++		if (RTSCamera) RTSCamera->SetActorTickEnabled(false);
++		if (APawn* P = GetPawn()) SetViewTargetWithBlend(P, Blend);
++		bShowMouseCursor = false;
++		if (GetLocalPlayer()) SetInputMode(FInputModeGameOnly());
++	}
++	UE_LOG(LogShaman, Log, TEXT("[Control] %s MODE%s"), Mode == EShamanControlMode::RTS ? TEXT("RTS") : TEXT("SHAMAN"),
++		bFirstTime ? TEXT(" (start)") : TEXT(""));
++}
++
++void AShamanPlayerController::OnPossess(APawn* InPawn)
++{
++	Super::OnPossess(InPawn); // may reset the view target to the pawn: the mode is re-applied right after
++	if (Selection) Selection->SetPlayerTribe(GetPlayerTribe());
++	const bool bFirst = !bModeInitialized;
++	if (bFirst) { Mode = StartMode; bModeInitialized = true; }
++	ApplyControlMode(bFirst, /*bFromPossess*/ true);
++}
++
++void AShamanPlayerController::SetControlMode(EShamanControlMode NewMode)
++{
++	if (bModeInitialized && NewMode == Mode) return;
++	Mode = NewMode;
++	const bool bFirst = !bModeInitialized;
++	bModeInitialized = true;
++	ApplyControlMode(bFirst);
++}
++
++void AShamanPlayerController::ToggleControlMode()
++{
++	SetControlMode(Mode == EShamanControlMode::RTS ? EShamanControlMode::Shaman : EShamanControlMode::RTS);
++}
++
++void AShamanPlayerController::ShamanControlMode() { ToggleControlMode(); }
++
++void AShamanPlayerController::EndPlay(const EEndPlayReason::Type Reason)
++{
++	if (RTSInput && bRTSInputPushed) { PopInputComponent(RTSInput); bRTSInputPushed = false; }
++	if (RTSCamera && Reason == EEndPlayReason::Destroyed) RTSCamera->Destroy(); // world teardown cleans it up otherwise
++	RTSCamera = nullptr;
++	Super::EndPlay(Reason);
++}
++
++// ---- Camera ------------------------------------------------------------------------------------------------------------
++
++bool AShamanPlayerController::EnsureRTSCamera()
++{
++	if (RTSCamera && !RTSCamera->IsPendingKillPending()) return false;
++	FActorSpawnParameters P;
++	P.Owner = this;
++	P.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
++	const FVector Where = GetPawn() ? GetPawn()->GetActorLocation() : FVector::ZeroVector;
++	UClass* Cls = RTSCameraClass ? RTSCameraClass.Get() : AShamanRTSCamera::StaticClass();
++	RTSCamera = GetWorld()->SpawnActor<AShamanRTSCamera>(Cls, FTransform(Where), P);
++	if (RTSCamera) RTSCamera->Settings = CameraSettings;
++	return RTSCamera != nullptr;
++}
++
++bool AShamanPlayerController::IsOnVisibleSide(const FVector& WorldLocation) const
++{
++	FPlanetFrame Planet;
++	if (!PlayerCameraManager || !FShamanSpace::GetPlanet(this, Planet)) return true;
++	return FVector::DotProduct(Planet.GetUp(WorldLocation), PlayerCameraManager->GetCameraLocation() - WorldLocation) >= 0.f;
++}
++
++void AShamanPlayerController::PlaceCameraAtStart()
++{
++	if (!RTSCamera) return;
++	const APawn* S = GetPawn();
++	const FVector ShamanAt = S ? S->GetActorLocation() : FVector::ZeroVector;
++	FVector Anchor = ShamanAt;
++	if (const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>()) Tribes->GetSettlementAnchor(GetPlayerTribe(), Anchor);
++	// Look from behind the settlement toward the Shaman so both are in view.
++	FVector Heading = FShamanSpace::HorizontalDirection(this, Anchor, ShamanAt);
++	if (Heading.IsNearlyZero() && S) Heading = FShamanSpace::HorizontalNormal(this, ShamanAt, S->GetActorForwardVector());
++	RTSCamera->InitializeView(Anchor, Heading);
++}
++
++void AShamanPlayerController::PanCamera(float ForwardAxis, float RightAxis, float DeltaSeconds)
++{
++	if (RTSCamera) RTSCamera->Pan(ForwardAxis, RightAxis, DeltaSeconds);
++}
++
++void AShamanPlayerController::OrbitCamera(float YawDeg, float PitchDeltaDeg)
++{
++	if (RTSCamera) RTSCamera->Orbit(YawDeg, PitchDeltaDeg);
++}
++
++void AShamanPlayerController::ZoomCamera(float Steps)
++{
++	if (RTSCamera) RTSCamera->Zoom(Steps);
++}
++
++void AShamanPlayerController::FocusCameraOnShaman()
++{
++	if (RTSCamera && GetPawn()) RTSCamera->FocusOn(GetPawn()->GetActorLocation());
++}
++
++void AShamanPlayerController::FocusCameraOnSelection()
++{
++	const TArray<AShamanUnitBase*> Units = Selection ? Selection->GetSelectedUnits() : TArray<AShamanUnitBase*>();
++	if (!RTSCamera || Units.Num() == 0) { FocusCameraOnShaman(); return; }
++	FVector Sum = FVector::ZeroVector;
++	for (const AShamanUnitBase* U : Units) Sum += U->GetActorLocation();
++	RTSCamera->FocusOn(Sum / Units.Num()); // projected back onto the ground (planets included)
++}
++
++void AShamanPlayerController::PlayerTick(float DeltaTime)
++{
++	Super::PlayerTick(DeltaTime);
++	if (Mode == EShamanControlMode::RTS && RTSCamera) UpdateRTSInput(DeltaTime);
++}
++
++void AShamanPlayerController::UpdateRTSInput(float DeltaTime)
++{
++	auto Down = [this](const FKey& K) { return IsInputKeyDown(K) ? 1.f : 0.f; };
++	float Fwd = FMath::Clamp(Down(EKeys::W) + Down(EKeys::Up) - Down(EKeys::S) - Down(EKeys::Down), -1.f, 1.f);
++	float Right = FMath::Clamp(Down(EKeys::D) + Down(EKeys::Right) - Down(EKeys::A) - Down(EKeys::Left), -1.f, 1.f);
++
++	float MX = 0.f, MY = 0.f;
++	const bool bMouse = GetMousePosition(MX, MY);
++	const FVector2D Mouse(MX, MY);
++	if (bMouse && CameraSettings.bEdgePan && !bSelectPressed)
++	{
++		int32 VX = 0, VY = 0;
++		GetViewportSize(VX, VY);
++		const float M = CameraSettings.EdgePanMarginPx;
++		if (VX > 0 && VY > 0)
++		{
++			if (MX <= M) Right -= 1.f; else if (MX >= VX - M) Right += 1.f;
++			if (MY <= M) Fwd += 1.f; else if (MY >= VY - M) Fwd -= 1.f;
++		}
++	}
++	PanCamera(FMath::Clamp(Fwd, -1.f, 1.f), FMath::Clamp(Right, -1.f, 1.f), DeltaTime);
++
++	const float Yaw = Down(EKeys::E) - Down(EKeys::Q);
++	if (Yaw != 0.f) OrbitCamera(Yaw * CameraSettings.RotateSpeed * DeltaTime, 0.f);
++	if (bOrbiting && bMouse)
++	{
++		const FVector2D D = Mouse - LastMouse;
++		if (!D.IsNearlyZero()) OrbitCamera(D.X * CameraSettings.MouseOrbitSpeed, D.Y * CameraSettings.MouseOrbitSpeed);
++	}
++	if (bSelectPressed && bMouse) UpdateSelectGesture(Mouse);
++	if (bMouse) LastMouse = Mouse;
++}
++
++// ---- Selection gesture -------------------------------------------------------------------------------------------------
++
++void AShamanPlayerController::BeginSelectGesture(const FVector2D& ScreenPos)
++{
++	bSelectPressed = true;
++	bDragging = false;
++	DragStart = DragCurrent = ScreenPos;
++}
++
++void AShamanPlayerController::UpdateSelectGesture(const FVector2D& ScreenPos)
++{
++	if (!bSelectPressed) return;
++	DragCurrent = ScreenPos;
++	if (!bDragging && FShamanSelectionRules::IsDrag(DragStart, ScreenPos, SelectionSettings.DragThresholdPx)) bDragging = true;
++}
++
++void AShamanPlayerController::CancelSelectGesture()
++{
++	bSelectPressed = false;
++	bDragging = false;
++}
++
++void AShamanPlayerController::EndSelectGesture(const FVector2D& ScreenPos, bool bAdditive)
++{
++	if (!bSelectPressed || !Selection) return;
++	DragCurrent = ScreenPos;
++	const bool bWasDrag = bDragging || FShamanSelectionRules::IsDrag(DragStart, ScreenPos, SelectionSettings.DragThresholdPx);
++	CancelSelectGesture();
++
++	TArray<FShamanScreenCandidate> Candidates;
++	GatherScreenCandidates(Candidates);
++	if (bWasDrag)
++	{
++		// A drag only ever selects: never a command, cast or interaction.
++		TArray<int32> Hits;
++		FShamanSelectionRules::BoxSelect(Candidates, DragStart, ScreenPos, Hits);
++		TArray<AShamanUnitBase*> Units;
++		for (int32 I : Hits) if (AShamanUnitBase* U = Candidates[I].Unit.Get()) Units.Add(U);
++		Selection->SelectUnits(Units, bAdditive);
++		return;
++	}
++	const int32 Hit = FShamanSelectionRules::PickClosest(Candidates, ScreenPos, SelectionSettings.PickRadiusPx);
++	if (Hit != INDEX_NONE) Selection->ClickUnit(Candidates[Hit].Unit.Get(), bAdditive);
++	else Selection->ClickEmpty(bAdditive);
++}
++
++void AShamanPlayerController::GatherScreenCandidates(TArray<FShamanScreenCandidate>& Out) const
++{
++	Out.Reset();
++	const UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	if (!Tribes) return;
++	const int32 Tribe = GetPlayerTribe();
++	TArray<AShamanUnitBase*> Units = Tribes->GetFollowers(Tribe); // this tribe's roster only
++	if (AShamanUnitBase* S = Tribes->GetShaman(Tribe)) Units.AddUnique(S);
++	for (AShamanUnitBase* U : Units)
++	{
++		if (!FShamanSelectionRules::IsSelectable(U, Tribe)) continue;
++		const FVector L = U->GetActorLocation();
++		if (!IsOnVisibleSide(L)) continue; // over the planet's horizon: not visible, not pickable
++		const FVector Up = FShamanSpace::GetUp(this, L);
++		const float Half = U->GetCapsuleComponent() ? U->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.f;
++		FShamanScreenCandidate C;
++		C.Unit = U;
++		C.bOnScreen = ProjectWorldLocationToScreen(L - Up * Half, C.Feet, false) && ProjectWorldLocationToScreen(L + Up * Half, C.Head, false);
++		Out.Add(C);
++	}
++}
++
++// ---- Handlers ------------------------------------------------------------------------------------------------------------
++
++void AShamanPlayerController::OnToggleModePressed() { ToggleControlMode(); }
++
++void AShamanPlayerController::OnSelectPressed()
++{
++	float X = 0.f, Y = 0.f;
++	if (GetMousePosition(X, Y)) BeginSelectGesture(FVector2D(X, Y));
++}
++
++void AShamanPlayerController::OnSelectReleased()
++{
++	float X = 0.f, Y = 0.f;
++	const FVector2D Pos = GetMousePosition(X, Y) ? FVector2D(X, Y) : DragCurrent; // released outside the viewport: last known
++	EndSelectGesture(Pos, IsInputKeyDown(EKeys::LeftShift) || IsInputKeyDown(EKeys::RightShift));
++}
++
++void AShamanPlayerController::OnOrbitPressed()
++{
++	float X = 0.f, Y = 0.f;
++	if (GetMousePosition(X, Y)) LastMouse = FVector2D(X, Y);
++	bOrbiting = true;
++}
++
++void AShamanPlayerController::OnOrbitReleased() { bOrbiting = false; }
++void AShamanPlayerController::OnZoomIn() { ZoomCamera(1.f); }
++void AShamanPlayerController::OnZoomOut() { ZoomCamera(-1.f); }
++void AShamanPlayerController::OnFocusSelection() { FocusCameraOnSelection(); }
++void AShamanPlayerController::OnFocusShaman() { FocusCameraOnShaman(); }
++void AShamanPlayerController::OnClearSelection() { CancelSelectGesture(); if (Selection) Selection->ClearSelection(); }
++void AShamanPlayerController::OnToggleDebug() { ShamanDebug::Toggle(); }
+diff --git a/Source/Shaman/Private/Player/ShamanRTSCamera.cpp b/Source/Shaman/Private/Player/ShamanRTSCamera.cpp
+new file mode 100644
+index 0000000..f600e57
+--- /dev/null
++++ b/Source/Shaman/Private/Player/ShamanRTSCamera.cpp
+@@ -0,0 +1,92 @@
++#include "Player/ShamanRTSCamera.h"
++#include "Terrain/ShamanSpace.h"
++#include "Terrain/PlanetFrame.h"
++#include "Camera/CameraComponent.h"
++#include "Components/SceneComponent.h"
++
++AShamanRTSCamera::AShamanRTSCamera()
++{
++	PrimaryActorTick.bCanEverTick = true;
++	PrimaryActorTick.TickGroup = TG_PostPhysics; // after units moved, before the camera manager reads the view
++	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
++	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
++	Camera->SetupAttachment(RootComponent);
++	Camera->FieldOfView = 60.f;
++	SetCanBeDamaged(false);
++}
++
++void AShamanRTSCamera::InitializeView(const FVector& Anchor, const FVector& ForwardHint)
++{
++	Rig.Focus = Anchor;
++	Rig.Forward = ForwardHint.IsNearlyZero() ? FVector::ForwardVector : ForwardHint;
++	Rig.PitchDeg = Settings.InitialPitch;
++	Rig.Distance = FMath::Clamp(Settings.InitialDistance, Settings.MinDistance, Settings.MaxDistance);
++	SnapFocusToGround();
++	UpdateView();
++}
++
++void AShamanRTSCamera::SnapFocusToGround()
++{
++	FPlanetFrame Planet;
++	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
++	FVector Ground;
++	if (FShamanSpace::ProjectToGround(this, Rig.Focus, Ground)) Rig.Focus = Ground;
++	Rig.Normalize(bPlanet ? &Planet : nullptr);
++}
++
++void AShamanRTSCamera::Pan(float ForwardAxis, float RightAxis, float DeltaSeconds)
++{
++	if (ForwardAxis == 0.f && RightAxis == 0.f) return;
++	FPlanetFrame Planet;
++	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
++	const float Step = Settings.PanSpeed * Rig.Distance * DeltaSeconds;
++	Rig.Pan(bPlanet ? &Planet : nullptr, FMath::Clamp(ForwardAxis, -1.f, 1.f) * Step, FMath::Clamp(RightAxis, -1.f, 1.f) * Step);
++	SnapFocusToGround();
++}
++
++void AShamanRTSCamera::Orbit(float YawDeg, float PitchDeltaDeg)
++{
++	FPlanetFrame Planet;
++	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
++	Rig.Orbit(bPlanet ? &Planet : nullptr, YawDeg, PitchDeltaDeg, Settings);
++}
++
++void AShamanRTSCamera::Zoom(float Steps)
++{
++	Rig.Zoom(Steps, Settings);
++}
++
++void AShamanRTSCamera::FocusOn(const FVector& Location)
++{
++	Rig.Focus = Location;
++	SnapFocusToGround();
++	UpdateView();
++}
++
++void AShamanRTSCamera::UpdateView()
++{
++	FPlanetFrame Planet;
++	const bool bPlanet = FShamanSpace::GetPlanet(this, Planet);
++	FVector Loc; FRotator Rot;
++	Rig.GetView(bPlanet ? &Planet : nullptr, Loc, Rot);
++
++	// Keep the camera above the ground under it (one terrain query per frame).
++	FVector Ground;
++	if (FShamanSpace::ProjectToGround(this, Loc, Ground))
++	{
++		const FVector Up = FShamanRTSCameraRig::UpAt(bPlanet ? &Planet : nullptr, Ground);
++		const float Height = FVector::DotProduct(Loc - Ground, Up);
++		if (Height < Settings.MinHeightAboveGround)
++		{
++			Loc += Up * (Settings.MinHeightAboveGround - Height);
++			Rot = FRotationMatrix::MakeFromXZ(Rig.Focus - Loc, FShamanRTSCameraRig::UpAt(bPlanet ? &Planet : nullptr, Rig.Focus)).Rotator();
++		}
++	}
++	SetActorLocationAndRotation(Loc, Rot);
++}
++
++void AShamanRTSCamera::Tick(float DeltaSeconds)
++{
++	Super::Tick(DeltaSeconds);
++	UpdateView();
++}
+diff --git a/Source/Shaman/Private/Player/ShamanSelectionComponent.cpp b/Source/Shaman/Private/Player/ShamanSelectionComponent.cpp
+new file mode 100644
+index 0000000..dfa5d59
+--- /dev/null
++++ b/Source/Shaman/Private/Player/ShamanSelectionComponent.cpp
+@@ -0,0 +1,94 @@
++#include "Player/ShamanSelectionComponent.h"
++#include "Player/ShamanControlTypes.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Core/ShamanLog.h"
++
++UShamanSelectionComponent::UShamanSelectionComponent()
++{
++	PrimaryComponentTick.bCanEverTick = true;
++	PrimaryComponentTick.TickInterval = 0.1f;
++}
++
++void UShamanSelectionComponent::SetPlayerTribe(int32 TribeId)
++{
++	if (PlayerTribe == TribeId) return;
++	PlayerTribe = TribeId;
++	PruneInvalid();
++}
++
++bool UShamanSelectionComponent::IsSelected(const AShamanUnitBase* Unit) const
++{
++	if (!Unit) return false;
++	for (const TWeakObjectPtr<AShamanUnitBase>& W : Selected) if (W.Get() == Unit) return true;
++	return false;
++}
++
++void UShamanSelectionComponent::ClickUnit(AShamanUnitBase* Unit, bool bAdditive)
++{
++	if (!FShamanSelectionRules::IsSelectable(Unit, PlayerTribe)) { ClickEmpty(bAdditive); return; }
++	if (IsSelected(Unit))
++	{
++		Selected.RemoveAll([Unit](const TWeakObjectPtr<AShamanUnitBase>& W) { return W.Get() == Unit; });
++		Changed(TEXT("deselect"));
++		return;
++	}
++	if (!bAdditive) Selected.Reset();
++	Selected.Add(Unit);
++	Changed(bAdditive ? TEXT("add") : TEXT("select"));
++}
++
++void UShamanSelectionComponent::ClickEmpty(bool bAdditive)
++{
++	if (bAdditive || Selected.Num() == 0) return;
++	Selected.Reset();
++	Changed(TEXT("clear"));
++}
++
++void UShamanSelectionComponent::SelectUnits(const TArray<AShamanUnitBase*>& Units, bool bAdditive)
++{
++	if (!bAdditive) Selected.Reset();
++	for (AShamanUnitBase* U : Units)
++		if (FShamanSelectionRules::IsSelectable(U, PlayerTribe) && !IsSelected(U)) Selected.Add(U);
++	Changed(TEXT("box"));
++}
++
++void UShamanSelectionComponent::ClearSelection()
++{
++	if (Selected.Num() == 0) return;
++	Selected.Reset();
++	Changed(TEXT("clear"));
++}
++
++TArray<AShamanUnitBase*> UShamanSelectionComponent::GetSelectedUnits() const
++{
++	TArray<AShamanUnitBase*> Out;
++	for (const TWeakObjectPtr<AShamanUnitBase>& W : Selected)
++		if (AShamanUnitBase* U = W.Get())
++			if (FShamanSelectionRules::IsSelectable(U, PlayerTribe)) Out.Add(U);
++	return Out;
++}
++
++int32 UShamanSelectionComponent::PruneInvalid()
++{
++	const int32 Removed = Selected.RemoveAll([this](const TWeakObjectPtr<AShamanUnitBase>& W)
++	{
++		return !FShamanSelectionRules::IsSelectable(W.Get(), PlayerTribe);
++	});
++	if (Removed > 0) Changed(TEXT("pruned (dead, destroyed or left the tribe)"));
++	return Removed;
++}
++
++void UShamanSelectionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
++{
++	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
++	PruneInvalid();
++}
++
++void UShamanSelectionComponent::Changed(const TCHAR* Why)
++{
++	FString Names;
++	for (const TWeakObjectPtr<AShamanUnitBase>& W : Selected)
++		if (const AShamanUnitBase* U = W.Get()) Names += (Names.IsEmpty() ? TEXT("") : TEXT(", ")) + U->GetName();
++	UE_LOG(LogShaman, Log, TEXT("[Select] %s: %d unit(s)%s%s"), Why, Selected.Num(), Names.IsEmpty() ? TEXT("") : TEXT(" - "), *Names);
++	OnSelectionChanged.Broadcast();
++}
+diff --git a/Source/Shaman/Private/Terrain/ShamanSpace.cpp b/Source/Shaman/Private/Terrain/ShamanSpace.cpp
+index 040bec9..1883242 100644
+--- a/Source/Shaman/Private/Terrain/ShamanSpace.cpp
++++ b/Source/Shaman/Private/Terrain/ShamanSpace.cpp
+@@ -1,5 +1,8 @@
+ #include "Terrain/ShamanSpace.h"
+ #include "Terrain/ShamanTerrainSubsystem.h"
++#include "Engine/World.h"
++#include "CollisionQueryParams.h"
++#include "World/ShamanTerrainActor.h"
+ 
+ bool FShamanSpace::GetPlanet(const UObject* Ctx, FPlanetFrame& OutFrame)
+ {
+@@ -48,3 +51,33 @@ FVector FShamanSpace::OffsetAlongGround(const UObject* Ctx, const FVector& Origi
+ 	const float R = F.GetDistanceFromCenter(Origin);
+ 	return F.Center + ((Origin + Fwd * Offset.X + Right * Offset.Y) - F.Center).GetSafeNormal() * R;
+ }
++
++bool FShamanSpace::ProjectToGround(const UObject* Ctx, const FVector& Location, FVector& OutGround)
++{
++	OutGround = Location;
++	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(Ctx))
++		if (Terrain->IsPlanetActive())
++		{
++			const FTerrainSample S = Terrain->QueryTerrain(Location);
++			if (!S.bValid) return false;
++			OutGround = S.Location;
++			return true;
++		}
++	const UWorld* World = Ctx ? Ctx->GetWorld() : nullptr;
++	if (!World) return false;
++	// The terrain itself, not roofs, trees or resource nodes standing on it (first hit on an AShamanTerrainActor;
++	// any other world-static ground only if the level has no Shaman terrain actor under this point).
++	TArray<FHitResult> Hits;
++	FCollisionQueryParams Params(TEXT("ShamanGround"), false);
++	const FVector Top = Location + FVector::UpVector * 50000.f, Bottom = Location - FVector::UpVector * 50000.f;
++	World->LineTraceMultiByObjectType(Hits, Top, Bottom, FCollisionObjectQueryParams(ECC_WorldStatic), Params);
++	const FHitResult* Fallback = nullptr;
++	for (const FHitResult& H : Hits)
++	{
++		if (Cast<AShamanTerrainActor>(H.GetActor())) { OutGround = H.ImpactPoint; return true; }
++		if (!Fallback) Fallback = &H;
++	}
++	if (!Fallback) return false;
++	OutGround = Fallback->ImpactPoint;
++	return true;
++}
+diff --git a/Source/Shaman/Private/Tests/ShamanControlTests.cpp b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+new file mode 100644
+index 0000000..d028ba1
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+@@ -0,0 +1,268 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "Player/ShamanControlTypes.h"
++#include "Player/ShamanPlayerController.h"
++#include "Player/ShamanRTSCamera.h"
++#include "Player/ShamanSelectionComponent.h"
++#include "Terrain/PlanetFrame.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Characters/ShamanCharacter.h"
++#include "Characters/HealthComponent.h"
++#include "SpellComponent.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "EngineUtils.h"
++#include "ShamanTribeTestWorld.h"
++
++/**
++ * RTS milestone, Stage A: control foundation.
++ *  - CameraRig / SelectionRules: pure math and rules (flat and planet frames).
++ *  - Selection: UShamanSelectionComponent on real production units (death, destruction, tribe change).
++ *  - ModeSwitch: AShamanPlayerController possessing a real Shaman in a test world (view target, input layer, no
++ *    duplicate actors, the camera never moves the Shaman). No viewport here: actual mouse input, screen projection,
++ *    HUD drawing and camera rendering are covered by the in-editor checks, not by these tests.
++ */
++namespace ShamanControlTestsPrivate
++{
++	using namespace ShamanTribeTestsPrivate;
++
++	struct FControlFixture
++	{
++		FTribeTestWorld W;
++		AShamanCharacter* S0 = nullptr;
++		AShamanCharacter* S1 = nullptr;
++		TArray<AShamanUnitBase*> Braves;
++		AShamanUnitBase* EnemyBrave = nullptr;
++		AShamanUnitBase* Wildman = nullptr;
++		UTribeComponent* T0 = nullptr;
++
++		explicit FControlFixture(int32 NumBraves)
++		{
++			S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++			S1 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 0.f, 100.f));
++			for (int32 i = 0; i < NumBraves; ++i)
++				Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
++			EnemyBrave = W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 1, FVector(9300.f, 0.f, 100.f));
++			Wildman = W.SpawnUnit<AShamanUnitBase>(W.Data->WildmanUnitId, -1, FVector(-600.f, 0.f, 100.f));
++			T0 = W.Tribes->GetTribeComponent(0);
++		}
++		UShamanSelectionComponent* MakeSelection()
++		{
++			AActor* Owner = W.World->SpawnActor<AActor>();
++			UShamanSelectionComponent* Sel = NewObject<UShamanSelectionComponent>(Owner);
++			Sel->RegisterComponent();
++			Sel->SetPlayerTribe(0);
++			return Sel;
++		}
++	};
++
++	FShamanScreenCandidate Cand(AShamanUnitBase* U, FVector2D Feet, FVector2D Head, bool bOn = true)
++	{
++		FShamanScreenCandidate C; C.Unit = U; C.Feet = Feet; C.Head = Head; C.bOnScreen = bOn; return C;
++	}
++}
++using namespace ShamanControlTestsPrivate;
++
++#define SHAMAN_CONTROL_TEST(Class, Name) IMPLEMENT_SIMPLE_AUTOMATION_TEST(Class, Name, EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++
++SHAMAN_CONTROL_TEST(FShamanCameraRigTest, "Shaman.Controls.CameraRig")
++bool FShamanCameraRigTest::RunTest(const FString& Parameters)
++{
++	FShamanRTSCameraSettings S;
++	FShamanRTSCameraRig R;
++	R.Focus = FVector(0.f, 0.f, 50.f);
++	R.Forward = FVector(1.f, 0.f, 0.f);
++	R.PitchDeg = 55.f;
++	R.Distance = 4000.f;
++
++	// Flat view: behind and above the focus, looking at it.
++	FVector Loc; FRotator Rot;
++	R.GetView(nullptr, Loc, Rot);
++	TestTrue(TEXT("Flat: camera above the focus"), Loc.Z > R.Focus.Z + 3000.f);
++	TestTrue(TEXT("Flat: camera behind the focus (opposite the heading)"), Loc.X < -2000.f);
++	TestEqual(TEXT("Flat: camera at the zoom distance"), FVector::Dist(Loc, R.Focus), 4000.f, 1.f);
++	TestTrue(TEXT("Flat: camera looks at the focus"), FVector::DotProduct(Rot.Vector(), (R.Focus - Loc).GetSafeNormal()) > 0.999f);
++
++	R.Pan(nullptr, 100.f, 0.f);
++	TestTrue(TEXT("Pan forward moves the focus along the heading"), R.Focus.Equals(FVector(100.f, 0.f, 50.f), 0.01f));
++	R.Pan(nullptr, 0.f, 100.f);
++	TestTrue(TEXT("Pan right moves the focus to the right (+Y)"), R.Focus.Equals(FVector(100.f, 100.f, 50.f), 0.01f));
++
++	R.Orbit(nullptr, 90.f, 0.f, S);
++	TestTrue(TEXT("Yaw +90 turns the heading right"), R.Forward.Equals(FVector(0.f, 1.f, 0.f), 1e-3f));
++	R.GetView(nullptr, Loc, Rot);
++	TestEqual(TEXT("Orbit keeps the distance"), FVector::Dist(Loc, R.Focus), 4000.f, 1.f);
++	R.Orbit(nullptr, 0.f, 100.f, S);
++	TestEqual(TEXT("Pitch clamped to MaxPitch"), R.PitchDeg, S.MaxPitch);
++	R.Orbit(nullptr, 0.f, -200.f, S);
++	TestEqual(TEXT("Pitch clamped to MinPitch"), R.PitchDeg, S.MinPitch);
++
++	for (int32 i = 0; i < 100; ++i) R.Zoom(1.f, S);
++	TestEqual(TEXT("Zoom in clamped to MinDistance"), R.Distance, S.MinDistance);
++	for (int32 i = 0; i < 100; ++i) R.Zoom(-1.f, S);
++	TestEqual(TEXT("Zoom out clamped to MaxDistance"), R.Distance, S.MaxDistance);
++
++	// Planet: pan a long way around the globe. Focus stays on the sphere, heading stays tangent, never flips.
++	const FPlanetFrame P(FVector(1000.f, -500.f, 200.f), 20000.f);
++	FShamanRTSCameraRig G;
++	G.Focus = P.GetPointAt(FVector(0.3f, 0.2f, 1.f), 0.f);
++	G.Forward = FVector(1.f, 0.f, 0.f);
++	G.Normalize(&P);
++	G.Distance = 3000.f;
++	bool bOnSphere = true, bTangent = true, bNoFlip = true, bAbove = true;
++	FVector PrevForward = G.Forward;
++	for (int32 i = 0; i < 2000; ++i) // 2000 x 100 uu = 200000 uu, more than one and a half circumferences
++	{
++		G.Pan(&P, 100.f, (i % 7 == 0) ? 30.f : 0.f);
++		const FVector Up = P.GetUp(G.Focus);
++		bOnSphere &= FMath::IsNearlyEqual(P.GetDistanceFromCenter(G.Focus), 20000.f, 1.f);
++		bTangent &= FMath::Abs(FVector::DotProduct(G.Forward, Up)) < 1e-3f && FMath::IsNearlyEqual(G.Forward.Size(), 1.f, 1e-3f);
++		bNoFlip &= FVector::DotProduct(PrevForward, G.Forward) > 0.99f;
++		PrevForward = G.Forward;
++		FVector L; FRotator Rr;
++		G.GetView(&P, L, Rr);
++		bAbove &= FVector::DotProduct(L - G.Focus, Up) > 0.f && !L.ContainsNaN();
++	}
++	TestTrue(TEXT("Planet: focus stays on the sphere"), bOnSphere);
++	TestTrue(TEXT("Planet: heading stays tangent and unit"), bTangent);
++	TestTrue(TEXT("Planet: heading never flips between steps"), bNoFlip);
++	TestTrue(TEXT("Planet: camera always above the focus along the local up"), bAbove);
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanSelectionRulesTest, "Shaman.Controls.SelectionRules")
++bool FShamanSelectionRulesTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	using R = FShamanSelectionRules;
++	TestTrue(TEXT("Player Brave selectable"), R::IsSelectable(F.Braves[0], 0));
++	TestTrue(TEXT("Player Shaman selectable"), R::IsSelectable(F.S0, 0));
++	TestFalse(TEXT("Enemy Brave not selectable"), R::IsSelectable(F.EnemyBrave, 0));
++	TestFalse(TEXT("Enemy Shaman not selectable"), R::IsSelectable(F.S1, 0));
++	TestFalse(TEXT("Wildman not selectable"), R::IsSelectable(F.Wildman, 0));
++	TestFalse(TEXT("Null not selectable"), R::IsSelectable(nullptr, 0));
++	F.Braves[2]->Health->Kill(nullptr);
++	TestFalse(TEXT("Dead Brave not selectable"), R::IsSelectable(F.Braves[2], 0));
++
++	TestFalse(TEXT("Small move is a click"), R::IsDrag(FVector2D(100, 100), FVector2D(104, 103), 6.f));
++	TestTrue(TEXT("Larger move is a drag"), R::IsDrag(FVector2D(100, 100), FVector2D(110, 100), 6.f));
++
++	TArray<FShamanScreenCandidate> C;
++	C.Add(Cand(F.Braves[0], FVector2D(100, 200), FVector2D(100, 150)));
++	C.Add(Cand(F.Braves[1], FVector2D(300, 200), FVector2D(300, 150)));
++	C.Add(Cand(F.S0, FVector2D(500, 200), FVector2D(500, 150), /*bOnScreen*/ false));
++	TestEqual(TEXT("Click on a body picks that unit"), R::PickClosest(C, FVector2D(102, 170), 16.f), 0);
++	TestEqual(TEXT("Click near the second unit picks it"), R::PickClosest(C, FVector2D(295, 190), 16.f), 1);
++	TestEqual(TEXT("Click on empty ground picks nothing"), R::PickClosest(C, FVector2D(200, 400), 16.f), (int32)INDEX_NONE);
++	TestEqual(TEXT("Off-screen units cannot be clicked"), R::PickClosest(C, FVector2D(500, 175), 16.f), (int32)INDEX_NONE);
++
++	TArray<int32> Hits;
++	R::BoxSelect(C, FVector2D(350, 250), FVector2D(50, 100), Hits); // corners in reverse order
++	TestTrue(TEXT("Box selects units whose body centre is inside"), Hits.Num() == 2 && Hits.Contains(0) && Hits.Contains(1));
++	R::BoxSelect(C, FVector2D(50, 100), FVector2D(150, 250), Hits);
++	TestTrue(TEXT("Box selects only units inside"), Hits.Num() == 1 && Hits[0] == 0);
++	R::BoxSelect(C, FVector2D(450, 100), FVector2D(550, 250), Hits);
++	TestEqual(TEXT("Off-screen units are not box-selected"), Hits.Num(), 0);
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanSelectionComponentTest, "Shaman.Controls.Selection")
++bool FShamanSelectionComponentTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	UShamanSelectionComponent* Sel = F.MakeSelection();
++	AShamanUnitBase* B0 = F.Braves[0];
++	AShamanUnitBase* B1 = F.Braves[1];
++	AShamanUnitBase* B2 = F.Braves[2];
++	const int32 WorkersBefore = F.T0->GetAvailableWorkerCount();
++
++	Sel->ClickUnit(B0, false);
++	TestTrue(TEXT("Click selects"), Sel->Num() == 1 && Sel->IsSelected(B0));
++	Sel->ClickUnit(B0, false);
++	TestEqual(TEXT("Click on the selected unit deselects it"), Sel->Num(), 0);
++	Sel->ClickUnit(B0, false);
++	Sel->ClickUnit(B1, false);
++	TestTrue(TEXT("Click on another unit replaces the selection"), Sel->Num() == 1 && Sel->IsSelected(B1));
++	Sel->ClickUnit(B0, true);
++	TestTrue(TEXT("Shift-click adds"), Sel->Num() == 2 && Sel->IsSelected(B0) && Sel->IsSelected(B1));
++	Sel->ClickUnit(F.EnemyBrave, false);
++	TestEqual(TEXT("Click on an enemy acts as an empty click (clears)"), Sel->Num(), 0);
++	Sel->SelectUnits({ B0, B1, F.S0, F.EnemyBrave, F.Wildman, F.S1 }, false);
++	TestTrue(TEXT("Box keeps only the player's Braves and Shaman"), Sel->Num() == 3 && Sel->IsSelected(F.S0) && !Sel->IsSelected(F.EnemyBrave)
++		&& !Sel->IsSelected(F.Wildman) && !Sel->IsSelected(F.S1));
++	Sel->ClickEmpty(false);
++	TestEqual(TEXT("Empty click clears"), Sel->Num(), 0);
++
++	TestEqual(TEXT("Selecting never changes worker availability"), F.T0->GetAvailableWorkerCount(), WorkersBefore);
++	TestEqual(TEXT("Selecting never creates tasks"), F.T0->GetOpenTaskCount(), 0);
++	TestTrue(TEXT("Selecting never changes tribe membership"), B0->GetTribeId() == 0 && F.T0->IsFollower(B0->TribeMember));
++
++	Sel->SelectUnits({ B0, B1, B2 }, false);
++	B0->Health->Kill(nullptr);
++	TestEqual(TEXT("Dead unit pruned"), Sel->PruneInvalid(), 1);
++	B1->ChangeTribe(1);
++	TestEqual(TEXT("Unit that left the tribe pruned"), Sel->PruneInvalid(), 1);
++	B2->Destroy();
++	Sel->PruneInvalid();
++	TestEqual(TEXT("Destroyed unit pruned; selection empty"), Sel->Num(), 0);
++	TestEqual(TEXT("No stale entries returned"), Sel->GetSelectedUnits().Num(), 0);
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanModeSwitchTest, "Shaman.Controls.ModeSwitch")
++bool FShamanModeSwitchTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(2);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanPlayerController* PC = F.W.World->SpawnActor<AShamanPlayerController>();
++	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
++	PC->CameraSettings.ModeBlendTime = 0.f; // view target changes immediately (no blend) so it can be checked here
++	PC->Possess(F.S0);
++	if (!TestTrue(TEXT("Controller possesses the Shaman"), PC->GetPawn() == F.S0)) return false;
++
++	TestTrue(TEXT("RTS is the default mode"), PC->GetControlMode() == EShamanControlMode::RTS);
++	AShamanRTSCamera* Cam = PC->GetRTSCamera();
++	if (!TestNotNull(TEXT("Strategic camera spawned"), Cam)) return false;
++	TestTrue(TEXT("RTS mode views through the strategic camera"), PC->GetViewTarget() == Cam);
++
++	const FVector ShamanAt = F.S0->GetActorLocation();
++	const FRotator ShamanRot = F.S0->GetActorRotation();
++	const float Health = F.S0->Health->Health, Mana = F.S0->Spells->Mana;
++	const FVector FocusBefore = Cam->GetRig().Focus;
++	PC->PanCamera(1.f, 0.5f, 1.f);
++	PC->OrbitCamera(45.f, 10.f);
++	PC->ZoomCamera(3.f);
++	TestFalse(TEXT("Panning moves the camera focus"), Cam->GetRig().Focus.Equals(FocusBefore, 1.f));
++	TestTrue(TEXT("Camera movement never moves or turns the Shaman"),
++		F.S0->GetActorLocation().Equals(ShamanAt, 0.01f) && F.S0->GetActorRotation().Equals(ShamanRot, 0.01f));
++
++	auto CountShamans = [&F]() { int32 N = 0; for (TActorIterator<AShamanCharacter> It(F.W.World); It; ++It) ++N; return N; };
++	auto CountCameras = [&F]() { int32 N = 0; for (TActorIterator<AShamanRTSCamera> It(F.W.World); It; ++It) ++N; return N; };
++	const int32 Shamans = CountShamans();
++
++	PC->ToggleControlMode();
++	TestTrue(TEXT("Enter -> Shaman mode"), PC->GetControlMode() == EShamanControlMode::Shaman);
++	TestTrue(TEXT("Shaman mode views through the Shaman"), PC->GetViewTarget() == F.S0);
++	TestTrue(TEXT("Same Shaman actor still possessed (no duplicate)"), PC->GetPawn() == F.S0 && CountShamans() == Shamans);
++	TestTrue(TEXT("Shaman state preserved"), F.S0->GetActorLocation().Equals(ShamanAt, 0.01f) && F.S0->Health->Health == Health
++		&& F.S0->Spells->Mana == Mana && F.S0->GetTribeId() == 0 && F.S0->IsAlive());
++
++	PC->ToggleControlMode();
++	TestTrue(TEXT("Enter -> back to RTS mode"), PC->GetControlMode() == EShamanControlMode::RTS && PC->GetViewTarget() == PC->GetRTSCamera());
++	TestEqual(TEXT("Still exactly one strategic camera"), CountCameras(), 1);
++	TestEqual(TEXT("Still the same number of Shamans"), CountShamans(), Shamans);
++	TestEqual(TEXT("Mode switching creates no tasks"), F.T0->GetOpenTaskCount(), 0);
++	TestEqual(TEXT("Mode switching leaves the worker pool alone"), F.T0->GetAvailableWorkerCount(), 2);
++
++	PC->UnPossess();
++	PC->Destroy();
++	return true;
++}
++
++#undef SHAMAN_CONTROL_TEST
++
++#endif
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index dda3ec8..c62d607 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -5,6 +5,12 @@
+ #include "Game/ShamanGameMode.h"
+ #include "Tribes/TribeSubsystem.h"
+ #include "TribeComponent.h"
++#include "Player/ShamanPlayerController.h"
++#include "Player/ShamanSelectionComponent.h"
++#include "Terrain/ShamanSpace.h"
++#include "Components/CapsuleComponent.h"
++#include "Terrain/PlanetFrame.h"
++#include "Camera/PlayerCameraManager.h"
+ #include "Engine/Canvas.h"
+ #include "Engine/Engine.h"
+ #include "Engine/Font.h"
+@@ -53,6 +59,9 @@ void AShamanHUD::DrawHUD()
+ 	AShamanCharacter* S = Cast<AShamanCharacter>(GetOwningPawn());
+ 	const AShamanGameMode* GM = GetWorld()->GetAuthGameMode<AShamanGameMode>();
+ 	if (GM) DrawLine(FString::Printf(TEXT("Seed %d"), GM->GetLayout().Seeds.WorldSeed), SW - 140.f * UI, 12.f, FLinearColor(1, 1, 1, 0.6f), 0.8f * UI);
++	const AShamanPlayerController* SPC = Cast<AShamanPlayerController>(PlayerOwner);
++	const bool bRTS = SPC && SPC->GetControlMode() == EShamanControlMode::RTS;
++	if (SPC) DrawControlOverlay(SPC, SW, SH, UI);
+ 	if (!S) return;
+ 
+ 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+@@ -87,21 +96,23 @@ void AShamanHUD::DrawHUD()
+ 			S->Spells->GetRangeUnits(SpellId) / 100.f, CD > 0.f ? *FString::Printf(TEXT("ready in %.1fs"), CD) : TEXT("ready"));
+ 		if (Row->bFriendlyFire) Info += TEXT("   ! hits your followers too");
+ 		DrawLine(Info, SW * 0.5f, SH - 88.f * UI, FLinearColor::White, 0.85f * UI, true);
+-		DrawLine(FString::Printf(TEXT("Spell %d / %d   (mouse wheel or Q to change)"), S->GetSelectedSpellIndex() + 1, S->Spells->KnownSpellIds.Num()),
+-			SW * 0.5f, SH - 64.f * UI, FLinearColor(1, 1, 1, 0.6f), 0.75f * UI, true);
++		if (!bRTS) // wheel / Q drive the camera in RTS mode
++			DrawLine(FString::Printf(TEXT("Spell %d / %d   (mouse wheel or Q to change)"), S->GetSelectedSpellIndex() + 1, S->Spells->KnownSpellIds.Num()),
++				SW * 0.5f, SH - 64.f * UI, FLinearColor(1, 1, 1, 0.6f), 0.75f * UI, true);
+ 	}
+ 	float Age = 0.f;
+ 	const ESpellCastResult Feedback = S->GetLastCastFeedback(Age);
+ 	if (Feedback != ESpellCastResult::Success && Age < 1.5f)
+ 		DrawLine(CastResultText(Feedback), SW * 0.5f, SH - 150.f * UI, FLinearColor(1.f, 0.35f, 0.3f), 1.f * UI, true);
+ 
+-	// Crosshair.
+-	DrawRect(FLinearColor(1, 1, 1, 0.8f), SW * 0.5f - 1.f, SH * 0.5f - 8.f, 2.f, 16.f);
+-	DrawRect(FLinearColor(1, 1, 1, 0.8f), SW * 0.5f - 8.f, SH * 0.5f - 1.f, 16.f, 2.f);
+-
+-	// Interaction prompt.
+-	const FText Focus = S->GetFocusText();
+-	if (!Focus.IsEmpty()) DrawLine(Focus.ToString(), SW * 0.5f, SH * 0.5f + 40.f * UI, FLinearColor::White, 1.f * UI, true);
++	// Crosshair and interaction prompt: direct Shaman control only.
++	if (!bRTS)
++	{
++		DrawRect(FLinearColor(1, 1, 1, 0.8f), SW * 0.5f - 1.f, SH * 0.5f - 8.f, 2.f, 16.f);
++		DrawRect(FLinearColor(1, 1, 1, 0.8f), SW * 0.5f - 8.f, SH * 0.5f - 1.f, 16.f, 2.f);
++		const FText Focus = S->GetFocusText();
++		if (!Focus.IsEmpty()) DrawLine(Focus.ToString(), SW * 0.5f, SH * 0.5f + 40.f * UI, FLinearColor::White, 1.f * UI, true);
++	}
+ 
+ 	// Hazards and death.
+ 	if (S->IsDrowning())
+@@ -134,3 +145,85 @@ void AShamanHUD::DrawHUD()
+ 		}
+ 	}
+ }
++
++// ---- RTS controls overlay ----------------------------------------------------------------------------------------------
++
++void AShamanHUD::DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color)
++{
++	if (!Unit || !PlayerOwner) return;
++	const FVector L = Unit->GetActorLocation();
++	const FVector Up = FShamanSpace::GetUp(this, L);
++	FPlanetFrame Planet;
++	if (PlayerOwner->PlayerCameraManager && FShamanSpace::GetPlanet(this, Planet)
++		&& FVector::DotProduct(Up, PlayerOwner->PlayerCameraManager->GetCameraLocation() - L) < 0.f) return; // far side of the planet
++	const UCapsuleComponent* Cap = Unit->GetCapsuleComponent();
++	const float Half = Cap ? Cap->GetScaledCapsuleHalfHeight() : 90.f;
++	const float R = (Cap ? Cap->GetScaledCapsuleRadius() : 40.f) * RadiusScale;
++	const FVector Centre = L - Up * (Half - 4.f);
++	const FVector Hint = FMath::Abs(Up.Z) < 0.9f ? FVector::UpVector : FVector::ForwardVector;
++	const FVector X = (Hint - Up * FVector::DotProduct(Hint, Up)).GetSafeNormal();
++	const FVector Y = FVector::CrossProduct(Up, X);
++
++	const int32 N = 24;
++	FVector2D Prev;
++	bool bPrev = false;
++	for (int32 i = 0; i <= N; ++i)
++	{
++		const float A = 2.f * PI * i / N;
++		FVector2D P;
++		const bool bOk = PlayerOwner->ProjectWorldLocationToScreen(Centre + (X * FMath::Cos(A) + Y * FMath::Sin(A)) * R, P, false);
++		if (bOk && bPrev)
++		{
++			AHUD::DrawLine(Prev.X, Prev.Y, P.X, P.Y, FLinearColor(0.f, 0.f, 0.f, 0.6f), 5.f); // dark outline: readable on any ground
++			AHUD::DrawLine(Prev.X, Prev.Y, P.X, P.Y, Color, 2.5f);
++		}
++		Prev = P;
++		bPrev = bOk;
++	}
++	// Chevron above the head: still visible when the feet are hidden behind terrain.
++	FVector2D H;
++	if (PlayerOwner->ProjectWorldLocationToScreen(L + Up * (Half + 45.f), H, false))
++	{
++		AHUD::DrawLine(H.X - 7.f, H.Y - 7.f, H.X, H.Y, Color, 2.5f);
++		AHUD::DrawLine(H.X + 7.f, H.Y - 7.f, H.X, H.Y, Color, 2.5f);
++	}
++}
++
++void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW, float SH, float UI)
++{
++	const bool bRTS = PC->GetControlMode() == EShamanControlMode::RTS;
++	const FShamanSelectionSettings& Sel = PC->SelectionSettings;
++
++	// Mode banner (top centre).
++	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
++		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
++	DrawLine(bRTS
++		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
++		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
++
++	// Selection rings (shown in both modes; selection is kept across switches).
++	if (const UShamanSelectionComponent* Selection = PC->Selection)
++	{
++		const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
++		for (const AShamanUnitBase* U : Units) DrawSelectionRing(U, Sel.RingRadiusScale, Sel.RingColor);
++		if (bRTS && Units.Num() > 0)
++			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 62.f * UI, Sel.RingColor, 0.85f * UI, true);
++	}
++
++	// Drag box: translucent fill with a glowing edge.
++	if (bRTS && PC->IsDragSelecting())
++	{
++		FVector2D A, B;
++		PC->GetDragRect(A, B);
++		const float X0 = FMath::Min(A.X, B.X), Y0 = FMath::Min(A.Y, B.Y), X1 = FMath::Max(A.X, B.X), Y1 = FMath::Max(A.Y, B.Y);
++		DrawRect(Sel.BoxFillColor, X0, Y0, X1 - X0, Y1 - Y0);
++		const FLinearColor Glow(Sel.BoxEdgeColor.R, Sel.BoxEdgeColor.G, Sel.BoxEdgeColor.B, 0.3f);
++		for (int32 Pass = 0; Pass < 2; ++Pass)
++		{
++			const FLinearColor C = Pass == 0 ? Glow : Sel.BoxEdgeColor;
++			const float T = Pass == 0 ? 6.f : 2.f;
++			AHUD::DrawLine(X0, Y0, X1, Y0, C, T); AHUD::DrawLine(X1, Y0, X1, Y1, C, T);
++			AHUD::DrawLine(X1, Y1, X0, Y1, C, T); AHUD::DrawLine(X0, Y1, X0, Y0, C, T);
++		}
++	}
++}
+diff --git a/Source/Shaman/Public/Player/ShamanControlTypes.h b/Source/Shaman/Public/Player/ShamanControlTypes.h
+new file mode 100644
+index 0000000..ac9b1c5
+--- /dev/null
++++ b/Source/Shaman/Public/Player/ShamanControlTypes.h
+@@ -0,0 +1,111 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "ShamanControlTypes.generated.h"
++
++class AShamanUnitBase;
++struct FPlanetFrame;
++
++/**
++ * Hybrid RTS controls (RTS milestone, Stage A): shared types and the pure math behind the strategic camera and unit
++ * selection. Nothing here touches the world, so camera and selection rules are unit-tested on their own.
++ */
++
++/** Who the player is driving: the tribe from the strategic camera, or the Shaman directly (Phase 1 controls). */
++UENUM(BlueprintType)
++enum class EShamanControlMode : uint8
++{
++	RTS,
++	Shaman
++};
++
++/** Strategic camera tuning (AShamanPlayerController::CameraSettings). Distances in uu, angles in degrees. */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FShamanRTSCameraSettings
++{
++	GENERATED_BODY()
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="100")) float InitialDistance = 4200.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="100")) float MinDistance = 700.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="100")) float MaxDistance = 14000.f;
++	/** Angle of the view below the local horizon. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="5", ClampMax="89")) float InitialPitch = 55.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="5", ClampMax="89")) float MinPitch = 25.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="5", ClampMax="89")) float MaxPitch = 85.f;
++	/** Pan speed as a fraction of the current zoom distance per second (zoomed out pans faster). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0")) float PanSpeed = 1.1f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0")) float RotateSpeed = 90.f;
++	/** Middle-mouse drag orbit, degrees per pixel. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0")) float MouseOrbitSpeed = 0.25f;
++	/** Fraction of the distance removed per mouse-wheel step. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0.01", ClampMax="0.5")) float ZoomStep = 0.12f;
++	/** The camera is lifted to stay at least this far above the ground under it (hills, cliffs). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0")) float MinHeightAboveGround = 250.f;
++	/** Pan when the mouse is at the screen edge. Off by default (annoying in a windowed editor viewport). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera") bool bEdgePan = false;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="1")) float EdgePanMarginPx = 8.f;
++	/** Camera blend when switching modes (0 = cut). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0")) float ModeBlendTime = 0.25f;
++};
++
++/** Selection tuning (AShamanPlayerController::SelectionSettings). */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FShamanSelectionSettings
++{
++	GENERATED_BODY()
++	/** A left press that moves further than this becomes a drag-box selection instead of a click. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection", meta=(ClampMin="1")) float DragThresholdPx = 6.f;
++	/** Click tolerance around a unit's on-screen body. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection", meta=(ClampMin="1")) float PickRadiusPx = 16.f;
++	/** Selection ring radius as a multiple of the unit's capsule radius. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection", meta=(ClampMin="0.5")) float RingRadiusScale = 1.8f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor RingColor = FLinearColor(1.f, 0.85f, 0.1f, 1.f);
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor BoxFillColor = FLinearColor(0.35f, 0.85f, 1.f, 0.18f);
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor BoxEdgeColor = FLinearColor(0.55f, 0.95f, 1.f, 1.f);
++};
++
++/**
++ * The strategic camera as a pure value: a ground focus point, a heading tangent to the ground there, a pitch below the
++ * local horizon and a distance. "Up" is the planet's radial up when a planet frame is given, world +Z otherwise.
++ * The heading is parallel-transported as the focus moves, so the view never flips when crossing curved terrain.
++ */
++struct SHAMAN_API FShamanRTSCameraRig
++{
++	FVector Focus = FVector::ZeroVector;
++	FVector Forward = FVector(1.f, 0.f, 0.f);
++	float PitchDeg = 55.f;
++	float Distance = 4200.f;
++
++	static FVector UpAt(const FPlanetFrame* Planet, const FVector& Location);
++	/** Re-projects Forward onto the tangent plane at Focus (keeps it unit and horizontal). */
++	void Normalize(const FPlanetFrame* Planet);
++	/** Moves the focus along the ground by DForward / DRight uu (planet: along the sphere at the same radius). */
++	void Pan(const FPlanetFrame* Planet, float DForward, float DRight);
++	/** Turns the heading about the local up and tilts the pitch (clamped). */
++	void Orbit(const FPlanetFrame* Planet, float YawDeg, float PitchDeltaDeg, const FShamanRTSCameraSettings& Settings);
++	/** Steps > 0 zooms in, < 0 zooms out; distance clamped to [MinDistance, MaxDistance]. */
++	void Zoom(float Steps, const FShamanRTSCameraSettings& Settings);
++	/** World camera location and rotation for the current state. */
++	void GetView(const FPlanetFrame* Planet, FVector& OutLocation, FRotator& OutRotation) const;
++	FVector GetRight(const FPlanetFrame* Planet) const;
++};
++
++/** A unit as seen on screen, for click and box picking. Feet/Head are viewport pixel positions. */
++struct SHAMAN_API FShamanScreenCandidate
++{
++	TWeakObjectPtr<AShamanUnitBase> Unit;
++	FVector2D Feet = FVector2D::ZeroVector;
++	FVector2D Head = FVector2D::ZeroVector;
++	bool bOnScreen = false;
++};
++
++/** Selection rules (pure). */
++struct SHAMAN_API FShamanSelectionRules
++{
++	/** A living Brave/follower or the Shaman of the player's tribe. Never enemies, Wildmen, buildings or corpses. */
++	static bool IsSelectable(const AShamanUnitBase* Unit, int32 PlayerTribe);
++	static bool IsDrag(const FVector2D& Start, const FVector2D& Current, float ThresholdPx);
++	/** Index of the candidate whose body (feet-head segment) is nearest the mouse within RadiusPx, or INDEX_NONE. */
++	static int32 PickClosest(const TArray<FShamanScreenCandidate>& Candidates, const FVector2D& Mouse, float RadiusPx);
++	/** Candidates whose body centre lies in the rectangle spanned by A and B (any corner order). */
++	static void BoxSelect(const TArray<FShamanScreenCandidate>& Candidates, const FVector2D& A, const FVector2D& B, TArray<int32>& OutIndices);
++	static float DistanceToSegment(const FVector2D& P, const FVector2D& A, const FVector2D& B);
++};
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+new file mode 100644
+index 0000000..a5e93ae
+--- /dev/null
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -0,0 +1,105 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameFramework/PlayerController.h"
++#include "Player/ShamanControlTypes.h"
++#include "ShamanPlayerController.generated.h"
++
++class AShamanRTSCamera;
++class AShamanUnitBase;
++class UShamanSelectionComponent;
++class UInputComponent;
++
++/**
++ * Hybrid controls (RTS milestone, Stage A). The controller always possesses the player Shaman (so reincarnation,
++ * spells, HUD and every system that asks "who is the player's pawn" are unchanged); the control mode only decides
++ * the view target and which input layer is active:
++ *   - RTS (default at start): view through AShamanRTSCamera; an RTS input layer (pushed, bBlockInput) takes all keys,
++ *     so the Shaman's own bindings (WASD, mouse look, cast, melee, interact) never fire. Mouse cursor shown.
++ *   - Shaman: the RTS layer is popped; the Shaman's Phase 1 bindings work exactly as before.
++ * Enter toggles (bound on the RTS layer and on the controller's own layer; only one is ever active, so one press
++ * toggles once). Keys held during a switch are flushed so nothing carries over.
++ *
++ * RTS keys: LMB click select / drag box (Shift adds), WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
++ * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
++ * before the game sees it, so use Backspace there), F3 debug.
++ */
++UCLASS()
++class SHAMAN_API AShamanPlayerController : public APlayerController
++{
++	GENERATED_BODY()
++public:
++	AShamanPlayerController();
++
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") EShamanControlMode StartMode = EShamanControlMode::RTS;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") FShamanRTSCameraSettings CameraSettings;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") FShamanSelectionSettings SelectionSettings;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") TSubclassOf<AShamanRTSCamera> RTSCameraClass;
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Controls") UShamanSelectionComponent* Selection;
++
++	UFUNCTION(BlueprintCallable, Category="Controls") EShamanControlMode GetControlMode() const { return Mode; }
++	UFUNCTION(BlueprintCallable, Category="Controls") void SetControlMode(EShamanControlMode NewMode);
++	UFUNCTION(BlueprintCallable, Category="Controls") void ToggleControlMode();
++	/** Console: ShamanControlMode (toggle). */
++	UFUNCTION(Exec) void ShamanControlMode();
++
++	AShamanRTSCamera* GetRTSCamera() const { return RTSCamera; }
++	int32 GetPlayerTribe() const;
++
++	// Camera actions (also used by tests).
++	void PanCamera(float ForwardAxis, float RightAxis, float DeltaSeconds);
++	void OrbitCamera(float YawDeg, float PitchDeltaDeg);
++	void ZoomCamera(float Steps);
++	void FocusCameraOnShaman();
++	void FocusCameraOnSelection();
++
++	// Selection gesture (screen pixels; also used by tests).
++	void BeginSelectGesture(const FVector2D& ScreenPos);
++	void UpdateSelectGesture(const FVector2D& ScreenPos);
++	void EndSelectGesture(const FVector2D& ScreenPos, bool bAdditive);
++	void CancelSelectGesture();
++	bool IsDragSelecting() const { return bSelectPressed && bDragging; }
++	void GetDragRect(FVector2D& OutA, FVector2D& OutB) const { OutA = DragStart; OutB = DragCurrent; }
++	/** The player's selectable units projected to the screen (player tribe roster + Shaman; no world scan). */
++	void GatherScreenCandidates(TArray<FShamanScreenCandidate>& Out) const;
++
++protected:
++	virtual void SetupInputComponent() override;
++	virtual void OnPossess(APawn* InPawn) override;
++	virtual void PlayerTick(float DeltaTime) override;
++	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
++
++	/** bFromPossess: re-applied right after (re)possession - instant, no key flush, camera kept where it is. */
++	void ApplyControlMode(bool bFirstTime, bool bFromPossess = false);
++	/** Returns true when a new camera was spawned (it then needs PlaceCameraAtStart). */
++	bool EnsureRTSCamera();
++	/** Planets: false for points on the far side of the globe from the camera (not visible, not pickable). */
++	bool IsOnVisibleSide(const FVector& WorldLocation) const;
++	void PlaceCameraAtStart();
++	void UpdateRTSInput(float DeltaTime);
++
++	// Input handlers
++	void OnToggleModePressed();
++	void OnSelectPressed();
++	void OnSelectReleased();
++	void OnOrbitPressed();
++	void OnOrbitReleased();
++	void OnZoomIn();
++	void OnZoomOut();
++	void OnFocusSelection();
++	void OnFocusShaman();
++	void OnClearSelection();
++	void OnToggleDebug();
++
++	UPROPERTY(Transient) UInputComponent* RTSInput = nullptr;
++	UPROPERTY(Transient) AShamanRTSCamera* RTSCamera = nullptr;
++
++	EShamanControlMode Mode = EShamanControlMode::RTS;
++	bool bModeInitialized = false;
++	bool bRTSInputPushed = false;
++	bool bSelectPressed = false;
++	bool bDragging = false;
++	bool bOrbiting = false;
++	FVector2D DragStart = FVector2D::ZeroVector;
++	FVector2D DragCurrent = FVector2D::ZeroVector;
++	FVector2D LastMouse = FVector2D::ZeroVector;
++};
+diff --git a/Source/Shaman/Public/Player/ShamanRTSCamera.h b/Source/Shaman/Public/Player/ShamanRTSCamera.h
+new file mode 100644
+index 0000000..fe847df
+--- /dev/null
++++ b/Source/Shaman/Public/Player/ShamanRTSCamera.h
+@@ -0,0 +1,42 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameFramework/Actor.h"
++#include "Player/ShamanControlTypes.h"
++#include "ShamanRTSCamera.generated.h"
++
++class UCameraComponent;
++
++/**
++ * Strategic (RTS) camera: an actor the player controller uses as its view target in RTS mode. It is not a pawn, so
++ * moving it never moves the Shaman. State lives in FShamanRTSCameraRig (pure math); this actor applies it each frame,
++ * keeps the focus on the ground (FShamanSpace::ProjectToGround) and lifts the camera clear of hills.
++ */
++UCLASS()
++class SHAMAN_API AShamanRTSCamera : public AActor
++{
++	GENERATED_BODY()
++public:
++	AShamanRTSCamera();
++
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly) UCameraComponent* Camera;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Camera") FShamanRTSCameraSettings Settings;
++
++	/** Puts the focus on the ground at Anchor, heading along ForwardHint, at the initial pitch and distance. */
++	void InitializeView(const FVector& Anchor, const FVector& ForwardHint);
++	/** Axis values in [-1, 1]; scaled by PanSpeed * Distance * DeltaSeconds. */
++	void Pan(float ForwardAxis, float RightAxis, float DeltaSeconds);
++	void Orbit(float YawDeg, float PitchDeltaDeg);
++	void Zoom(float Steps);
++	/** Moves the focus (keeps heading, pitch and zoom). */
++	void FocusOn(const FVector& Location);
++	/** Recomputes and applies the camera transform now (also done every tick). */
++	void UpdateView();
++
++	const FShamanRTSCameraRig& GetRig() const { return Rig; }
++
++	virtual void Tick(float DeltaSeconds) override;
++
++protected:
++	void SnapFocusToGround();
++	FShamanRTSCameraRig Rig;
++};
+diff --git a/Source/Shaman/Public/Player/ShamanSelectionComponent.h b/Source/Shaman/Public/Player/ShamanSelectionComponent.h
+new file mode 100644
+index 0000000..ad526e7
+--- /dev/null
++++ b/Source/Shaman/Public/Player/ShamanSelectionComponent.h
+@@ -0,0 +1,50 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "Components/ActorComponent.h"
++#include "ShamanSelectionComponent.generated.h"
++
++class AShamanUnitBase;
++
++DECLARE_MULTICAST_DELEGATE(FOnShamanSelectionChanged);
++
++/**
++ * The player's current unit selection (RTS mode). Owned by AShamanPlayerController. Holds weak references only and
++ * never touches tasks, tribe membership or worker availability: selecting is presentation state, commands are issued
++ * separately. Units that die, are destroyed or leave the player's tribe drop out on the next prune (10x per second,
++ * over the selection only - no world scan).
++ */
++UCLASS(ClassGroup=(Shaman), meta=(BlueprintSpawnableComponent))
++class SHAMAN_API UShamanSelectionComponent : public UActorComponent
++{
++	GENERATED_BODY()
++public:
++	UShamanSelectionComponent();
++
++	void SetPlayerTribe(int32 TribeId);
++	int32 GetPlayerTribe() const { return PlayerTribe; }
++
++	/** Click on a unit: toggles it off if selected; otherwise replaces the selection (or adds, with bAdditive).
++	 *  An unselectable unit counts as an empty click. */
++	void ClickUnit(AShamanUnitBase* Unit, bool bAdditive);
++	/** Click on nothing selectable: clears the selection unless bAdditive. */
++	void ClickEmpty(bool bAdditive);
++	/** Drag-box result: replaces the selection with the selectable units (or adds, with bAdditive). */
++	void SelectUnits(const TArray<AShamanUnitBase*>& Units, bool bAdditive);
++	void ClearSelection();
++
++	bool IsSelected(const AShamanUnitBase* Unit) const;
++	int32 Num() const { return Selected.Num(); }
++	/** Valid, still-selectable units (does not modify the selection). */
++	TArray<AShamanUnitBase*> GetSelectedUnits() const;
++	/** Drops dead / destroyed / converted units. Returns how many were removed. */
++	int32 PruneInvalid();
++
++	FOnShamanSelectionChanged OnSelectionChanged;
++
++	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
++
++private:
++	void Changed(const TCHAR* Why);
++	TArray<TWeakObjectPtr<AShamanUnitBase>> Selected;
++	int32 PlayerTribe = 0;
++};
+diff --git a/Source/Shaman/Public/Terrain/ShamanSpace.h b/Source/Shaman/Public/Terrain/ShamanSpace.h
+index 517afa2..64353ab 100644
+--- a/Source/Shaman/Public/Terrain/ShamanSpace.h
++++ b/Source/Shaman/Public/Terrain/ShamanSpace.h
+@@ -25,4 +25,7 @@ struct SHAMAN_API FShamanSpace
+ 	static FRotator UprightRotation(const UObject* Ctx, const FVector& Location, const FVector& Forward);
+ 	/** Origin moved by a ground-plane offset (X/Y on flat worlds; tangent plane + re-projected to the same radius on planets). */
+ 	static FVector OffsetAlongGround(const UObject* Ctx, const FVector& Origin, const FVector2D& Offset);
++	/** The ground surface under/over Location: planets ask the terrain query (ITerrainQuery), flat worlds trace
++	 *  straight down/up against world-static geometry. False when nothing is found (Out = Location). */
++	static bool ProjectToGround(const UObject* Ctx, const FVector& Location, FVector& OutGround);
+ };
+diff --git a/Source/Shaman/Public/UI/ShamanHUD.h b/Source/Shaman/Public/UI/ShamanHUD.h
+index 5d7ce8f..a50f2e0 100644
+--- a/Source/Shaman/Public/UI/ShamanHUD.h
++++ b/Source/Shaman/Public/UI/ShamanHUD.h
+@@ -4,6 +4,8 @@
+ #include "ShamanHUD.generated.h"
+ 
+ class AShamanCharacter;
++class AShamanUnitBase;
++class AShamanPlayerController;
+ 
+ /**
+  * Phase 1 HUD drawn on the canvas (no widget assets needed): health, mana and regen, followers, selected spell
+@@ -20,4 +22,8 @@ public:
+ private:
+ 	void DrawBar(float X, float Y, float W, float H, float Fraction, const FLinearColor& Color, const FString& Label);
+ 	void DrawLine(const FString& Text, float X, float Y, const FLinearColor& Color, float Scale = 1.f, bool bCentered = false);
++	/** RTS milestone: mode banner, selection rings, drag box. */
++	void DrawControlOverlay(const AShamanPlayerController* PC, float SW, float SH, float UI);
++	/** Ground-aligned ring around a unit's feet (projected from its local up, so it fits slopes and planets). */
++	void DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color);
+ };
+diff --git a/Source/Shaman/Shaman.Build.cs b/Source/Shaman/Shaman.Build.cs
+index 5f124e3..d43393e 100644
+--- a/Source/Shaman/Shaman.Build.cs
++++ b/Source/Shaman/Shaman.Build.cs
+@@ -8,5 +8,7 @@ public class Shaman : ModuleRules
+ 			"Core", "CoreUObject", "Engine", "InputCore",
+ 			"AIModule", "NavigationSystem", "GameplayTags", "ProceduralMeshComponent", "AssetRegistry"
+ 		});
++		// UInputComponent::BindKey builds an FInputChord, which lives in Slate (RTS controls bind raw keys).
++		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+ 	}
+ }

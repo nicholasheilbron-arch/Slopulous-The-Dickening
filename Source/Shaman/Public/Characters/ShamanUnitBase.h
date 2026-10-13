@@ -65,6 +65,9 @@ public:
 	/** Move to a new tribe (Convert / Hypnotize later). Re-registers and recolours. */
 	UFUNCTION(BlueprintCallable) void ChangeTribe(int32 NewTribeId);
 
+	/** Re-tint the placeholder body from the current tribe (and the ShamanTeamColors testing toggle). */
+	void RefreshTint();
+
 	/** Bring a dead unit back (used by reincarnation). */
 	virtual void Reincarnate(const FVector& Location, const FRotator& Rotation);
 

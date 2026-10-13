@@ -1,0 +1,595 @@
+diff --git a/Source/Shaman/Private/Player/ShamanControlTypes.cpp b/Source/Shaman/Private/Player/ShamanControlTypes.cpp
+index e561c93..828a4b7 100644
+--- a/Source/Shaman/Private/Player/ShamanControlTypes.cpp
++++ b/Source/Shaman/Private/Player/ShamanControlTypes.cpp
+@@ -120,3 +120,21 @@ void FShamanSelectionRules::BoxSelect(const TArray<FShamanScreenCandidate>& Cand
+ 		if (Mid.X >= Min.X && Mid.X <= Max.X && Mid.Y >= Min.Y && Mid.Y <= Max.Y) OutIndices.Add(i);
+ 	}
+ }
++
++// ---- Command rules -------------------------------------------------------------------------------------------------------
++
++void FShamanCommandRules::FormationOffsets(int32 NumUnits, float Spacing, TArray<FVector2D>& OutOffsets)
++{
++	OutOffsets.Reset();
++	if (NumUnits <= 0) return;
++	OutOffsets.Add(FVector2D::ZeroVector);
++	for (int32 Ring = 1; OutOffsets.Num() < NumUnits; ++Ring)
++	{
++		const int32 Slots = 6 * Ring; // ring circumference 2*pi*Ring*Spacing / Slots ~= 1.05 * Spacing
++		for (int32 i = 0; i < Slots && OutOffsets.Num() < NumUnits; ++i)
++		{
++			const float A = 2.f * PI * (i + 0.5f * (Ring % 2)) / Slots; // stagger alternate rings
++			OutOffsets.Add(FVector2D(FMath::Cos(A), FMath::Sin(A)) * (Ring * Spacing));
++		}
++	}
++}
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+index d5f9177..bf087c3 100644
+--- a/Source/Shaman/Private/Player/ShamanPlayerController.cpp
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -16,6 +16,16 @@
+ #include "HAL/IConsoleManager.h"
+ #include "UI/ShamanHUD.h"
+ #include "Characters/ShamanCharacter.h"
++#include "ShamanTypes.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "GameplayTagContainer.h"
++#include "Terrain/ShamanTerrainSubsystem.h"
++#include "Navigation/ShamanSurfaceNavigation.h"
++#include "NavigationSystem.h"
++#include "NavigationPath.h"
++#include "CollisionQueryParams.h"
+ 
+ static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
+ 	TEXT("shaman.DebugSelection"), 0,
+@@ -24,6 +34,17 @@ static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
+ 
+ static bool SelectionDiagnostics() { return CVarShamanDebugSelection.GetValueOnGameThread() != 0; }
+ 
++static const TCHAR* OrderName(EFollowerOrder O)
++{
++	switch (O)
++	{
++	case EFollowerOrder::FollowShaman: return TEXT("FollowShaman");
++	case EFollowerOrder::HoldPosition: return TEXT("HoldPosition");
++	case EFollowerOrder::GuardHome:    return TEXT("GuardHome");
++	default:                           return TEXT("Wander");
++	}
++}
++
+ AShamanPlayerController::AShamanPlayerController()
+ {
+ 	Selection = CreateDefaultSubobject<UShamanSelectionComponent>(TEXT("Selection"));
+@@ -90,6 +111,7 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
+ 			RTSInput->BindKey(EKeys::Enter, IE_Pressed, this, &AShamanPlayerController::OnToggleModePressed);
+ 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShamanPlayerController::OnSelectPressed);
+ 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShamanPlayerController::OnSelectReleased);
++			RTSInput->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AShamanPlayerController::OnCommandPressed);
+ 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AShamanPlayerController::OnOrbitPressed);
+ 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AShamanPlayerController::OnOrbitReleased);
+ 			RTSInput->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShamanPlayerController::OnZoomIn);
+@@ -114,6 +136,7 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
+ 	else
+ 	{
+ 		if (RTSInput && bRTSInputPushed) { PopInputComponent(RTSInput); bRTSInputPushed = false; }
++		StopShamanMove(TEXT("player took direct control")); // WASD drives the Shaman now
+ 		if (RTSCamera) RTSCamera->SetActorTickEnabled(false);
+ 		if (APawn* P = GetPawn()) SetViewTargetWithBlend(P, Blend);
+ 		bShowMouseCursor = false;
+@@ -225,6 +248,7 @@ void AShamanPlayerController::PlayerTick(float DeltaTime)
+ {
+ 	Super::PlayerTick(DeltaTime);
+ 	RefreshPlayerTribe(); // cheap; also follows a tribe change of the possessed Shaman
++	UpdateShamanMove();
+ 	if (Mode == EShamanControlMode::RTS && RTSCamera) UpdateRTSInput(DeltaTime);
+ }
+ 
+@@ -399,8 +423,15 @@ void AShamanPlayerController::ShamanSelectionDump()
+ 		Mode == EShamanControlMode::RTS ? TEXT("RTS") : TEXT("SHAMAN"), GetPawn() ? *GetPawn()->GetName() : TEXT("none"), Tribe,
+ 		Selection ? Selection->GetPlayerTribe() : -99, Tribes ? Tribes->GetFollowers(Tribe).Num() : -1, Candidates.Num(), Selection ? Selection->Num() : 0);
+ 	for (const FShamanScreenCandidate& C : Candidates)
+-		UE_LOG(LogShaman, Log, TEXT("[SelectDiag]   %s on screen %d feet (%.0f,%.0f) head (%.0f,%.0f)"),
+-			C.Unit.IsValid() ? *C.Unit->GetName() : TEXT("?"), C.bOnScreen ? 1 : 0, C.Feet.X, C.Feet.Y, C.Head.X, C.Head.Y);
++	{
++		const AShamanUnitBase* U = C.Unit.Get();
++		if (!U) continue;
++		const UTribeMemberComponent* M = U->TribeMember;
++		UE_LOG(LogShaman, Log, TEXT("[SelectDiag]   %s on screen %d feet (%.0f,%.0f) head (%.0f,%.0f) order %s task #%d state %s dist to Shaman %.0f"),
++			*U->GetName(), C.bOnScreen ? 1 : 0, C.Feet.X, C.Feet.Y, C.Head.X, C.Head.Y, OrderName(U->GetOrder()),
++			M ? M->GetCurrentTaskId() : -1, M ? FTribeTaskRules::SimStateName(M->GetSimState()) : TEXT("-"),
++			GetPawn() ? FShamanSpace::HorizontalDistance(this, U->GetActorLocation(), GetPawn()->GetActorLocation()) : -1.f);
++	}
+ }
+ 
+ void AShamanPlayerController::OnSelectReleased()
+@@ -424,3 +455,219 @@ void AShamanPlayerController::OnFocusSelection() { FocusCameraOnSelection(); }
+ void AShamanPlayerController::OnFocusShaman() { FocusCameraOnShaman(); }
+ void AShamanPlayerController::OnClearSelection() { CancelSelectGesture(); if (Selection) Selection->ClearSelection(); }
+ void AShamanPlayerController::OnToggleDebug() { ShamanDebug::Toggle(); }
++
++// ---- RTS commands ------------------------------------------------------------------------------------------------------
++
++void AShamanPlayerController::OnCommandPressed()
++{
++	float X = 0.f, Y = 0.f;
++	if (!GetMousePosition(X, Y) || !Selection) return;
++	const FVector2D Mouse(X, Y);
++	if (const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD()))
++		if (HUD->IsOverSpellPanel(Mouse)) return; // no commands through the panel
++	CancelSelectGesture();
++	RefreshPlayerTribe();
++	const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
++	if (Units.Num() == 0)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Command] nothing selected: select units with LMB first"));
++		return;
++	}
++	// Right-click on the player's Shaman: the selected Braves guard him.
++	TArray<FShamanScreenCandidate> Candidates;
++	GatherScreenCandidates(Candidates);
++	const int32 Hit = FShamanSelectionRules::PickClosest(Candidates, Mouse, SelectionSettings.PickRadiusPx);
++	if (Hit != INDEX_NONE && Candidates[Hit].Unit.IsValid() && Candidates[Hit].Unit->IsShaman())
++	{
++		CommandGuardShaman(Units);
++		return;
++	}
++	FVector Ground;
++	if (!GetGroundUnderScreen(Mouse, Ground))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Command] no ground under the cursor"));
++		return;
++	}
++	CommandMove(Units, Ground);
++}
++
++bool AShamanPlayerController::GetGroundUnderScreen(const FVector2D& ScreenPos, FVector& OutGround) const
++{
++	FVector Origin, Dir;
++	if (!DeprojectScreenPositionToWorld(ScreenPos.X, ScreenPos.Y, Origin, Dir) || Dir.IsNearlyZero()) return false;
++	FHitResult Hit;
++	FCollisionQueryParams Params(TEXT("ShamanRTSCommand"), true, GetPawn());
++	const FVector End = Origin + Dir * 500000.f;
++	FVector Point;
++	bool bFound = GetWorld()->LineTraceSingleByObjectType(Hit, Origin, End, FCollisionObjectQueryParams(ECC_WorldStatic), Params);
++	if (bFound) Point = Hit.ImpactPoint;
++	FPlanetFrame Planet;
++	if (!bFound && FShamanSpace::GetPlanet(this, Planet))
++	{
++		// No collision hit (terrain collision still cooking, or none): intersect the ray with the base sphere.
++		const FVector L = Origin - Planet.Center;
++		const float B = FVector::DotProduct(L, Dir), C = L.SizeSquared() - FMath::Square(Planet.Radius);
++		const float Disc = B * B - C;
++		if (Disc >= 0.f)
++		{
++			const float T = -B - FMath::Sqrt(Disc);
++			if (T > 0.f) { Point = Origin + Dir * T; bFound = true; }
++		}
++	}
++	if (!bFound) return false;
++	// Clicked a rooftop or a tree: the order goes to the ground under it.
++	if (!FShamanSpace::ProjectToGround(this, Point, OutGround)) OutGround = Point;
++	return true;
++}
++
++int32 AShamanPlayerController::CommandMove(const TArray<AShamanUnitBase*>& Units, const FVector& Ground)
++{
++	RefreshPlayerTribe();
++	const int32 Tribe = GetPlayerTribe();
++	UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(Tribe) : nullptr;
++
++	TArray<AShamanUnitBase*> Braves;
++	bool bShaman = false;
++	for (AShamanUnitBase* U : Units)
++	{
++		if (!FShamanSelectionRules::IsSelectable(U, Tribe)) continue;
++		if (U->IsShaman()) { bShaman |= (U == GetPawn()); continue; }
++		Braves.AddUnique(U);
++	}
++	// Closest Braves take the inner slots (shorter, less crossing paths).
++	Braves.Sort([&Ground](const AShamanUnitBase& A, const AShamanUnitBase& B)
++	{
++		return FVector::DistSquared(A.GetActorLocation(), Ground) < FVector::DistSquared(B.GetActorLocation(), Ground);
++	});
++	TArray<FVector2D> Offsets;
++	FShamanCommandRules::FormationOffsets(Braves.Num() + (bShaman ? 1 : 0), SelectionSettings.FormationSpacing, Offsets);
++
++	int32 Slot = 0, Ordered = 0, Refused = 0;
++	if (bShaman) { StartShamanMove(Ground); ++Slot; ++Ordered; } // the Shaman takes the centre
++
++	const FGameplayTag MoveTag = FGameplayTag::RequestGameplayTag(TEXT("Task.MoveTo"), /*ErrorIfNotFound*/ false);
++	for (AShamanUnitBase* B : Braves)
++	{
++		FVector Dest = FShamanSpace::OffsetAlongGround(this, Ground, Offsets[Slot++]);
++		FVector OnGround;
++		if (FShamanSpace::ProjectToGround(this, Dest, OnGround)) Dest = OnGround;
++		UTribeMemberComponent* M = B->TribeMember;
++		bool bTask = false;
++		if (TC && M && MoveTag.IsValid())
++		{
++			// A player command replaces whatever the unit was doing (its old task ends as Cancelled / PlayerCommand).
++			if (M->HasTask()) TC->CancelTask(M->GetCurrentTaskId(), TEXT("PlayerCommand"));
++			const int32 Id = TC->CreateTask(MoveTag, ETribeTaskPriority::High, nullptr, Dest, true, TEXT("PlayerCommand"));
++			bTask = Id != INDEX_NONE && TC->AssignTask(Id, M) && TC->StartTask(Id);
++			FTribeTask T;
++			if (!bTask && Id != INDEX_NONE && TC->GetTask(Id, T) && T.IsOpen()) TC->CancelTask(Id, TEXT("PlayerCommandRefused"));
++		}
++		if (!bTask)
++		{
++			++Refused;
++			UE_LOG(LogShaman, Log, TEXT("[Command] %s could not take a move task (unavailable); it will still walk there and hold"), *B->GetName());
++		}
++		// After arriving (or if the task could not run / the spot is unreachable) the Brave holds this spot instead of
++		// returning to its default order. It defends itself there (Phase 1 leash around the hold point).
++		B->SetOrder(EFollowerOrder::HoldPosition, Dest);
++		++Ordered;
++	}
++
++	LastCommandLocation = Ground;
++	LastCommandTime = GetWorld()->GetTimeSeconds();
++	bLastCommandGuard = false;
++	UE_LOG(LogShaman, Log, TEXT("[Command] move: %d Brave(s)%s to (%.0f, %.0f, %.0f)%s"), Braves.Num(), bShaman ? TEXT(" + Shaman") : TEXT(""),
++		Ground.X, Ground.Y, Ground.Z, Refused > 0 ? *FString::Printf(TEXT(", %d without a task"), Refused) : TEXT(""));
++	return Ordered;
++}
++
++int32 AShamanPlayerController::CommandGuardShaman(const TArray<AShamanUnitBase*>& Units)
++{
++	RefreshPlayerTribe();
++	const int32 Tribe = GetPlayerTribe();
++	UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	AShamanUnitBase* S = Tribes ? Tribes->GetShaman(Tribe) : nullptr;
++	if (!S || !S->IsAlive())
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Command] guard: the Shaman is not alive"));
++		return 0;
++	}
++	UTribeComponent* TC = Tribes->GetTribeComponent(Tribe);
++	int32 N = 0;
++	for (AShamanUnitBase* U : Units)
++	{
++		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue;
++		if (TC && U->TribeMember && U->TribeMember->HasTask()) TC->CancelTask(U->TribeMember->GetCurrentTaskId(), TEXT("PlayerCommand"));
++		U->SetOrder(EFollowerOrder::FollowShaman, S->GetActorLocation()); // follow within FollowDistance, fight within the leash
++		++N;
++	}
++	LastCommandLocation = S->GetActorLocation();
++	LastCommandTime = GetWorld()->GetTimeSeconds();
++	bLastCommandGuard = true;
++	UE_LOG(LogShaman, Log, TEXT("[Command] guard Shaman: %d Brave(s)"), N);
++	return N;
++}
++
++bool AShamanPlayerController::GetLastCommand(FVector& OutLocation, float& OutAge, bool& bOutGuard) const
++{
++	if (LastCommandTime < 0.0 || !GetWorld()) return false;
++	OutLocation = LastCommandLocation;
++	OutAge = (float)(GetWorld()->GetTimeSeconds() - LastCommandTime);
++	bOutGuard = bLastCommandGuard;
++	return true;
++}
++
++void AShamanPlayerController::StartShamanMove(const FVector& Goal)
++{
++	const APawn* P = GetPawn();
++	if (!P) return;
++	ShamanPath.Reset();
++	ShamanPathIndex = 0;
++	const FVector Start = P->GetActorLocation();
++	const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this);
++	if (Terrain && Terrain->IsPlanetActive())
++	{
++		const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, Start, Goal);
++		if (Path.bValid) ShamanPath = Path.Points;
++	}
++	else if (const UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(this, Start, Goal, const_cast<APawn*>(P)))
++	{
++		if (NavPath->IsValid())
++			for (int32 i = 1; i < NavPath->PathPoints.Num(); ++i) ShamanPath.Add(NavPath->PathPoints[i]);
++	}
++	const bool bStraight = ShamanPath.Num() == 0;
++	if (bStraight) ShamanPath.Add(Goal); // no navigation data: walk straight; the stuck check ends it if blocked
++	ShamanBestDistance = FShamanSpace::HorizontalDistance(this, Start, ShamanPath.Last());
++	ShamanLastProgressTime = GetWorld()->GetTimeSeconds();
++	UE_LOG(LogShaman, Log, TEXT("[Command] Shaman walking to (%.0f, %.0f, %.0f): %d waypoint(s)%s"), Goal.X, Goal.Y, Goal.Z, ShamanPath.Num(),
++		bStraight ? TEXT(" (no path found: straight line)") : TEXT(""));
++}
++
++void AShamanPlayerController::StopShamanMove(const TCHAR* Why)
++{
++	if (ShamanPath.Num() == 0) return;
++	ShamanPath.Reset();
++	ShamanPathIndex = 0;
++	UE_LOG(LogShaman, Log, TEXT("[Command] Shaman move ended: %s"), Why);
++}
++
++void AShamanPlayerController::UpdateShamanMove()
++{
++	if (ShamanPath.Num() == 0) return;
++	AShamanUnitBase* S = Cast<AShamanUnitBase>(GetPawn());
++	if (!S || !S->IsAlive()) { StopShamanMove(TEXT("Shaman down")); return; }
++	const double Now = GetWorld()->GetTimeSeconds();
++	if (S->IsRagdolling()) { ShamanLastProgressTime = Now; return; } // knocked down: wait, do not count as stuck
++	const FVector Here = S->GetActorLocation();
++	const bool bLast = ShamanPathIndex >= ShamanPath.Num() - 1;
++	if (FShamanSpace::HorizontalDistance(this, Here, ShamanPath[ShamanPathIndex]) <= (bLast ? 90.f : 60.f))
++	{
++		if (bLast) { StopShamanMove(TEXT("arrived")); return; }
++		++ShamanPathIndex;
++	}
++	S->AddMovementInput(FShamanSpace::HorizontalDirection(this, Here, ShamanPath[ShamanPathIndex]), 1.f);
++	const float ToGoal = FShamanSpace::HorizontalDistance(this, Here, ShamanPath.Last());
++	if (ToGoal < ShamanBestDistance - 50.f) { ShamanBestDistance = ToGoal; ShamanLastProgressTime = Now; }
++	else if (Now - ShamanLastProgressTime > 4.0) StopShamanMove(TEXT("stuck (no progress for 4 s)"));
++}
+diff --git a/Source/Shaman/Private/Tests/ShamanControlTests.cpp b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+index ee72e9a..dadd49a 100644
+--- a/Source/Shaman/Private/Tests/ShamanControlTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+@@ -18,6 +18,8 @@
+ #include "SpellRow.h"
+ #include "Engine/DataTable.h"
+ #include "UI/ShamanSpellPanel.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "GameplayTagContainer.h"
+ #include "ShamanTribeTestWorld.h"
+ 
+ /**
+@@ -304,6 +306,7 @@ bool FShamanPlayerTribeLateTest::RunTest(const FString& Parameters)
+ 	PC->ToggleControlMode();
+ 	PC->RefreshPlayerTribe();
+ 	TestTrue(TEXT("Mode switches keep the tribe and the selection"), Sel->GetPlayerTribe() == 0 && Sel->Num() == 2);
++	Sel->ClickEmpty(false);   // (a plain click on an already-selected unit deselects it, so clear first)
+ 	Sel->ClickUnit(B0, false);
+ 	TestTrue(TEXT("Selection still works after switching modes"), Sel->Num() == 1 && Sel->IsSelected(B0));
+ 
+@@ -377,6 +380,92 @@ bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
+ 	return true;
+ }
+ 
++SHAMAN_CONTROL_TEST(FShamanFormationRulesTest, "Shaman.Controls.FormationRules")
++bool FShamanFormationRulesTest::RunTest(const FString& Parameters)
++{
++	TArray<FVector2D> O;
++	FShamanCommandRules::FormationOffsets(0, 140.f, O);
++	TestEqual(TEXT("No units, no slots"), O.Num(), 0);
++	FShamanCommandRules::FormationOffsets(1, 140.f, O);
++	TestTrue(TEXT("A single unit goes to the clicked point"), O.Num() == 1 && O[0].IsNearlyZero());
++	for (int32 N : { 2, 7, 8, 20, 40 })
++	{
++		FShamanCommandRules::FormationOffsets(N, 140.f, O);
++		float MinGap = TNumericLimits<float>::Max();
++		for (int32 i = 0; i < O.Num(); ++i) for (int32 j = i + 1; j < O.Num(); ++j) MinGap = FMath::Min(MinGap, FVector2D::Distance(O[i], O[j]));
++		TestEqual(FString::Printf(TEXT("%d units: one slot each"), N), O.Num(), N);
++		TestTrue(FString::Printf(TEXT("%d units: slots at least the spacing apart"), N), MinGap >= 139.f);
++		TArray<FVector2D> Again;
++		FShamanCommandRules::FormationOffsets(N, 140.f, Again);
++		TestTrue(FString::Printf(TEXT("%d units: deterministic"), N), Again == O);
++	}
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanMoveCommandTest, "Shaman.Controls.Commands")
++bool FShamanMoveCommandTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanPlayerController* PC = F.W.World->SpawnActor<AShamanPlayerController>();
++	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
++	PC->CameraSettings.ModeBlendTime = 0.f;
++	PC->Possess(F.S0);
++	PC->RefreshPlayerTribe();
++
++	TArray<AShamanUnitBase*> Units = { F.Braves[0], F.Braves[1], F.Braves[2], F.S0, F.EnemyBrave, F.Wildman };
++	const FVector Ground(2500.f, 1500.f, 100.f);
++	const int32 EnemyTasksBefore = F.W.Tribes->GetTribeComponent(1) ? F.W.Tribes->GetTribeComponent(1)->GetOpenTaskCount() : 0;
++	TestEqual(TEXT("Move: the 3 Braves and the Shaman get the order (enemy / Wildman ignored)"), PC->CommandMove(Units, Ground), 4);
++	TArray<int32> FirstTasks;
++	TArray<FVector> Dests;
++	for (AShamanUnitBase* B : F.Braves)
++	{
++		FTribeTask T;
++		const int32 Id = B->TribeMember->GetCurrentTaskId();
++		const bool bTask = F.T0->GetTask(Id, T);
++		TestTrue(FString::Printf(TEXT("%s holds a PlayerCommand Task.MoveTo"), *B->GetName()), bTask && T.IsHeld()
++			&& T.Type == FGameplayTag::RequestGameplayTag(TEXT("Task.MoveTo")) && T.Source == FName(TEXT("PlayerCommand")) && T.Assignee.Get() == B->TribeMember);
++		TestTrue(FString::Printf(TEXT("%s will hold the spot afterwards"), *B->GetName()), B->GetOrder() == EFollowerOrder::HoldPosition
++			&& FVector::Dist2D(B->GetOrderLocation(), Ground) < 1000.f);
++		FirstTasks.Add(Id);
++		Dests.Add(T.TargetLocation);
++	}
++	TestTrue(TEXT("Formation: every Brave gets its own spot"), Dests.Num() == 3 && FVector::Dist2D(Dests[0], Dests[1]) > 100.f
++		&& FVector::Dist2D(Dests[0], Dests[2]) > 100.f && FVector::Dist2D(Dests[1], Dests[2]) > 100.f);
++	TestTrue(TEXT("Enemy and Wildman untouched"), F.EnemyBrave->TribeMember->GetCurrentTaskId() == INDEX_NONE
++		&& F.Wildman->TribeMember->GetCurrentTaskId() == INDEX_NONE
++		&& (!F.W.Tribes->GetTribeComponent(1) || F.W.Tribes->GetTribeComponent(1)->GetOpenTaskCount() == EnemyTasksBefore));
++	TestTrue(TEXT("The selected Shaman walks too"), PC->IsShamanMoving());
++
++	// A new order replaces the old one: old tasks cancelled, never stacked.
++	PC->CommandMove(Units, Ground + FVector(-1500.f, 0.f, 0.f));
++	for (int32 i = 0; i < 3; ++i)
++	{
++		FTribeTask Old;
++		TestTrue(TEXT("Previous move task cancelled by the new command"), F.T0->GetTask(FirstTasks[i], Old)
++			&& Old.State == ETribeTaskState::Cancelled && Old.EndReason == FName(TEXT("PlayerCommand")));
++	}
++	TestEqual(TEXT("One open task per Brave"), F.T0->GetOpenTaskCount(), 3);
++
++	// Right-click on the Shaman: the Braves guard (follow) him, their move tasks end.
++	TestEqual(TEXT("Guard: the 3 Braves (the Shaman does not guard himself)"), PC->CommandGuardShaman(Units), 3);
++	TestEqual(TEXT("Guard ends the move tasks"), F.T0->GetOpenTaskCount(), 0);
++	bool bAllFollow = true;
++	for (AShamanUnitBase* B : F.Braves) bAllFollow &= B->GetOrder() == EFollowerOrder::FollowShaman;
++	TestTrue(TEXT("Guard: every Brave follows the Shaman"), bAllFollow);
++	TestEqual(TEXT("Workers are free again"), F.T0->GetAvailableWorkerCount(), 3);
++
++	// Switching to direct control stops the Shaman's walk (WASD takes over).
++	PC->ToggleControlMode();
++	TestFalse(TEXT("Shaman mode cancels the Shaman's move order"), PC->IsShamanMoving());
++	PC->ToggleControlMode();
++
++	PC->UnPossess();
++	PC->Destroy();
++	return true;
++}
++
+ #undef SHAMAN_CONTROL_TEST
+ 
+ #endif
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index 443cca4..93d56d3 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -204,7 +204,7 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
+ 		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
+ 	DrawLine(bRTS
+-		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
++		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move there (on your Shaman: guard him)   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
+ 		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
+ 
+ 	// Selection rings (shown in both modes; selection is kept across switches).
+@@ -216,6 +216,16 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 62.f * UI, Sel.RingColor, 0.85f * UI, true);
+ 	}
+ 
++	// Command marker: a shrinking ring where the last order went (gold around the Shaman for "guard").
++	FVector CmdAt; float CmdAge = 0.f; bool bGuard = false;
++	if (bRTS && PC->GetLastCommand(CmdAt, CmdAge, bGuard) && CmdAge < 0.9f)
++	{
++		const float T = CmdAge / 0.9f;
++		FLinearColor C = bGuard ? Sel.GuardMarkerColor : Sel.MoveMarkerColor;
++		C.A = 1.f - T;
++		DrawGroundCircle(CmdAt, FMath::Lerp(bGuard ? 160.f : 110.f, 40.f, T), C, 3.f);
++	}
++
+ 	// Drag box: translucent fill with a glowing edge.
+ 	if (bRTS && PC->IsDragSelecting())
+ 	{
+@@ -334,3 +344,24 @@ void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, f
+ 	DrawLine(bRTS ? TEXT("Click a spell to select it") : TEXT("Wheel / Q: change spell"), PanelRect.GetCenter().X, Y,
+ 		FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.6f * UI, true);
+ }
++
++void AShamanHUD::DrawGroundCircle(const FVector& Centre, float Radius, const FLinearColor& Color, float Thickness)
++{
++	if (!PlayerOwner) return;
++	const FVector Up = FShamanSpace::GetUp(this, Centre);
++	const FVector Hint = FMath::Abs(Up.Z) < 0.9f ? FVector::UpVector : FVector::ForwardVector;
++	const FVector X = (Hint - Up * FVector::DotProduct(Hint, Up)).GetSafeNormal();
++	const FVector Y = FVector::CrossProduct(Up, X);
++	const FVector Lifted = Centre + Up * 6.f; // just above the ground so it is not buried in it
++	FVector2D Prev;
++	bool bPrev = false;
++	for (int32 i = 0; i <= 24; ++i)
++	{
++		const float A = 2.f * PI * i / 24;
++		FVector2D P;
++		const bool bOk = PlayerOwner->ProjectWorldLocationToScreen(Lifted + (X * FMath::Cos(A) + Y * FMath::Sin(A)) * Radius, P, false);
++		if (bOk && bPrev) AHUD::DrawLine(Prev.X, Prev.Y, P.X, P.Y, Color, Thickness);
++		Prev = P;
++		bPrev = bOk;
++	}
++}
+diff --git a/Source/Shaman/Public/Player/ShamanControlTypes.h b/Source/Shaman/Public/Player/ShamanControlTypes.h
+index ac9b1c5..32ffb68 100644
+--- a/Source/Shaman/Public/Player/ShamanControlTypes.h
++++ b/Source/Shaman/Public/Player/ShamanControlTypes.h
+@@ -60,6 +60,10 @@ struct SHAMAN_API FShamanSelectionSettings
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor RingColor = FLinearColor(1.f, 0.85f, 0.1f, 1.f);
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor BoxFillColor = FLinearColor(0.35f, 0.85f, 1.f, 0.18f);
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Selection") FLinearColor BoxEdgeColor = FLinearColor(0.55f, 0.95f, 1.f, 1.f);
++	/** RTS commands: spacing of the move formation around the clicked point (uu, along the ground). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="40")) float FormationSpacing = 140.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor MoveMarkerColor = FLinearColor(0.3f, 1.f, 0.4f, 1.f);
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor GuardMarkerColor = FLinearColor(1.f, 0.85f, 0.1f, 1.f);
+ };
+ 
+ /**
+@@ -109,3 +113,11 @@ struct SHAMAN_API FShamanSelectionRules
+ 	static void BoxSelect(const TArray<FShamanScreenCandidate>& Candidates, const FVector2D& A, const FVector2D& B, TArray<int32>& OutIndices);
+ 	static float DistanceToSegment(const FVector2D& P, const FVector2D& A, const FVector2D& B);
+ };
++
++/** RTS command rules (pure). */
++struct SHAMAN_API FShamanCommandRules
++{
++	/** Ground-plane offsets (tangent space, uu) for N units around a move target: the first at the centre, then rings of
++	 *  6, 12, 18... slots Spacing apart. Deterministic; every pair of slots is at least ~Spacing apart. */
++	static void FormationOffsets(int32 NumUnits, float Spacing, TArray<FVector2D>& OutOffsets);
++};
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+index 3db7917..45e7689 100644
+--- a/Source/Shaman/Public/Player/ShamanPlayerController.h
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -19,7 +19,8 @@ class UInputComponent;
+  * Enter toggles (bound on the RTS layer and on the controller's own layer; only one is ever active, so one press
+  * toggles once). Keys held during a switch are flushed so nothing carries over.
+  *
+- * RTS keys: LMB click select / drag box (Shift adds), WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
++ * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman: selected
++ * Braves follow and guard him), WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
+  * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
+  * before the game sees it, so use Backspace there), F3 debug.
+  */
+@@ -66,6 +67,17 @@ public:
+ 	/** The player's selectable units projected to the screen (player tribe roster + Shaman; no world scan). */
+ 	void GatherScreenCandidates(TArray<FShamanScreenCandidate>& Out) const;
+ 
++	// RTS commands (also used by tests). Braves get a Task.MoveTo through their tribe's task book (Phase 2.2 executor)
++	// and then hold that spot; the Shaman (player-possessed, no AI controller) walks a path steered here.
++	/** Move the given units (the player's selectable units only) to Ground in formation. Returns how many got the order. */
++	int32 CommandMove(const TArray<AShamanUnitBase*>& Units, const FVector& Ground);
++	/** Selected Braves follow and guard the player's Shaman (the Phase 1 FollowShaman order). Returns how many. */
++	int32 CommandGuardShaman(const TArray<AShamanUnitBase*>& Units);
++	bool IsShamanMoving() const { return ShamanPath.Num() > 0; }
++	void StopShamanMove(const TCHAR* Why);
++	/** Last command marker (HUD feedback): false when none. */
++	bool GetLastCommand(FVector& OutLocation, float& OutAge, bool& bOutGuard) const;
++
+ protected:
+ 	virtual void SetupInputComponent() override;
+ 	virtual void OnPossess(APawn* InPawn) override;
+@@ -87,6 +99,11 @@ protected:
+ 	/** RTS: LMB over the spell panel selects a spell (never casts). Returns true when the panel took the click. */
+ 	bool HandleSpellPanelClick(const FVector2D& ScreenPos);
+ 	void OnSelectReleased();
++	void OnCommandPressed();
++	/** Ground point under a screen position (terrain / static world; planets fall back to the sphere). */
++	bool GetGroundUnderScreen(const FVector2D& ScreenPos, FVector& OutGround) const;
++	void StartShamanMove(const FVector& Goal);
++	void UpdateShamanMove();
+ 	void OnOrbitPressed();
+ 	void OnOrbitReleased();
+ 	void OnZoomIn();
+@@ -108,4 +125,14 @@ protected:
+ 	FVector2D DragStart = FVector2D::ZeroVector;
+ 	FVector2D DragCurrent = FVector2D::ZeroVector;
+ 	FVector2D LastMouse = FVector2D::ZeroVector;
++
++	// Shaman move command (RTS): waypoints steered in PlayerTick.
++	TArray<FVector> ShamanPath;
++	int32 ShamanPathIndex = 0;
++	float ShamanBestDistance = 0.f;
++	double ShamanLastProgressTime = 0.0;
++	// HUD marker
++	FVector LastCommandLocation = FVector::ZeroVector;
++	double LastCommandTime = -1.0;
++	bool bLastCommandGuard = false;
+ };
+diff --git a/Source/Shaman/Public/UI/ShamanHUD.h b/Source/Shaman/Public/UI/ShamanHUD.h
+index ac85617..96a6251 100644
+--- a/Source/Shaman/Public/UI/ShamanHUD.h
++++ b/Source/Shaman/Public/UI/ShamanHUD.h
+@@ -32,6 +32,8 @@ private:
+ 	void DrawControlOverlay(const AShamanPlayerController* PC, float SW, float SH, float UI);
+ 	/** Ground-aligned ring around a unit's feet (projected from its local up, so it fits slopes and planets). */
+ 	void DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color);
++	/** Ground-aligned circle at a world point (RTS command marker). */
++	void DrawGroundCircle(const FVector& Centre, float Radius, const FLinearColor& Color, float Thickness);
+ 	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
+ 	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
+ 	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);

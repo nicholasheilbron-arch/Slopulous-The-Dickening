@@ -1,5 +1,8 @@
 #include "Terrain/ShamanSpace.h"
 #include "Terrain/ShamanTerrainSubsystem.h"
+#include "Engine/World.h"
+#include "CollisionQueryParams.h"
+#include "World/ShamanTerrainActor.h"
 
 bool FShamanSpace::GetPlanet(const UObject* Ctx, FPlanetFrame& OutFrame)
 {
@@ -47,4 +50,34 @@ FVector FShamanSpace::OffsetAlongGround(const UObject* Ctx, const FVector& Origi
 	F.GetTangentBasis(Origin, FVector(1.f, 0.f, 0.f), Fwd, Right, Up);
 	const float R = F.GetDistanceFromCenter(Origin);
 	return F.Center + ((Origin + Fwd * Offset.X + Right * Offset.Y) - F.Center).GetSafeNormal() * R;
+}
+
+bool FShamanSpace::ProjectToGround(const UObject* Ctx, const FVector& Location, FVector& OutGround)
+{
+	OutGround = Location;
+	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(Ctx))
+		if (Terrain->IsPlanetActive())
+		{
+			const FTerrainSample S = Terrain->QueryTerrain(Location);
+			if (!S.bValid) return false;
+			OutGround = S.Location;
+			return true;
+		}
+	const UWorld* World = Ctx ? Ctx->GetWorld() : nullptr;
+	if (!World) return false;
+	// The terrain itself, not roofs, trees or resource nodes standing on it (first hit on an AShamanTerrainActor;
+	// any other world-static ground only if the level has no Shaman terrain actor under this point).
+	TArray<FHitResult> Hits;
+	FCollisionQueryParams Params(TEXT("ShamanGround"), false);
+	const FVector Top = Location + FVector::UpVector * 50000.f, Bottom = Location - FVector::UpVector * 50000.f;
+	World->LineTraceMultiByObjectType(Hits, Top, Bottom, FCollisionObjectQueryParams(ECC_WorldStatic), Params);
+	const FHitResult* Fallback = nullptr;
+	for (const FHitResult& H : Hits)
+	{
+		if (Cast<AShamanTerrainActor>(H.GetActor())) { OutGround = H.ImpactPoint; return true; }
+		if (!Fallback) Fallback = &H;
+	}
+	if (!Fallback) return false;
+	OutGround = Fallback->ImpactPoint;
+	return true;
 }

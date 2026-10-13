@@ -1,0 +1,121 @@
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+index f244894..beaee64 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+@@ -25,6 +25,8 @@
+ #include "Engine/SkeletalMesh.h"
+ #include "Engine/StaticMesh.h"
+ #include "Engine/World.h"
++#include "EngineUtils.h"
++#include "HAL/IConsoleManager.h"
+ #include "Kismet/GameplayStatics.h"
+ #include "UObject/ConstructorHelpers.h"
+ #include "DrawDebugHelpers.h"
+@@ -173,14 +175,41 @@ void AShamanUnitBase::ApplyVisuals()
+ 		PlaceholderBody->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+ 	}
+ 	PlaceholderRestTransform = PlaceholderBody->GetRelativeTransform();
++	RefreshTint();
++}
+ 
+-	const UShamanGameData* Data = UShamanGameData::Get(this);
+-	FLinearColor Color = Data->WildmenColor;
+-	if (const FTribeDefinition* T = Data->GetTribe(TribeId)) Color = T->Color;
+-	if (IsShaman()) Color = FMath::Lerp(Color, FLinearColor::White, 0.35f);
++void AShamanUnitBase::RefreshTint()
++{
++	const int32 Tribe = GetTribeId();
++	FLinearColor Color;
++	if (ShamanVisuals::TeamColorsEnabled())
++		Color = ShamanVisuals::GetTeamColor(Tribe, ShamanTribe::Player);
++	else
++	{
++		const UShamanGameData* Data = UShamanGameData::Get(this);
++		Color = Data->WildmenColor;
++		if (const FTribeDefinition* T = Data->GetTribe(Tribe)) Color = T->Color;
++	}
++	if (IsShaman()) Color = FMath::Lerp(Color, FLinearColor::White, 0.35f); // Shamans stay a lighter shade of their side
+ 	ShamanVisuals::SetTint(PlaceholderBody, Color);
+ }
+ 
++/** Console: ShamanTeamColors [0|1] (no argument toggles). Recolours every unit in the world immediately. */
++static void ShamanTeamColorsCommand(const TArray<FString>& Args, UWorld* World)
++{
++	const bool bOn = Args.Num() > 0 ? FCString::Atoi(*Args[0]) != 0 : !ShamanVisuals::TeamColorsEnabled();
++	ShamanVisuals::SetTeamColorsEnabled(bOn);
++	int32 Count = 0;
++	if (World)
++		for (TActorIterator<AShamanUnitBase> It(World); It; ++It) { It->RefreshTint(); ++Count; }
++	UE_LOG(LogShaman, Log, TEXT("ShamanTeamColors %s (%d units recoloured)"), bOn ? TEXT("on") : TEXT("off"), Count);
++}
++
++static FAutoConsoleCommandWithWorldAndArgs GShamanTeamColorsCommand(
++	TEXT("ShamanTeamColors"),
++	TEXT("ShamanTeamColors [0|1]: testing colours (player tribe blue, other tribes red, Wildmen grey). No argument toggles."),
++	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&ShamanTeamColorsCommand));
++
+ bool AShamanUnitBase::IsAlive() const { return Health && !Health->IsDead(); }
+ bool AShamanUnitBase::IsRagdolling() const { return HitReaction && HitReaction->IsRagdolling(); }
+ 
+diff --git a/Source/Shaman/Private/Core/ShamanVisuals.cpp b/Source/Shaman/Private/Core/ShamanVisuals.cpp
+index 228d0dc..0932bbd 100644
+--- a/Source/Shaman/Private/Core/ShamanVisuals.cpp
++++ b/Source/Shaman/Private/Core/ShamanVisuals.cpp
+@@ -2,6 +2,27 @@
+ #include "Components/StaticMeshComponent.h"
+ #include "Engine/StaticMesh.h"
+ #include "Materials/MaterialInstanceDynamic.h"
++#include "HAL/IConsoleManager.h"
++
++static TAutoConsoleVariable<int32> CVarShamanTeamColors(
++	TEXT("shaman.TeamColors"), 1,
++	TEXT("1 = testing colours: player tribe blue, other tribes red, Wildmen grey. 0 = tribe colours from game data. ")
++	TEXT("Use the ShamanTeamColors command to change it in play (recolours existing units)."),
++	ECVF_Default);
++
++bool ShamanVisuals::TeamColorsEnabled() { return CVarShamanTeamColors.GetValueOnGameThread() != 0; }
++
++void ShamanVisuals::SetTeamColorsEnabled(bool bEnabled)
++{
++	CVarShamanTeamColors.AsVariable()->Set(bEnabled ? 1 : 0, ECVF_SetByConsole);
++}
++
++FLinearColor ShamanVisuals::GetTeamColor(int32 TribeId, int32 PlayerTribeId)
++{
++	if (TribeId < 0) return FLinearColor(0.5f, 0.5f, 0.5f, 1.f);         // Wildmen / unaligned: grey
++	if (TribeId == PlayerTribeId) return FLinearColor(0.1f, 0.3f, 1.f, 1.f); // friendly: blue
++	return FLinearColor(0.95f, 0.08f, 0.06f, 1.f);                           // enemy: red
++}
+ 
+ void ShamanVisuals::ApplyMesh(UStaticMeshComponent* Comp, const TSoftObjectPtr<UStaticMesh>& Mesh, UStaticMesh* Fallback,
+ 	const FVector& Scale, const FLinearColor& Tint)
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitBase.h b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+index 5005d02..bf1afd1 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitBase.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+@@ -65,6 +65,9 @@ public:
+ 	/** Move to a new tribe (Convert / Hypnotize later). Re-registers and recolours. */
+ 	UFUNCTION(BlueprintCallable) void ChangeTribe(int32 NewTribeId);
+ 
++	/** Re-tint the placeholder body from the current tribe (and the ShamanTeamColors testing toggle). */
++	void RefreshTint();
++
+ 	/** Bring a dead unit back (used by reincarnation). */
+ 	virtual void Reincarnate(const FVector& Location, const FRotator& Rotation);
+ 
+diff --git a/Source/Shaman/Public/Core/ShamanVisuals.h b/Source/Shaman/Public/Core/ShamanVisuals.h
+index 4f57af9..215c1dd 100644
+--- a/Source/Shaman/Public/Core/ShamanVisuals.h
++++ b/Source/Shaman/Public/Core/ShamanVisuals.h
+@@ -12,4 +12,11 @@ namespace ShamanVisuals
+ 	SHAMAN_API void ApplyMesh(UStaticMeshComponent* Comp, const TSoftObjectPtr<UStaticMesh>& Mesh, UStaticMesh* Fallback,
+ 		const FVector& Scale, const FLinearColor& Tint);
+ 	SHAMAN_API void SetTint(UStaticMeshComponent* Comp, const FLinearColor& Tint);
++
++	/** Testing aid (console: ShamanTeamColors 0/1, cvar shaman.TeamColors, default on). When on, units are tinted by
++	 *  relation to the player instead of by their tribe's data colour: player tribe blue, any other tribe red,
++	 *  Wildmen (no tribe) grey. Visual only; no gameplay reads this. */
++	SHAMAN_API bool TeamColorsEnabled();
++	SHAMAN_API void SetTeamColorsEnabled(bool bEnabled);
++	SHAMAN_API FLinearColor GetTeamColor(int32 TribeId, int32 PlayerTribeId);
+ }

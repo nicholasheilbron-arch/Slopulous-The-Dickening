@@ -1,0 +1,684 @@
+diff --git a/Source/Shaman/Private/Characters/ShamanCharacter.cpp b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+index cbb2406..9463dcc 100644
+--- a/Source/Shaman/Private/Characters/ShamanCharacter.cpp
++++ b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+@@ -68,6 +68,14 @@ FName AShamanCharacter::GetSelectedSpellId() const
+ 	return Spells->KnownSpellIds.IsValidIndex(SelectedSpellIndex) ? Spells->KnownSpellIds[SelectedSpellIndex] : NAME_None;
+ }
+ 
++bool AShamanCharacter::SelectSpell(FName SpellId)
++{
++	const int32 Index = Spells->KnownSpellIds.IndexOfByKey(SpellId);
++	if (Index == INDEX_NONE) return false;
++	SelectedSpellIndex = Index;
++	return true;
++}
++
+ FVector AShamanCharacter::GetAimPoint() const
+ {
+ 	const AController* C = GetController();
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+index b3b6ea8..d5f9177 100644
+--- a/Source/Shaman/Private/Player/ShamanPlayerController.cpp
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -13,6 +13,16 @@
+ #include "Components/InputComponent.h"
+ #include "Engine/World.h"
+ #include "InputCoreTypes.h"
++#include "HAL/IConsoleManager.h"
++#include "UI/ShamanHUD.h"
++#include "Characters/ShamanCharacter.h"
++
++static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
++	TEXT("shaman.DebugSelection"), 0,
++	TEXT("1: log every RTS selection step (LMB press/release, mouse position, candidates, projection, pick result)."),
++	ECVF_Default);
++
++static bool SelectionDiagnostics() { return CVarShamanDebugSelection.GetValueOnGameThread() != 0; }
+ 
+ AShamanPlayerController::AShamanPlayerController()
+ {
+@@ -23,10 +33,25 @@ AShamanPlayerController::AShamanPlayerController()
+ 
+ int32 AShamanPlayerController::GetPlayerTribe() const
+ {
+-	if (const APawn* P = GetPawn()) return FShamanTargetRules::GetTribeOf(P);
++	// The pawn's tribe is only valid after its BeginPlay (AShamanUnitBase::ApplyIdentity). In PIE the player is
++	// possessed before world BeginPlay, so a negative id here means "not known yet", not "no tribe".
++	if (const APawn* P = GetPawn())
++	{
++		const int32 T = FShamanTargetRules::GetTribeOf(P);
++		if (T >= 0) return T;
++	}
+ 	return Selection ? Selection->GetPlayerTribe() : 0;
+ }
+ 
++void AShamanPlayerController::RefreshPlayerTribe()
++{
++	if (!Selection) return;
++	const int32 T = GetPlayerTribe();
++	if (T < 0 || T == Selection->GetPlayerTribe()) return;
++	UE_LOG(LogShaman, Log, TEXT("[Select] player tribe %d -> %d"), Selection->GetPlayerTribe(), T);
++	Selection->SetPlayerTribe(T);
++}
++
+ // ---- Input layers ------------------------------------------------------------------------------------------------------
+ 
+ void AShamanPlayerController::SetupInputComponent()
+@@ -101,7 +126,8 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
+ void AShamanPlayerController::OnPossess(APawn* InPawn)
+ {
+ 	Super::OnPossess(InPawn); // may reset the view target to the pawn: the mode is re-applied right after
+-	if (Selection) Selection->SetPlayerTribe(GetPlayerTribe());
++	RefreshPlayerTribe(); // ignored while the pawn has not begun play yet (tribe unknown); PlayerTick retries
++
+ 	const bool bFirst = !bModeInitialized;
+ 	if (bFirst) { Mode = StartMode; bModeInitialized = true; }
+ 	ApplyControlMode(bFirst, /*bFromPossess*/ true);
+@@ -198,6 +224,7 @@ void AShamanPlayerController::FocusCameraOnSelection()
+ void AShamanPlayerController::PlayerTick(float DeltaTime)
+ {
+ 	Super::PlayerTick(DeltaTime);
++	RefreshPlayerTribe(); // cheap; also follows a tribe change of the possessed Shaman
+ 	if (Mode == EShamanControlMode::RTS && RTSCamera) UpdateRTSInput(DeltaTime);
+ }
+ 
+@@ -258,13 +285,26 @@ void AShamanPlayerController::CancelSelectGesture()
+ 
+ void AShamanPlayerController::EndSelectGesture(const FVector2D& ScreenPos, bool bAdditive)
+ {
+-	if (!bSelectPressed || !Selection) return;
++	if (!bSelectPressed || !Selection)
++	{
++		if (SelectionDiagnostics()) { UE_LOG(LogShaman, Log, TEXT("[SelectDiag] release ignored: no press recorded (pressed=%d)"), bSelectPressed ? 1 : 0); }
++		return;
++	}
++	RefreshPlayerTribe();
+ 	DragCurrent = ScreenPos;
+ 	const bool bWasDrag = bDragging || FShamanSelectionRules::IsDrag(DragStart, ScreenPos, SelectionSettings.DragThresholdPx);
+ 	CancelSelectGesture();
+ 
+ 	TArray<FShamanScreenCandidate> Candidates;
+ 	GatherScreenCandidates(Candidates);
++	if (SelectionDiagnostics())
++	{
++		int32 OnScreen = 0;
++		for (const FShamanScreenCandidate& C : Candidates) OnScreen += C.bOnScreen ? 1 : 0;
++		UE_LOG(LogShaman, Log, TEXT("[SelectDiag] release at (%.0f,%.0f) start (%.0f,%.0f) %s: controller tribe %d, selection tribe %d, %d candidate(s), %d on screen"),
++			ScreenPos.X, ScreenPos.Y, DragStart.X, DragStart.Y, bWasDrag ? TEXT("DRAG") : TEXT("CLICK"), GetPlayerTribe(),
++			Selection->GetPlayerTribe(), Candidates.Num(), OnScreen);
++	}
+ 	if (bWasDrag)
+ 	{
+ 		// A drag only ever selects: never a command, cast or interaction.
+@@ -276,6 +316,18 @@ void AShamanPlayerController::EndSelectGesture(const FVector2D& ScreenPos, bool
+ 		return;
+ 	}
+ 	const int32 Hit = FShamanSelectionRules::PickClosest(Candidates, ScreenPos, SelectionSettings.PickRadiusPx);
++	if (SelectionDiagnostics())
++	{
++		float BestD = -1.f; FString BestName = TEXT("none");
++		for (const FShamanScreenCandidate& C : Candidates)
++		{
++			if (!C.bOnScreen || !C.Unit.IsValid()) continue;
++			const float D = FShamanSelectionRules::DistanceToSegment(ScreenPos, C.Feet, C.Head);
++			if (BestD < 0.f || D < BestD) { BestD = D; BestName = C.Unit->GetName(); }
++		}
++		UE_LOG(LogShaman, Log, TEXT("[SelectDiag] click pick: %s (nearest %s at %.0f px)"),
++			Hit != INDEX_NONE ? *Candidates[Hit].Unit->GetName() : TEXT("empty ground"), *BestName, BestD);
++	}
+ 	if (Hit != INDEX_NONE) Selection->ClickUnit(Candidates[Hit].Unit.Get(), bAdditive);
+ 	else Selection->ClickEmpty(bAdditive);
+ }
+@@ -309,7 +361,46 @@ void AShamanPlayerController::OnToggleModePressed() { ToggleControlMode(); }
+ void AShamanPlayerController::OnSelectPressed()
+ {
+ 	float X = 0.f, Y = 0.f;
+-	if (GetMousePosition(X, Y)) BeginSelectGesture(FVector2D(X, Y));
++	const bool bMouse = GetMousePosition(X, Y);
++	if (SelectionDiagnostics()) { UE_LOG(LogShaman, Log, TEXT("[SelectDiag] LMB pressed: mouse %s (%.0f,%.0f)"), bMouse ? TEXT("ok") : TEXT("UNAVAILABLE"), X, Y); }
++	if (!bMouse) return;
++	if (HandleSpellPanelClick(FVector2D(X, Y))) return; // the panel takes the click: no selection gesture
++	BeginSelectGesture(FVector2D(X, Y));
++}
++
++bool AShamanPlayerController::HandleSpellPanelClick(const FVector2D& ScreenPos)
++{
++	const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD());
++	if (!HUD || !HUD->IsOverSpellPanel(ScreenPos)) return false;
++	FShamanSpellSlot Slot;
++	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background: swallow, do nothing
++	AShamanCharacter* S = Cast<AShamanCharacter>(GetPawn());
++	if (Slot.State == EShamanSpellSlotState::Available && S && S->SelectSpell(Slot.SpellId))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] selected %s (not cast: casting from RTS mode is not implemented yet; Enter for Shaman mode, then LMB casts)"),
++			*Slot.SpellId.ToString());
++	}
++	else
++	{
++		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s is %s: not selectable"), *Slot.SpellId.ToString(),
++			Slot.State == EShamanSpellSlotState::Discoverable ? TEXT("not discovered on this level") : TEXT("not implemented"));
++	}
++	return true;
++}
++
++void AShamanPlayerController::ShamanSelectionDump()
++{
++	RefreshPlayerTribe();
++	TArray<FShamanScreenCandidate> Candidates;
++	GatherScreenCandidates(Candidates);
++	const UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	const int32 Tribe = GetPlayerTribe();
++	UE_LOG(LogShaman, Log, TEXT("[SelectDiag] mode %s, pawn %s (tribe %d), selection tribe %d, roster %d follower(s), %d candidate(s), %d selected"),
++		Mode == EShamanControlMode::RTS ? TEXT("RTS") : TEXT("SHAMAN"), GetPawn() ? *GetPawn()->GetName() : TEXT("none"), Tribe,
++		Selection ? Selection->GetPlayerTribe() : -99, Tribes ? Tribes->GetFollowers(Tribe).Num() : -1, Candidates.Num(), Selection ? Selection->Num() : 0);
++	for (const FShamanScreenCandidate& C : Candidates)
++		UE_LOG(LogShaman, Log, TEXT("[SelectDiag]   %s on screen %d feet (%.0f,%.0f) head (%.0f,%.0f)"),
++			C.Unit.IsValid() ? *C.Unit->GetName() : TEXT("?"), C.bOnScreen ? 1 : 0, C.Feet.X, C.Feet.Y, C.Head.X, C.Head.Y);
+ }
+ 
+ void AShamanPlayerController::OnSelectReleased()
+diff --git a/Source/Shaman/Private/Tests/ShamanControlTests.cpp b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+index d028ba1..ee72e9a 100644
+--- a/Source/Shaman/Private/Tests/ShamanControlTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+@@ -14,6 +14,10 @@
+ #include "TribeComponent.h"
+ #include "TribeMemberComponent.h"
+ #include "EngineUtils.h"
++#include "SpellEffectDispatcherComponent.h"
++#include "SpellRow.h"
++#include "Engine/DataTable.h"
++#include "UI/ShamanSpellPanel.h"
+ #include "ShamanTribeTestWorld.h"
+ 
+ /**
+@@ -263,6 +267,116 @@ bool FShamanModeSwitchTest::RunTest(const FString& Parameters)
+ 	return true;
+ }
+ 
++SHAMAN_CONTROL_TEST(FShamanPlayerTribeLateTest, "Shaman.Controls.PlayerTribeLate")
++bool FShamanPlayerTribeLateTest::RunTest(const FString& Parameters)
++{
++	// Regression: in PIE the player Shaman is possessed before world BeginPlay, i.e. before ApplyIdentity gives its
++	// TribeMember the real tribe. The selection used to latch tribe -1 at OnPossess and then rejected every unit.
++	FControlFixture F(2);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanPlayerController* PC = F.W.World->SpawnActor<AShamanPlayerController>();
++	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
++	PC->CameraSettings.ModeBlendTime = 0.f;
++	UShamanSelectionComponent* Sel = PC->Selection;
++	AShamanUnitBase* B0 = F.Braves[0];
++	AShamanUnitBase* B1 = F.Braves[1];
++
++	F.S0->TribeMember->TribeId = ShamanTribes::NoTribe; // as before the Shaman's BeginPlay
++	PC->Possess(F.S0);
++	TestTrue(TEXT("An unknown pawn tribe is never pushed into the selection"), Sel->GetPlayerTribe() >= 0);
++	Sel->SetPlayerTribe(-1);                        // the stale state the old OnPossess produced
++	F.S0->TribeMember->TribeId = 0;                 // the Shaman's BeginPlay has now run
++	PC->RefreshPlayerTribe();                       // PlayerTick does this every frame
++	TestEqual(TEXT("Selection follows the Shaman's real tribe"), Sel->GetPlayerTribe(), 0);
++	TestEqual(TEXT("Controller reports the real tribe"), PC->GetPlayerTribe(), 0);
++
++	Sel->ClickUnit(B0, false);
++	TestTrue(TEXT("Click selects a friendly Brave"), Sel->Num() == 1 && Sel->IsSelected(B0));
++	Sel->ClickUnit(B1, false);
++	TestTrue(TEXT("Click on another Brave changes the selection"), Sel->Num() == 1 && Sel->IsSelected(B1));
++	Sel->ClickEmpty(false);
++	TestEqual(TEXT("Click on empty ground deselects"), Sel->Num(), 0);
++	Sel->SelectUnits({ B0, B1, F.EnemyBrave, F.Wildman }, false);
++	TestTrue(TEXT("Drag selects all eligible Braves only"), Sel->Num() == 2 && Sel->IsSelected(B0) && Sel->IsSelected(B1));
++
++	PC->ToggleControlMode();
++	PC->RefreshPlayerTribe();
++	PC->ToggleControlMode();
++	PC->RefreshPlayerTribe();
++	TestTrue(TEXT("Mode switches keep the tribe and the selection"), Sel->GetPlayerTribe() == 0 && Sel->Num() == 2);
++	Sel->ClickUnit(B0, false);
++	TestTrue(TEXT("Selection still works after switching modes"), Sel->Num() == 1 && Sel->IsSelected(B0));
++
++	PC->UnPossess();
++	PC->Destroy();
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanSpellPanelTest, "Shaman.UI.SpellPanel")
++bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(0);
++	USpellComponent* Spells = F.S0->Spells;
++	if (!TestNotNull(TEXT("Spell table resolved without DA_ShamanGameData"), Spells->SpellTable)) return false;
++	const FSpellRow* Blast = Spells->GetSpellRow(TEXT("Blast"));
++	if (!TestNotNull(TEXT("Blast row"), Blast)) return false;
++	const FSpellRow BlastBefore = *Blast;
++	const float ManaBefore = Spells->Mana;
++	const int32 NumRows = Spells->SpellTable->GetRowNames().Num();
++
++	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
++	TestTrue(TEXT("Panel has spell data"), M.bHasSpellData);
++	const int32 IB = M.FindSlot(TEXT("Blast"));
++	const int32 IC = M.FindSlot(TEXT("Convert"));
++	if (!TestTrue(TEXT("Blast (TAKA) and Convert are on the panel"), IB != INDEX_NONE && IC != INDEX_NONE)) return false;
++	TestTrue(TEXT("Blast is available and selected"), M.Slots[IB].State == EShamanSpellSlotState::Available && M.Slots[IB].bSelected);
++	TestEqual(TEXT("Blast shows its real name"), M.Slots[IB].DisplayName.ToString(), BlastBefore.DisplayName.ToString());
++	TestEqual(TEXT("Blast shows its real mana cost"), M.Slots[IB].ManaCost, BlastBefore.ManaCost);
++	TestTrue(TEXT("Convert is discoverable (\"?\"), not selected"), M.Slots[IC].State == EShamanSpellSlotState::Discoverable && !M.Slots[IC].bSelected);
++	TestEqual(TEXT("Unknown spells without an effect are not shown"), M.FindSlot(TEXT("Swarm")), (int32)INDEX_NONE);
++	TestEqual(TEXT("Every table row is either shown or counted as not implemented"), M.Slots.Num() + M.NumHiddenUnimplemented, NumRows);
++	int32 NumAvailable = 0;
++	for (const FShamanSpellSlot& S : M.Slots) NumAvailable += S.State == EShamanSpellSlotState::Available ? 1 : 0;
++	TestEqual(TEXT("Only known, implemented spells are available"), NumAvailable, 1);
++
++	TestFalse(TEXT("A discoverable spell cannot be selected"), F.S0->SelectSpell(TEXT("Convert")));
++	TestTrue(TEXT("Selection unchanged"), F.S0->GetSelectedSpellId() == FName(TEXT("Blast")));
++
++	Spells->LearnSpell(TEXT("Convert"));
++	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
++	TestTrue(TEXT("Learned Convert becomes available"), M.Slots[M.FindSlot(TEXT("Convert"))].State == EShamanSpellSlotState::Available);
++	TestTrue(TEXT("Selecting a known spell works"), F.S0->SelectSpell(TEXT("Convert")) && F.S0->GetSelectedSpellId() == FName(TEXT("Convert")));
++	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
++	TestTrue(TEXT("Panel highlights the new selection only"), M.Slots[M.FindSlot(TEXT("Convert"))].bSelected && !M.Slots[M.FindSlot(TEXT("Blast"))].bSelected);
++	TestEqual(TEXT("Selecting never casts (mana unchanged)"), Spells->Mana, ManaBefore);
++	TestEqual(TEXT("Selecting never casts (no cooldown)"), Spells->GetCooldownRemaining(TEXT("Convert")), 0.f);
++
++	Spells->LearnSpell(TEXT("Swarm")); // console-learned, no effect handler yet
++	const int32 Before = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, NAME_None).Slots.Num();
++	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, NAME_None);
++	const int32 IS = M.FindSlot(TEXT("Swarm"));
++	TestTrue(TEXT("A known but unimplemented spell is shown as not implemented"), IS != INDEX_NONE && M.Slots[IS].State == EShamanSpellSlotState::Unimplemented && !M.Slots[IS].bSelected);
++	TestEqual(TEXT("Rebuilding never duplicates slots"), M.Slots.Num(), Before);
++
++	const FSpellRow* BlastAfter = Spells->GetSpellRow(TEXT("Blast"));
++	TestTrue(TEXT("TAKA row untouched"), BlastAfter && BlastAfter->ManaCost == BlastBefore.ManaCost && BlastAfter->RangeRaw == BlastBefore.RangeRaw
++		&& BlastAfter->Damage == BlastBefore.Damage && BlastAfter->bHoming == BlastBefore.bHoming && BlastAfter->EffectId == BlastBefore.EffectId);
++
++	UDataTable* Table = Spells->SpellTable;
++	Spells->SpellTable = nullptr;
++	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, NAME_None);
++	TestTrue(TEXT("No spell data: empty panel flagged, not fake slots"), !M.bHasSpellData && M.Slots.Num() == 0);
++	Spells->SpellTable = Table;
++
++	TArray<FBox2D> Rects; FBox2D Panel(ForceInit);
++	FShamanSpellPanelLayout::ComputeSlotRects(5, 1920.f, 1080.f, 1.f, Rects, Panel);
++	TestEqual(TEXT("One rectangle per slot"), Rects.Num(), 5);
++	TestTrue(TEXT("Panel fits on screen"), Panel.Min.X >= 0.f && Panel.Max.X <= 1920.f && Panel.Min.Y >= 0.f && Panel.Max.Y <= 1080.f);
++	TestEqual(TEXT("Hit test finds the slot under the cursor"), FShamanSpellPanelLayout::HitTest(Rects, Rects[4].GetCenter()), 4);
++	TestEqual(TEXT("Hit test misses outside the slots"), FShamanSpellPanelLayout::HitTest(Rects, FVector2D(10.f, 10.f)), (int32)INDEX_NONE);
++	return true;
++}
++
+ #undef SHAMAN_CONTROL_TEST
+ 
+ #endif
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index c62d607..443cca4 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -2,6 +2,7 @@
+ #include "Characters/ShamanCharacter.h"
+ #include "Characters/HealthComponent.h"
+ #include "SpellComponent.h"
++#include "SpellEffectDispatcherComponent.h"
+ #include "Game/ShamanGameMode.h"
+ #include "Tribes/TribeSubsystem.h"
+ #include "TribeComponent.h"
+@@ -62,7 +63,9 @@ void AShamanHUD::DrawHUD()
+ 	const AShamanPlayerController* SPC = Cast<AShamanPlayerController>(PlayerOwner);
+ 	const bool bRTS = SPC && SPC->GetControlMode() == EShamanControlMode::RTS;
+ 	if (SPC) DrawControlOverlay(SPC, SW, SH, UI);
++	bPanelDrawn = false;
+ 	if (!S) return;
++	DrawSpellPanel(S, SW, SH, UI, bRTS);
+ 
+ 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+ 	const int32 MyTribe = S->GetTribeId();
+@@ -99,6 +102,9 @@ void AShamanHUD::DrawHUD()
+ 		if (!bRTS) // wheel / Q drive the camera in RTS mode
+ 			DrawLine(FString::Printf(TEXT("Spell %d / %d   (mouse wheel or Q to change)"), S->GetSelectedSpellIndex() + 1, S->Spells->KnownSpellIds.Num()),
+ 				SW * 0.5f, SH - 64.f * UI, FLinearColor(1, 1, 1, 0.6f), 0.75f * UI, true);
++		else // honest: the panel selects; casting from RTS mode (targeting) is not implemented yet
++			DrawLine(TEXT("Selected for casting in Shaman mode (Enter, then LMB). RTS-mode casting is not implemented yet."),
++				SW * 0.5f, SH - 64.f * UI, FLinearColor(1, 1, 1, 0.6f), 0.75f * UI, true);
+ 	}
+ 	float Age = 0.f;
+ 	const ESpellCastResult Feedback = S->GetLastCastFeedback(Age);
+@@ -227,3 +233,104 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 		}
+ 	}
+ }
++
++// ---- Spell panel -------------------------------------------------------------------------------------------------------
++
++bool AShamanHUD::IsOverSpellPanel(const FVector2D& ScreenPos) const
++{
++	return bPanelDrawn && PanelRect.bIsValid && PanelRect.IsInside(ScreenPos);
++}
++
++bool AShamanHUD::HitTestSpellPanel(const FVector2D& ScreenPos, FShamanSpellSlot& OutSlot) const
++{
++	if (!bPanelDrawn) return false;
++	const int32 I = FShamanSpellPanelLayout::HitTest(PanelSlotRects, ScreenPos);
++	if (!PanelModel.Slots.IsValidIndex(I)) return false;
++	OutSlot = PanelModel.Slots[I];
++	return true;
++}
++
++void AShamanHUD::DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale)
++{
++	UFont* Font = GEngine->GetMediumFont();
++	float W = 0.f, H = 0.f;
++	GetTextSize(Text, W, H, Font, 1.f);
++	const float Avail = Box.GetSize().X - 6.f;
++	const float Scale = W > 0.f ? FMath::Min(MaxScale, Avail / W) : MaxScale; // shrink long names to fit the tile
++	const float X = Box.GetCenter().X - W * Scale * 0.5f;
++	DrawText(Text, Color, X, Y, Font, Scale);
++}
++
++void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS)
++{
++	PanelModel = FShamanSpellPanelModel::Build(S->Spells, S->EffectDispatcher, S->GetSelectedSpellId());
++	FShamanSpellPanelLayout::ComputeSlotRects(PanelModel.Slots.Num(), SW, SH, UI, PanelSlotRects, PanelRect);
++	bPanelDrawn = true;
++
++	const FLinearColor Frame(0.10f, 0.07f, 0.03f, 0.78f), Ink(0.22f, 0.12f, 0.04f, 1.f);
++	DrawRect(Frame, PanelRect.Min.X, PanelRect.Min.Y, PanelRect.GetSize().X, PanelRect.GetSize().Y);
++	DrawLine(TEXT("SPELLS"), PanelRect.GetCenter().X, PanelRect.Min.Y + 6.f * UI, FLinearColor(1.f, 0.85f, 0.45f), 0.8f * UI, true);
++
++	if (!PanelModel.bHasSpellData)
++	{
++		DrawLine(TEXT("No spell data"), PanelRect.GetCenter().X, PanelRect.Max.Y + 4.f * UI, FLinearColor(1.f, 0.3f, 0.3f), 0.75f * UI, true);
++		return;
++	}
++
++	for (int32 i = 0; i < PanelModel.Slots.Num(); ++i)
++	{
++		const FShamanSpellSlot& Slot = PanelModel.Slots[i];
++		const FBox2D& B = PanelSlotRects[i];
++		const FVector2D Sz = B.GetSize();
++		const float Top = B.Min.Y;
++		switch (Slot.State)
++		{
++		case EShamanSpellSlotState::Available:
++		{
++			DrawRect(FLinearColor(0.86f, 0.68f, 0.36f, 1.f), B.Min.X, B.Min.Y, Sz.X, Sz.Y); // parchment tile
++			DrawRect(FLinearColor(0.15f, 0.35f, 0.95f, 1.f), B.Min.X + 5.f * UI, Top + 5.f * UI, 7.f * UI, 7.f * UI); // mana pip
++			const FString Full = Slot.DisplayName.ToString();
++			FString Name = Full, Alias;
++			if (Full.Split(TEXT(" ("), &Name, &Alias)) Alias = TEXT("(") + Alias; // "Blast (Taka)" -> two lines
++			DrawSlotText(Name, B, Top + Sz.Y * 0.22f, Ink, 0.85f * UI);
++			if (!Alias.IsEmpty()) DrawSlotText(Alias, B, Top + Sz.Y * 0.44f, Ink, 0.7f * UI);
++			const FString Cost = Slot.bSuperSpell ? FString::Printf(TEXT("x%d"), Slot.Charges) : FString::Printf(TEXT("%.0f mana"), Slot.ManaCost);
++			DrawSlotText(Cost, B, Top + Sz.Y * 0.70f, Slot.bAffordable ? Ink : FLinearColor(0.75f, 0.05f, 0.05f), 0.65f * UI);
++			if (Slot.CooldownRemaining > 0.f && Slot.CooldownTotal > 0.f) // recharge shade, shrinking as it recovers
++			{
++				const float F = FMath::Clamp(Slot.CooldownRemaining / Slot.CooldownTotal, 0.f, 1.f);
++				DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), B.Min.X, B.Min.Y, Sz.X, Sz.Y * F);
++			}
++			if (!Slot.bAffordable) DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.25f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
++			break;
++		}
++		case EShamanSpellSlotState::Discoverable:
++			DrawRect(FLinearColor(0.55f, 0.43f, 0.24f, 1.f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
++			DrawSlotText(TEXT("?"), B, Top + Sz.Y * 0.08f, Ink, 2.2f * UI);
++			DrawSlotText(TEXT("undiscovered"), B, Top + Sz.Y * 0.72f, Ink, 0.55f * UI);
++			break;
++		case EShamanSpellSlotState::Unimplemented:
++			DrawRect(FLinearColor(0.33f, 0.33f, 0.33f, 0.95f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
++			DrawSlotText(Slot.DisplayName.ToString(), B, Top + Sz.Y * 0.25f, FLinearColor(0.85f, 0.85f, 0.85f), 0.7f * UI);
++			DrawSlotText(TEXT("not implemented"), B, Top + Sz.Y * 0.62f, FLinearColor(1.f, 0.55f, 0.45f), 0.55f * UI);
++			break;
++		}
++		if (Slot.bSelected) // selected: bright border
++		{
++			const FLinearColor Gold(1.f, 0.9f, 0.3f, 1.f);
++			const float T = 3.f * UI;
++			AHUD::DrawLine(B.Min.X, B.Min.Y, B.Max.X, B.Min.Y, Gold, T); AHUD::DrawLine(B.Max.X, B.Min.Y, B.Max.X, B.Max.Y, Gold, T);
++			AHUD::DrawLine(B.Max.X, B.Max.Y, B.Min.X, B.Max.Y, Gold, T); AHUD::DrawLine(B.Min.X, B.Max.Y, B.Min.X, B.Min.Y, Gold, T);
++		}
++	}
++
++	float Y = PanelRect.Max.Y + 4.f * UI;
++	if (PanelModel.NumHiddenUnimplemented > 0)
++	{
++		DrawLine(FString::Printf(TEXT("+%d spells not implemented yet"), PanelModel.NumHiddenUnimplemented), PanelRect.GetCenter().X, Y,
++			FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.6f * UI, true);
++		Y += 16.f * UI;
++	}
++	DrawLine(bRTS ? TEXT("Click a spell to select it") : TEXT("Wheel / Q: change spell"), PanelRect.GetCenter().X, Y,
++		FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.6f * UI, true);
++}
+diff --git a/Source/Shaman/Private/UI/ShamanSpellPanel.cpp b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+new file mode 100644
+index 0000000..77c60dc
+--- /dev/null
++++ b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+@@ -0,0 +1,89 @@
++#include "UI/ShamanSpellPanel.h"
++#include "SpellComponent.h"
++#include "SpellEffectDispatcherComponent.h"
++#include "SpellProjectile.h"
++#include "SpellRow.h"
++#include "Engine/DataTable.h"
++
++bool FShamanSpellPanelModel::IsSpellImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects)
++{
++	if (Row.Targeting == ESpellTargeting::Projectile)
++	{
++		// USpellComponent::CastSpell spawns nothing for a projectile row without a class: not castable in practice.
++		const TSubclassOf<ASpellProjectile>* Cls = Spells ? Spells->ProjectileClasses.Find(Row.EffectId) : nullptr;
++		return Cls && *Cls;
++	}
++	// Non-projectile rows only broadcast OnSpellCast: they do something only when the dispatcher has the effect.
++	return Effects && Effects->FindEffect(Row.EffectId) != nullptr;
++}
++
++FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects, FName SelectedSpellId)
++{
++	FShamanSpellPanelModel M;
++	if (!Spells || !Spells->SpellTable) return M;
++	M.bHasSpellData = true;
++
++	auto AddSlot = [&](FName Id, const FSpellRow* Row, EShamanSpellSlotState State)
++	{
++		FShamanSpellSlot S;
++		S.SpellId = Id;
++		S.State = State;
++		S.DisplayName = Row ? Row->DisplayName : FText::FromName(Id);
++		if (Row)
++		{
++			S.bSuperSpell = Row->bSuperSpell;
++			S.ManaCost = Row->bSuperSpell ? 0.f : Row->ManaCost;
++			S.CooldownTotal = Row->Cooldown;
++		}
++		S.bAffordable = Spells->Mana >= S.ManaCost;
++		S.CooldownRemaining = Spells->GetCooldownRemaining(Id);
++		S.Charges = Spells->GetCharges(Id);
++		S.bSelected = State == EShamanSpellSlotState::Available && Id == SelectedSpellId;
++		M.Slots.Add(S);
++	};
++
++	// Table order (Blast first, Convert second in Spells.csv).
++	for (const FName& Id : Spells->SpellTable->GetRowNames())
++	{
++		const FSpellRow* Row = Spells->GetSpellRow(Id);
++		if (!Row) continue;
++		const bool bKnown = Spells->KnownSpellIds.Contains(Id);
++		const bool bImplemented = IsSpellImplemented(*Row, Spells, Effects);
++		if (bKnown) AddSlot(Id, Row, bImplemented ? EShamanSpellSlotState::Available : EShamanSpellSlotState::Unimplemented);
++		else if (bImplemented) AddSlot(Id, Row, EShamanSpellSlotState::Discoverable);
++		else ++M.NumHiddenUnimplemented;
++	}
++	// Known ids with no table row cannot be cast (CastSpell needs the row): show them as unavailable, never hide them.
++	for (const FName& Id : Spells->KnownSpellIds)
++		if (!Spells->GetSpellRow(Id)) AddSlot(Id, nullptr, EShamanSpellSlotState::Unimplemented);
++	return M;
++}
++
++int32 FShamanSpellPanelModel::FindSlot(FName SpellId) const
++{
++	return Slots.IndexOfByPredicate([SpellId](const FShamanSpellSlot& S) { return S.SpellId == SpellId; });
++}
++
++void FShamanSpellPanelLayout::ComputeSlotRects(int32 NumSlots, float ScreenW, float ScreenH, float UIScale, TArray<FBox2D>& OutRects, FBox2D& OutPanel)
++{
++	OutRects.Reset();
++	const float Tile = 68.f * UIScale, Gap = 6.f * UIScale, Pad = 8.f * UIScale, Margin = 16.f * UIScale;
++	const int32 Rows = FMath::Max(1, FMath::DivideAndRoundUp(FMath::Max(NumSlots, 1), Columns));
++	const float PanelW = Columns * Tile + (Columns - 1) * Gap + 2.f * Pad;
++	const float PanelH = Rows * Tile + (Rows - 1) * Gap + 2.f * Pad + 22.f * UIScale; // + title strip
++	const float X0 = ScreenW - Margin - PanelW;
++	const float Y0 = FMath::Max(90.f * UIScale, ScreenH * 0.5f - PanelH * 0.5f); // below the mode banner and help line
++	OutPanel = FBox2D(FVector2D(X0, Y0), FVector2D(X0 + PanelW, Y0 + PanelH));
++	for (int32 i = 0; i < NumSlots; ++i)
++	{
++		const float X = X0 + Pad + (i % Columns) * (Tile + Gap);
++		const float Y = Y0 + Pad + 22.f * UIScale + (i / Columns) * (Tile + Gap);
++		OutRects.Add(FBox2D(FVector2D(X, Y), FVector2D(X + Tile, Y + Tile)));
++	}
++}
++
++int32 FShamanSpellPanelLayout::HitTest(const TArray<FBox2D>& Rects, const FVector2D& Point)
++{
++	for (int32 i = 0; i < Rects.Num(); ++i) if (Rects[i].IsInside(Point)) return i;
++	return INDEX_NONE;
++}
+diff --git a/Source/Shaman/Public/Characters/ShamanCharacter.h b/Source/Shaman/Public/Characters/ShamanCharacter.h
+index b4ac4bc..79a0df3 100644
+--- a/Source/Shaman/Public/Characters/ShamanCharacter.h
++++ b/Source/Shaman/Public/Characters/ShamanCharacter.h
+@@ -44,6 +44,9 @@ public:
+ 	FText GetFocusText() const;
+ 	ESpellCastResult GetLastCastFeedback(float& OutAge) const;
+ 	int32 GetSelectedSpellIndex() const { return SelectedSpellIndex; }
++	/** Makes a known spell the selected one (spell panel). Returns false (selection unchanged) if it is not known.
++	 *  Selecting never casts. */
++	UFUNCTION(BlueprintCallable) bool SelectSpell(FName SpellId);
+ 
+ 	virtual void Reincarnate(const FVector& Location, const FRotator& Rotation) override;
+ 
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+index a5e93ae..3db7917 100644
+--- a/Source/Shaman/Public/Player/ShamanPlayerController.h
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -41,9 +41,13 @@ public:
+ 	UFUNCTION(BlueprintCallable, Category="Controls") void ToggleControlMode();
+ 	/** Console: ShamanControlMode (toggle). */
+ 	UFUNCTION(Exec) void ShamanControlMode();
++	/** Console: ShamanSelectionDump - logs the player tribe, roster and screen candidates ([SelectDiag]). */
++	UFUNCTION(Exec) void ShamanSelectionDump();
+ 
+ 	AShamanRTSCamera* GetRTSCamera() const { return RTSCamera; }
+ 	int32 GetPlayerTribe() const;
++	/** Pushes the possessed Shaman's tribe into the selection once it is known (>= 0). */
++	void RefreshPlayerTribe();
+ 
+ 	// Camera actions (also used by tests).
+ 	void PanCamera(float ForwardAxis, float RightAxis, float DeltaSeconds);
+@@ -80,6 +84,8 @@ protected:
+ 	// Input handlers
+ 	void OnToggleModePressed();
+ 	void OnSelectPressed();
++	/** RTS: LMB over the spell panel selects a spell (never casts). Returns true when the panel took the click. */
++	bool HandleSpellPanelClick(const FVector2D& ScreenPos);
+ 	void OnSelectReleased();
+ 	void OnOrbitPressed();
+ 	void OnOrbitReleased();
+diff --git a/Source/Shaman/Public/UI/ShamanHUD.h b/Source/Shaman/Public/UI/ShamanHUD.h
+index a50f2e0..ac85617 100644
+--- a/Source/Shaman/Public/UI/ShamanHUD.h
++++ b/Source/Shaman/Public/UI/ShamanHUD.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include "CoreMinimal.h"
+ #include "GameFramework/HUD.h"
++#include "UI/ShamanSpellPanel.h"
+ #include "ShamanHUD.generated.h"
+ 
+ class AShamanCharacter;
+@@ -19,6 +20,11 @@ class SHAMAN_API AShamanHUD : public AHUD
+ public:
+ 	virtual void DrawHUD() override;
+ 
++	/** Spell panel hit testing against the rectangles drawn last frame (screen pixels, same space as the mouse). */
++	bool IsOverSpellPanel(const FVector2D& ScreenPos) const;
++	bool HitTestSpellPanel(const FVector2D& ScreenPos, FShamanSpellSlot& OutSlot) const;
++	const FShamanSpellPanelModel& GetSpellPanelModel() const { return PanelModel; }
++
+ private:
+ 	void DrawBar(float X, float Y, float W, float H, float Fraction, const FLinearColor& Color, const FString& Label);
+ 	void DrawLine(const FString& Text, float X, float Y, const FLinearColor& Color, float Scale = 1.f, bool bCentered = false);
+@@ -26,4 +32,12 @@ private:
+ 	void DrawControlOverlay(const AShamanPlayerController* PC, float SW, float SH, float UI);
+ 	/** Ground-aligned ring around a unit's feet (projected from its local up, so it fits slopes and planets). */
+ 	void DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color);
++	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
++	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
++	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);
++
++	FShamanSpellPanelModel PanelModel;
++	TArray<FBox2D> PanelSlotRects;
++	FBox2D PanelRect = FBox2D(ForceInit);
++	bool bPanelDrawn = false;
+ };
+diff --git a/Source/Shaman/Public/UI/ShamanSpellPanel.h b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+new file mode 100644
+index 0000000..441274f
+--- /dev/null
++++ b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+@@ -0,0 +1,56 @@
++#pragma once
++#include "CoreMinimal.h"
++
++class USpellComponent;
++class USpellEffectDispatcherComponent;
++struct FSpellRow;
++
++/** What a spell-panel slot shows. Nothing here ever casts: it only reflects USpellComponent state. */
++enum class EShamanSpellSlotState : uint8
++{
++	Available,     // known and implemented: selectable (may still be on cooldown or short of mana)
++	Discoverable,  // implemented but not known on this level: drawn as "?" and not selectable
++	Unimplemented, // known (e.g. via ShamanLearnSpell) but its effect has no handler yet: shown, explicitly unavailable
++};
++
++struct SHAMAN_API FShamanSpellSlot
++{
++	FName SpellId;
++	FText DisplayName;
++	EShamanSpellSlotState State = EShamanSpellSlotState::Unimplemented;
++	float ManaCost = 0.f;
++	bool bSelected = false;
++	bool bAffordable = true;
++	float CooldownRemaining = 0.f;
++	float CooldownTotal = 0.f;
++	bool bSuperSpell = false;
++	int32 Charges = 0;
++};
++
++/**
++ * Data model of the spell panel (RTS milestone acceptance fix; the full Stage C panel builds on it). Built every frame
++ * from the caster's USpellComponent (SpellTable rows + KnownSpellIds) and its USpellEffectDispatcherComponent, in
++ * DataTable row order. No assets needed: the table already resolves without DA_ShamanGameData (path / row-type lookup).
++ *   - a spell is "implemented" when casting it does something: a Projectile row with a projectile class for its
++ *     EffectId, or any other row whose EffectId has a dispatcher effect;
++ *   - unknown + unimplemented spells are not shown (counted in NumHiddenUnimplemented).
++ */
++struct SHAMAN_API FShamanSpellPanelModel
++{
++	TArray<FShamanSpellSlot> Slots;
++	int32 NumHiddenUnimplemented = 0;
++	bool bHasSpellData = false;
++
++	static bool IsSpellImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects);
++	static FShamanSpellPanelModel Build(const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects, FName SelectedSpellId);
++	int32 FindSlot(FName SpellId) const;
++};
++
++/** Screen layout of the panel (3 columns, parchment tiles, right edge). Shared by the HUD (drawing) and the controller
++ *  (click hit test) so both always agree. */
++struct SHAMAN_API FShamanSpellPanelLayout
++{
++	static constexpr int32 Columns = 3;
++	static void ComputeSlotRects(int32 NumSlots, float ScreenW, float ScreenH, float UIScale, TArray<FBox2D>& OutRects, FBox2D& OutPanel);
++	static int32 HitTest(const TArray<FBox2D>& Rects, const FVector2D& Point);
++};

@@ -25,4 +25,7 @@ struct SHAMAN_API FShamanSpace
 	static FRotator UprightRotation(const UObject* Ctx, const FVector& Location, const FVector& Forward);
 	/** Origin moved by a ground-plane offset (X/Y on flat worlds; tangent plane + re-projected to the same radius on planets). */
 	static FVector OffsetAlongGround(const UObject* Ctx, const FVector& Origin, const FVector2D& Offset);
+	/** The ground surface under/over Location: planets ask the terrain query (ITerrainQuery), flat worlds trace
+	 *  straight down/up against world-static geometry. False when nothing is found (Out = Location). */
+	static bool ProjectToGround(const UObject* Ctx, const FVector& Location, FVector& OutGround);
 };

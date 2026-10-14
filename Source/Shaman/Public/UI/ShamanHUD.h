@@ -7,6 +7,7 @@
 class AShamanCharacter;
 class AShamanUnitBase;
 class AShamanPlayerController;
+class UTexture2D;
 
 /**
  * Phase 1 HUD drawn on the canvas (no widget assets needed): health, mana and regen, followers, selected spell
@@ -37,8 +38,19 @@ private:
 	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
 	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
 	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);
+	/** One spell tile (state, charge dots, icon / placeholder, progress bar, selection). */
+	void DrawSpellTile(const FShamanSpellSlot& Slot, const FBox2D& B, float UI);
+	/** Small round-ish charge dot (filled or empty socket). */
+	void DrawChargeDot(float CX, float CY, float R, const FLinearColor& Fill, bool bFilled);
+	void DrawBoxOutline(const FBox2D& B, const FLinearColor& Color, float Thickness);
+	/** Placeholder icon: monogram inside an ink ring (no art assets yet). */
+	void DrawPlaceholderIcon(const FString& Monogram, const FVector2D& Centre, float Radius, const FLinearColor& Ink, float UI);
+	/** Details of the hovered tile, drawn to the left of the panel (RTS mode, cursor visible). */
+	void DrawSpellTooltip(const FShamanSpellSlot& Slot, const FBox2D& Tile, float UI, bool bRTS);
 
 	FShamanSpellPanelModel PanelModel;
+	/** Keeps spell icons loaded by the panel alive between frames (the model holds raw pointers). */
+	UPROPERTY(Transient) TArray<UTexture2D*> PanelIcons;
 	TArray<FBox2D> PanelSlotRects;
 	FBox2D PanelRect = FBox2D(ForceInit);
 	bool bPanelDrawn = false;

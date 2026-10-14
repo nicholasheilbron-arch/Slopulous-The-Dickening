@@ -57,6 +57,10 @@ public:
 
 	/** Spells every Shaman starts with (spec: TAKA / Blast only). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TArray<FName> StartingSpells;
+	/** Player-controlled tribes' Shamans use spell charges (charged from the shared mana economy, spent on cast)
+	 *  instead of paying mana at cast time. AI Shamans keep the Phase 1 mana-at-cast rule. Falls back to mana-at-cast
+	 *  (with a HUD warning) when the spell table has no charge columns yet. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") bool bPlayerUsesSpellCharges = true;
 	/** Projectile class per spell EffectId. Defaults FireBlast -> ADefaultSpellProjectile (placeholder visual). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TMap<FName, TSubclassOf<ASpellProjectile>> ProjectileClasses;
 

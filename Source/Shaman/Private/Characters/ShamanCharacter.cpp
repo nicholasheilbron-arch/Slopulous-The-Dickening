@@ -21,6 +21,8 @@
 #include "Engine/Engine.h"
 #include "Core/ShamanLog.h"
 #include "DrawDebugHelpers.h"
+#include "MonumentActor.h"
+#include "EngineUtils.h"
 
 AShamanCharacter::AShamanCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -57,8 +59,44 @@ void AShamanCharacter::BeginPlay()
 	if (!Spells->SpellTable) Spells->SpellTable = Data->SpellTable;
 	for (const TPair<FName, TSubclassOf<ASpellProjectile>>& P : Data->ProjectileClasses)
 		if (!Spells->ProjectileClasses.Contains(P.Key)) Spells->ProjectileClasses.Add(P.Key, P.Value);
+
+	// Spell charges (spell panel slice): the player tribe's Shaman charges spells from the shared mana economy. Decided
+	// before the starting spells are learned so they get their initial charging state. Without the charge columns in
+	// the imported table, keep the Phase 1 mana-at-cast rule so TAKA still works (HUD + log warn).
+	const FTribeDefinition* TribeDef = Data->GetTribe(TribeId);
+	const bool bWantCharges = Data->bPlayerUsesSpellCharges && TribeDef && TribeDef->bPlayerControlled && Spells->SpellTable;
+	bChargeDataMissing = bWantCharges && !USpellComponent::TableHasChargeData(Spells->SpellTable);
+	Spells->bUseChargeEconomy = bWantCharges && !bChargeDataMissing;
+	if (bChargeDataMissing)
+	{
+		UE_LOG(LogShaman, Warning, TEXT("[Spells] %s has no MaxCharges data: reimport Content/Data/Spells.csv into it. Using mana-at-cast until then."),
+			*Spells->SpellTable->GetName());
+	}
+	Spells->OnSpellbookChanged.AddUObject(this, &AShamanCharacter::HandleSpellbookChanged);
+
 	for (const FName& Id : Data->StartingSpells) Spells->LearnSpell(Id);
 	for (const FName& Id : Progression->GetPermanentSpells()) Spells->LearnSpell(Id); // Vault of Knowledge carry-over
+	// Map-specific discovery: spells taught by monuments on this map ("?" until learned). Monuments that begin play
+	// after this Shaman register themselves (AMonumentActor::BeginPlay).
+	for (TActorIterator<AMonumentActor> It(GetWorld()); It; ++It)
+	{
+		FName Reward;
+		if (It->GetSpellUnlockReward(Reward)) Spells->SetSpellAvailableOnMap(Reward);
+	}
+	CacheSelectedSpell();
+}
+
+void AShamanCharacter::CacheSelectedSpell() { SelectedSpellIdCache = GetSelectedSpellId(); }
+
+void AShamanCharacter::HandleSpellbookChanged(FName /*SpellId*/)
+{
+	// Keep the same spell selected when the list changes (temporary spells come and go); if it is gone, stay on the
+	// same slot index, clamped.
+	const TArray<FName>& Known = Spells->KnownSpellIds;
+	const int32 I = SelectedSpellIdCache.IsNone() ? INDEX_NONE : Known.IndexOfByKey(SelectedSpellIdCache);
+	if (I != INDEX_NONE) SelectedSpellIndex = I;
+	else SelectedSpellIndex = Known.Num() > 0 ? FMath::Clamp(SelectedSpellIndex, 0, Known.Num() - 1) : 0;
+	CacheSelectedSpell();
 }
 
 // --- Spells ----------------------------------------------------------------------------------------------
@@ -73,6 +111,7 @@ bool AShamanCharacter::SelectSpell(FName SpellId)
 	const int32 Index = Spells->KnownSpellIds.IndexOfByKey(SpellId);
 	if (Index == INDEX_NONE) return false;
 	SelectedSpellIndex = Index;
+	CacheSelectedSpell();
 	return true;
 }
 
@@ -294,12 +333,14 @@ void AShamanCharacter::InputNextSpell()
 {
 	const int32 N = Spells->KnownSpellIds.Num();
 	if (N > 0) SelectedSpellIndex = (SelectedSpellIndex + 1) % N;
+	CacheSelectedSpell();
 }
 
 void AShamanCharacter::InputPrevSpell()
 {
 	const int32 N = Spells->KnownSpellIds.Num();
 	if (N > 0) SelectedSpellIndex = (SelectedSpellIndex + N - 1) % N;
+	CacheSelectedSpell();
 }
 
 void AShamanCharacter::InputRally()
@@ -322,4 +363,77 @@ void AShamanCharacter::ShamanLearnSpell(FName SpellId)
 	else { Spells->LearnSpell(SpellId); Msg = FString::Printf(TEXT("Learned %s."), *SpellId.ToString()); }
 	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
 	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, Msg);
+}
+
+// --- Spell panel slice: cheats and test fixtures (console) ------------------------------------------------------------
+
+static void ReportSpellConsole(const FString& Msg)
+{
+	UE_LOG(LogShaman, Log, TEXT("[Spells] %s"), *Msg);
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, Msg);
+}
+
+void AShamanCharacter::ShamanUnlockAllSpells()
+{
+	if (!Spells->SpellTable) { ReportSpellConsole(TEXT("Cannot unlock spells: no spell DataTable is loaded.")); return; }
+	int32 Learned = 0, Working = 0, Total = 0;
+	for (const FName& Id : Spells->SpellTable->GetRowNames())
+	{
+		const FSpellRow* Row = Spells->GetSpellRow(Id);
+		if (!Row || !FSpellChargeRules::IsChargeable(*Row)) continue; // super spells only come as temporary charges
+		++Total;
+		if (!Spells->IsPermanentSpell(Id)) { Spells->LearnSpell(Id); ++Learned; }
+		Spells->SetStoredChargesForTest(Id, FSpellChargeRules::GetMaxCharges(*Row));
+		if (Spells->IsSpellImplemented(Id)) ++Working;
+	}
+	ReportSpellConsole(FString::Printf(TEXT("CHEAT: unlocked %d new spell(s) (%d permanent spells in total, %d with a working effect); all charges full.%s"),
+		Learned, Total, Working, Total == 0 ? TEXT(" The spell table has no MaxCharges data: reimport Content/Data/Spells.csv.") : TEXT("")));
+}
+
+void AShamanCharacter::ShamanFillSpellCharges()
+{
+	int32 N = 0;
+	for (const FName& Id : TArray<FName>(Spells->KnownSpellIds))
+		if (Spells->IsPermanentSpell(Id) && Spells->GetMaxCharges(Id) > 0) { Spells->SetStoredChargesForTest(Id, Spells->GetMaxCharges(Id)); ++N; }
+	ReportSpellConsole(FString::Printf(TEXT("Filled the charges of %d spell(s)."), N));
+}
+
+void AShamanCharacter::ShamanGrantTempCharges(FName SpellId, int32 Count)
+{
+	if (!Spells->GetSpellRow(SpellId)) { ReportSpellConsole(FString::Printf(TEXT("No spell row named '%s'."), *SpellId.ToString())); return; }
+	if (Count <= 0) Count = 1;
+	Spells->AddCharges(SpellId, Count); // the same reward path AMonumentActor (Stone Head) uses
+	ReportSpellConsole(FString::Printf(TEXT("Granted %d temporary charge(s) of %s (now %d temporary)."), Count, *SpellId.ToString(), Spells->GetTemporaryCharges(SpellId)));
+}
+
+void AShamanCharacter::ShamanSpellOnMap(FName SpellId)
+{
+	if (!Spells->GetSpellRow(SpellId)) { ReportSpellConsole(FString::Printf(TEXT("No spell row named '%s'."), *SpellId.ToString())); return; }
+	Spells->SetSpellAvailableOnMap(SpellId);
+	ReportSpellConsole(FString::Printf(TEXT("%s is now discoverable on this map%s."), *SpellId.ToString(),
+		Spells->IsPermanentSpell(SpellId) ? TEXT(" (already learned)") : TEXT(" (shown as ?)")));
+}
+
+void AShamanCharacter::ShamanToggleCharging(FName SpellId)
+{
+	if (Spells->ToggleSpellCharging(SpellId))
+		ReportSpellConsole(FString::Printf(TEXT("%s charging %s."), *SpellId.ToString(), Spells->IsCharging(SpellId) ? TEXT("ON") : TEXT("OFF")));
+	else
+		ReportSpellConsole(FString::Printf(TEXT("%s cannot charge (not learned permanently, no charge data, no effect, or charges are off)."), *SpellId.ToString()));
+}
+
+void AShamanCharacter::ShamanSpellDump()
+{
+	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, mana %.2f / %.0f, regen %.3f/s, charging draw %.3f/s, %d charging"),
+		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen(),
+		Spells->GetChargeDrawPerSecond(), Spells->GetActiveChargingCount());
+	for (const FName& Id : Spells->KnownSpellIds)
+	{
+		UE_LOG(LogShaman, Log, TEXT("[Spells]   %s: %s, charges %d/%d (+%d temporary), progress %.0f%%, charging %s, implemented %s%s"),
+			*Id.ToString(), Spells->IsPermanentSpell(Id) ? TEXT("permanent") : TEXT("temporary"), Spells->GetStoredCharges(Id), Spells->GetMaxCharges(Id),
+			Spells->GetTemporaryCharges(Id), Spells->GetChargeProgress01(Id) * 100.f, Spells->IsCharging(Id) ? TEXT("on") : TEXT("off"),
+			Spells->IsSpellImplemented(Id) ? TEXT("yes") : TEXT("no"), Id == GetSelectedSpellId() ? TEXT("  [selected]") : TEXT(""));
+	}
+	for (const FName& Id : Spells->GetMapSpellIds())
+		UE_LOG(LogShaman, Log, TEXT("[Spells]   on this map: %s%s"), *Id.ToString(), Spells->IsPermanentSpell(Id) ? TEXT(" (learned)") : TEXT(" (undiscovered)"));
 }

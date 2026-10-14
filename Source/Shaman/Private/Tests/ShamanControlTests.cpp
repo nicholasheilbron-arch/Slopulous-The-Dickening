@@ -326,6 +326,9 @@ bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
 	const FSpellRow BlastBefore = *Blast;
 	const float ManaBefore = Spells->Mana;
 	const int32 NumRows = Spells->SpellTable->GetRowNames().Num();
+	// Spell panel slice: "?" now means "can be learned on this map" (was: any implemented spell). This test world has no
+	// monuments, so the map offers Convert explicitly; off the map it must never show as "?" (checked below).
+	Spells->SetSpellAvailableOnMap(TEXT("Convert"));
 
 	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
 	TestTrue(TEXT("Panel has spell data"), M.bHasSpellData);
@@ -344,6 +347,14 @@ bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("A discoverable spell cannot be selected"), F.S0->SelectSpell(TEXT("Convert")));
 	TestTrue(TEXT("Selection unchanged"), F.S0->GetSelectedSpellId() == FName(TEXT("Blast")));
+	Spells->SetSpellAvailableOnMap(TEXT("Convert"), false);
+	{
+		const FShamanSpellPanelModel Off = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
+		const int32 IOff = Off.FindSlot(TEXT("Convert"));
+		TestTrue(TEXT("Not offered by this map: never \"?\""), IOff == INDEX_NONE || Off.Slots[IOff].State != EShamanSpellSlotState::Discoverable);
+		TestEqual(TEXT("Off the map: every table row is still either shown or counted"), Off.Slots.Num() + Off.NumHiddenUnimplemented, NumRows);
+	}
+	Spells->SetSpellAvailableOnMap(TEXT("Convert"));
 
 	Spells->LearnSpell(TEXT("Convert"));
 	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());

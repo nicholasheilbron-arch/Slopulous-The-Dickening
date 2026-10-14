@@ -16,6 +16,7 @@
 #include "HAL/IConsoleManager.h"
 #include "UI/ShamanHUD.h"
 #include "Characters/ShamanCharacter.h"
+#include "SpellComponent.h"
 #include "ShamanTypes.h"
 #include "TribeComponent.h"
 #include "TribeMemberComponent.h"
@@ -397,7 +398,7 @@ bool AShamanPlayerController::HandleSpellPanelClick(const FVector2D& ScreenPos)
 	const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD());
 	if (!HUD || !HUD->IsOverSpellPanel(ScreenPos)) return false;
 	FShamanSpellSlot Slot;
-	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background: swallow, do nothing
+	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background / footer: swallow, do nothing
 	AShamanCharacter* S = Cast<AShamanCharacter>(GetPawn());
 	if (Slot.State == EShamanSpellSlotState::Available && S && S->SelectSpell(Slot.SpellId))
 	{
@@ -406,8 +407,35 @@ bool AShamanPlayerController::HandleSpellPanelClick(const FVector2D& ScreenPos)
 	}
 	else
 	{
-		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s is %s: not selectable"), *Slot.SpellId.ToString(),
-			Slot.State == EShamanSpellSlotState::Discoverable ? TEXT("not discovered on this level") : TEXT("not implemented"));
+		// Undiscovered / locked tiles must not reveal which spell they are.
+		const FString Why = Slot.State == EShamanSpellSlotState::Discoverable ? FString(TEXT("undiscovered spell (learn it on this map first)"))
+			: Slot.State == EShamanSpellSlotState::Locked ? FString(TEXT("locked spell (not available on this map)"))
+			: FString::Printf(TEXT("%s has no effect yet"), *Slot.SpellId.ToString());
+		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s: not selectable"), *Why);
+	}
+	return true;
+}
+
+bool AShamanPlayerController::HandleSpellPanelRightClick(const FVector2D& ScreenPos)
+{
+	const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD());
+	if (!HUD || !HUD->IsOverSpellPanel(ScreenPos)) return false;
+	FShamanSpellSlot Slot;
+	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background: swallow (no world command)
+	AShamanCharacter* S = Cast<AShamanCharacter>(GetPawn());
+	if (S && S->Spells && Slot.State == EShamanSpellSlotState::Available && S->Spells->ToggleSpellCharging(Slot.SpellId))
+	{
+		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s charging %s (%d spell(s) now share the mana)"), *Slot.SpellId.ToString(),
+			S->Spells->IsCharging(Slot.SpellId) ? TEXT("ON") : TEXT("OFF"), S->Spells->GetActiveChargingCount());
+	}
+	else
+	{
+		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] right-click: this tile cannot charge (%s)"),
+			Slot.State == EShamanSpellSlotState::Discoverable ? TEXT("undiscovered")
+			: Slot.State == EShamanSpellSlotState::Locked ? TEXT("locked")
+			: Slot.State == EShamanSpellSlotState::Unimplemented ? TEXT("no effect yet")
+			: Slot.IsTemporaryOnly() ? TEXT("temporary charges never recharge")
+			: !Slot.bChargeEconomy ? TEXT("spell charges are off: reimport Spells.csv") : TEXT("no charge data"));
 	}
 	return true;
 }
@@ -463,8 +491,7 @@ void AShamanPlayerController::OnCommandPressed()
 	float X = 0.f, Y = 0.f;
 	if (!GetMousePosition(X, Y) || !Selection) return;
 	const FVector2D Mouse(X, Y);
-	if (const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD()))
-		if (HUD->IsOverSpellPanel(Mouse)) return; // no commands through the panel
+	if (HandleSpellPanelRightClick(Mouse)) return; // the panel takes the click (charging on/off): no world command
 	CancelSelectGesture();
 	RefreshPlayerTribe();
 	const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();

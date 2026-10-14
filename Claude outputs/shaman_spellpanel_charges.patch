@@ -1,0 +1,2299 @@
+diff --git a/Content/Data/Spells.csv b/Content/Data/Spells.csv
+index 6fd5cc0..591b897 100644
+--- a/Content/Data/Spells.csv
++++ b/Content/Data/Spells.csv
+@@ -1,20 +1,20 @@
+----,DisplayName,Description,Targeting,ManaCost,RangeRaw,Radius,CastTime,Cooldown,Damage,Knockback,Duration,BuildingDamageMultiplier,ProjectileSpeed,bHoming,bIgnites,bSuperSpell,bOneShot,EffectId,UnlockCondition,TerrainEffectId,TargetFilter,bFriendlyFire
+-Blast,Blast (Taka),Tracking fire blast. Low mana cost. Hurls nearby followers into the air.,Projectile,5,10,300,0.4,1.0,40,1.0,0,1.0,2500,true,true,false,false,FireBlast,Start,,AllUnits,true
+-Convert,Convert,Converts wildmen in the radius into Braves of your tribe.,Ground,5,100,500,0.6,2.0,0,0,0,1.0,0,false,false,false,false,ConvertWildmen,Start,,WildmenOnly,false
+-Swarm,Swarm,"Insects make enemy followers flee in panic; they abandon preaching, boats, and balloons.",Ground,50,30,600,0.6,4.0,0,0,12,1.0,0,false,false,false,false,InsectSwarm,Locked,,EnemiesOnly,false
+-Invisibility,Invisibility,Followers turn invisible until they start fighting.,Ground,25,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,Invisibility,Locked,,FriendlyOnly,false
+-MagicalShield,Magical Shield,Shields followers from direct spells and boosts them in battle.,Ground,30,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,MagicalShield,Locked,,FriendlyOnly,false
+-LandBridge,Land Bridge,Raises a land bridge from the Shaman to the target point.,Ground,30,50,300,0.8,3.0,0,0,0,1.0,0,false,false,false,false,LandBridge,Locked,LandBridge,AllUnits,false
+-Lightning,Lightning,"Powerful strike that kills unshielded followers, flings nearby ones, and ignites buildings.",Ground,30,60,250,0.5,2.0,100,0.6,0,1.5,0,false,true,false,false,Lightning,Locked,,AllUnits,true
+-Hypnotize,Hypnotize,Enemy followers in the radius fight for you for about 15 seconds.,Ground,35,30,500,0.6,4.0,0,0,15,1.0,0,false,false,false,false,Hypnotize,Locked,,EnemiesOnly,false
+-Tornado,Tornado,"Roams randomly, hurling followers and sucking up buildings.",Ground,35,30,300,0.8,5.0,0,0,30,1.0,0,false,false,false,false,Tornado,Locked,,AllUnits,true
+-Swamp,Swamp,Followers entering it die. Disappears after 10 kills.,Ground,50,30,400,0.8,5.0,0,0,0,1.0,0,false,false,false,false,Swamp,Locked,Swamp,AllUnits,true
+-Flatten,Flatten,Levels the land around the target to the target height.,Ground,60,30,800,1.0,6.0,0,0,0,1.0,0,false,false,false,false,Flatten,Locked,Flatten,AllUnits,false
+-Earthquake,Earthquake,Splits the ground with lava; low shoreline land sinks briefly.,Ground,60,30,700,1.2,8.0,0,0,5,1.5,0,false,false,false,false,Earthquake,Locked,Earthquake,AllUnits,true
+-Erode,Erode,Quickly sinks the land; low land floods with buildings and people on it.,Ground,80,30,800,1.2,10.0,0,0,8,1.5,0,false,false,false,false,Erode,Locked,Erode,AllUnits,true
+-Firestorm,Firestorm,Flaming meteors ignite everyone (not your Shaman) and wreck buildings in a large radius.,Ground,85,30,1200,1.5,12.0,80,1.0,10,3.0,0,false,true,false,false,Firestorm,Locked,,AllUnits,true
+-AngelOfDeath,Angel of Death,"Summons a flyer that seizes and kills enemy followers, shielded or not. Lives about 5 minutes.",Ground,90,15,300,1.5,15.0,0,0,300,1.0,0,false,true,false,false,AngelOfDeath,Locked,,EnemiesOnly,false
+-Volcano,Volcano,Raises a volcano that burns buildings and followers and spreads lava and land.,Ground,100,15,900,2.0,20.0,0,0,0,2.0,0,false,true,false,false,Volcano,Locked,Volcano,AllUnits,true
+-Armageddon,Armageddon,Super spell. Raises an arena and teleports every follower in the world into one battle.,Ground,0,100,3000,3.0,0,0,0,0,1.0,0,false,false,true,true,Armageddon,StoneHead,Armageddon,AllUnits,true
+-Teleport,Teleport,Super spell. Instantly teleports the Shaman anywhere on the map.,Ground,0,100,0,0.5,0,0,0,0,1.0,0,false,false,true,true,Teleport,StoneHead,,FriendlyOnly,false
+-Bloodlust,Bloodlust,Super spell. Followers deal and take far more damage.,Ground,0,30,500,0.5,0,0,0,30,1.0,0,false,false,true,true,Bloodlust,StoneHead,,FriendlyOnly,false
++---,DisplayName,Description,Targeting,ManaCost,RangeRaw,Radius,CastTime,Cooldown,Damage,Knockback,Duration,BuildingDamageMultiplier,ProjectileSpeed,bHoming,bIgnites,bSuperSpell,bOneShot,EffectId,UnlockCondition,TerrainEffectId,TargetFilter,bFriendlyFire,MaxCharges,bChargingByDefault,Icon
++Blast,Blast (Taka),Tracking fire blast. Low mana cost. Hurls nearby followers into the air.,Projectile,5,10,300,0.4,1.0,40,1.0,0,1.0,2500,true,true,false,false,FireBlast,Start,,AllUnits,true,4,true,
++Convert,Convert,Converts wildmen in the radius into Braves of your tribe.,Ground,5,100,500,0.6,2.0,0,0,0,1.0,0,false,false,false,false,ConvertWildmen,Start,,WildmenOnly,false,4,false,
++Swarm,Swarm,"Insects make enemy followers flee in panic; they abandon preaching, boats, and balloons.",Ground,50,30,600,0.6,4.0,0,0,12,1.0,0,false,false,false,false,InsectSwarm,Locked,,EnemiesOnly,false,3,false,
++Invisibility,Invisibility,Followers turn invisible until they start fighting.,Ground,25,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,Invisibility,Locked,,FriendlyOnly,false,3,false,
++MagicalShield,Magical Shield,Shields followers from direct spells and boosts them in battle.,Ground,30,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,MagicalShield,Locked,,FriendlyOnly,false,3,false,
++LandBridge,Land Bridge,Raises a land bridge from the Shaman to the target point.,Ground,30,50,300,0.8,3.0,0,0,0,1.0,0,false,false,false,false,LandBridge,Locked,LandBridge,AllUnits,false,3,false,
++Lightning,Lightning,"Powerful strike that kills unshielded followers, flings nearby ones, and ignites buildings.",Ground,30,60,250,0.5,2.0,100,0.6,0,1.5,0,false,true,false,false,Lightning,Locked,,AllUnits,true,3,false,
++Hypnotize,Hypnotize,Enemy followers in the radius fight for you for about 15 seconds.,Ground,35,30,500,0.6,4.0,0,0,15,1.0,0,false,false,false,false,Hypnotize,Locked,,EnemiesOnly,false,2,false,
++Tornado,Tornado,"Roams randomly, hurling followers and sucking up buildings.",Ground,35,30,300,0.8,5.0,0,0,30,1.0,0,false,false,false,false,Tornado,Locked,,AllUnits,true,2,false,
++Swamp,Swamp,Followers entering it die. Disappears after 10 kills.,Ground,50,30,400,0.8,5.0,0,0,0,1.0,0,false,false,false,false,Swamp,Locked,Swamp,AllUnits,true,2,false,
++Flatten,Flatten,Levels the land around the target to the target height.,Ground,60,30,800,1.0,6.0,0,0,0,1.0,0,false,false,false,false,Flatten,Locked,Flatten,AllUnits,false,2,false,
++Earthquake,Earthquake,Splits the ground with lava; low shoreline land sinks briefly.,Ground,60,30,700,1.2,8.0,0,0,5,1.5,0,false,false,false,false,Earthquake,Locked,Earthquake,AllUnits,true,1,false,
++Erode,Erode,Quickly sinks the land; low land floods with buildings and people on it.,Ground,80,30,800,1.2,10.0,0,0,8,1.5,0,false,false,false,false,Erode,Locked,Erode,AllUnits,true,1,false,
++Firestorm,Firestorm,Flaming meteors ignite everyone (not your Shaman) and wreck buildings in a large radius.,Ground,85,30,1200,1.5,12.0,80,1.0,10,3.0,0,false,true,false,false,Firestorm,Locked,,AllUnits,true,1,false,
++AngelOfDeath,Angel of Death,"Summons a flyer that seizes and kills enemy followers, shielded or not. Lives about 5 minutes.",Ground,90,15,300,1.5,15.0,0,0,300,1.0,0,false,true,false,false,AngelOfDeath,Locked,,EnemiesOnly,false,1,false,
++Volcano,Volcano,Raises a volcano that burns buildings and followers and spreads lava and land.,Ground,100,15,900,2.0,20.0,0,0,0,2.0,0,false,true,false,false,Volcano,Locked,Volcano,AllUnits,true,1,false,
++Armageddon,Armageddon,Super spell. Raises an arena and teleports every follower in the world into one battle.,Ground,0,100,3000,3.0,0,0,0,0,1.0,0,false,false,true,true,Armageddon,StoneHead,Armageddon,AllUnits,true,0,false,
++Teleport,Teleport,Super spell. Instantly teleports the Shaman anywhere on the map.,Ground,0,100,0,0.5,0,0,0,0,1.0,0,false,false,true,true,Teleport,StoneHead,,FriendlyOnly,false,0,false,
++Bloodlust,Bloodlust,Super spell. Followers deal and take far more damage.,Ground,0,30,500,0.5,0,0,0,30,1.0,0,false,false,true,true,Bloodlust,StoneHead,,FriendlyOnly,false,0,false,
+diff --git a/Source/Shaman/Private/Characters/ShamanCharacter.cpp b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+index 9463dcc..3da7383 100644
+--- a/Source/Shaman/Private/Characters/ShamanCharacter.cpp
++++ b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+@@ -21,6 +21,8 @@
+ #include "Engine/Engine.h"
+ #include "Core/ShamanLog.h"
+ #include "DrawDebugHelpers.h"
++#include "MonumentActor.h"
++#include "EngineUtils.h"
+ 
+ AShamanCharacter::AShamanCharacter(const FObjectInitializer& ObjectInitializer)
+ 	: Super(ObjectInitializer)
+@@ -57,8 +59,44 @@ void AShamanCharacter::BeginPlay()
+ 	if (!Spells->SpellTable) Spells->SpellTable = Data->SpellTable;
+ 	for (const TPair<FName, TSubclassOf<ASpellProjectile>>& P : Data->ProjectileClasses)
+ 		if (!Spells->ProjectileClasses.Contains(P.Key)) Spells->ProjectileClasses.Add(P.Key, P.Value);
++
++	// Spell charges (spell panel slice): the player tribe's Shaman charges spells from the shared mana economy. Decided
++	// before the starting spells are learned so they get their initial charging state. Without the charge columns in
++	// the imported table, keep the Phase 1 mana-at-cast rule so TAKA still works (HUD + log warn).
++	const FTribeDefinition* TribeDef = Data->GetTribe(TribeId);
++	const bool bWantCharges = Data->bPlayerUsesSpellCharges && TribeDef && TribeDef->bPlayerControlled && Spells->SpellTable;
++	bChargeDataMissing = bWantCharges && !USpellComponent::TableHasChargeData(Spells->SpellTable);
++	Spells->bUseChargeEconomy = bWantCharges && !bChargeDataMissing;
++	if (bChargeDataMissing)
++	{
++		UE_LOG(LogShaman, Warning, TEXT("[Spells] %s has no MaxCharges data: reimport Content/Data/Spells.csv into it. Using mana-at-cast until then."),
++			*Spells->SpellTable->GetName());
++	}
++	Spells->OnSpellbookChanged.AddUObject(this, &AShamanCharacter::HandleSpellbookChanged);
++
+ 	for (const FName& Id : Data->StartingSpells) Spells->LearnSpell(Id);
+ 	for (const FName& Id : Progression->GetPermanentSpells()) Spells->LearnSpell(Id); // Vault of Knowledge carry-over
++	// Map-specific discovery: spells taught by monuments on this map ("?" until learned). Monuments that begin play
++	// after this Shaman register themselves (AMonumentActor::BeginPlay).
++	for (TActorIterator<AMonumentActor> It(GetWorld()); It; ++It)
++	{
++		FName Reward;
++		if (It->GetSpellUnlockReward(Reward)) Spells->SetSpellAvailableOnMap(Reward);
++	}
++	CacheSelectedSpell();
++}
++
++void AShamanCharacter::CacheSelectedSpell() { SelectedSpellIdCache = GetSelectedSpellId(); }
++
++void AShamanCharacter::HandleSpellbookChanged(FName /*SpellId*/)
++{
++	// Keep the same spell selected when the list changes (temporary spells come and go); if it is gone, stay on the
++	// same slot index, clamped.
++	const TArray<FName>& Known = Spells->KnownSpellIds;
++	const int32 I = SelectedSpellIdCache.IsNone() ? INDEX_NONE : Known.IndexOfByKey(SelectedSpellIdCache);
++	if (I != INDEX_NONE) SelectedSpellIndex = I;
++	else SelectedSpellIndex = Known.Num() > 0 ? FMath::Clamp(SelectedSpellIndex, 0, Known.Num() - 1) : 0;
++	CacheSelectedSpell();
+ }
+ 
+ // --- Spells ----------------------------------------------------------------------------------------------
+@@ -73,6 +111,7 @@ bool AShamanCharacter::SelectSpell(FName SpellId)
+ 	const int32 Index = Spells->KnownSpellIds.IndexOfByKey(SpellId);
+ 	if (Index == INDEX_NONE) return false;
+ 	SelectedSpellIndex = Index;
++	CacheSelectedSpell();
+ 	return true;
+ }
+ 
+@@ -294,12 +333,14 @@ void AShamanCharacter::InputNextSpell()
+ {
+ 	const int32 N = Spells->KnownSpellIds.Num();
+ 	if (N > 0) SelectedSpellIndex = (SelectedSpellIndex + 1) % N;
++	CacheSelectedSpell();
+ }
+ 
+ void AShamanCharacter::InputPrevSpell()
+ {
+ 	const int32 N = Spells->KnownSpellIds.Num();
+ 	if (N > 0) SelectedSpellIndex = (SelectedSpellIndex + N - 1) % N;
++	CacheSelectedSpell();
+ }
+ 
+ void AShamanCharacter::InputRally()
+@@ -323,3 +364,76 @@ void AShamanCharacter::ShamanLearnSpell(FName SpellId)
+ 	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+ 	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, Msg);
+ }
++
++// --- Spell panel slice: cheats and test fixtures (console) ------------------------------------------------------------
++
++static void ReportSpellConsole(const FString& Msg)
++{
++	UE_LOG(LogShaman, Log, TEXT("[Spells] %s"), *Msg);
++	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, Msg);
++}
++
++void AShamanCharacter::ShamanUnlockAllSpells()
++{
++	if (!Spells->SpellTable) { ReportSpellConsole(TEXT("Cannot unlock spells: no spell DataTable is loaded.")); return; }
++	int32 Learned = 0, Working = 0, Total = 0;
++	for (const FName& Id : Spells->SpellTable->GetRowNames())
++	{
++		const FSpellRow* Row = Spells->GetSpellRow(Id);
++		if (!Row || !FSpellChargeRules::IsChargeable(*Row)) continue; // super spells only come as temporary charges
++		++Total;
++		if (!Spells->IsPermanentSpell(Id)) { Spells->LearnSpell(Id); ++Learned; }
++		Spells->SetStoredChargesForTest(Id, FSpellChargeRules::GetMaxCharges(*Row));
++		if (Spells->IsSpellImplemented(Id)) ++Working;
++	}
++	ReportSpellConsole(FString::Printf(TEXT("CHEAT: unlocked %d new spell(s) (%d permanent spells in total, %d with a working effect); all charges full.%s"),
++		Learned, Total, Working, Total == 0 ? TEXT(" The spell table has no MaxCharges data: reimport Content/Data/Spells.csv.") : TEXT("")));
++}
++
++void AShamanCharacter::ShamanFillSpellCharges()
++{
++	int32 N = 0;
++	for (const FName& Id : TArray<FName>(Spells->KnownSpellIds))
++		if (Spells->IsPermanentSpell(Id) && Spells->GetMaxCharges(Id) > 0) { Spells->SetStoredChargesForTest(Id, Spells->GetMaxCharges(Id)); ++N; }
++	ReportSpellConsole(FString::Printf(TEXT("Filled the charges of %d spell(s)."), N));
++}
++
++void AShamanCharacter::ShamanGrantTempCharges(FName SpellId, int32 Count)
++{
++	if (!Spells->GetSpellRow(SpellId)) { ReportSpellConsole(FString::Printf(TEXT("No spell row named '%s'."), *SpellId.ToString())); return; }
++	if (Count <= 0) Count = 1;
++	Spells->AddCharges(SpellId, Count); // the same reward path AMonumentActor (Stone Head) uses
++	ReportSpellConsole(FString::Printf(TEXT("Granted %d temporary charge(s) of %s (now %d temporary)."), Count, *SpellId.ToString(), Spells->GetTemporaryCharges(SpellId)));
++}
++
++void AShamanCharacter::ShamanSpellOnMap(FName SpellId)
++{
++	if (!Spells->GetSpellRow(SpellId)) { ReportSpellConsole(FString::Printf(TEXT("No spell row named '%s'."), *SpellId.ToString())); return; }
++	Spells->SetSpellAvailableOnMap(SpellId);
++	ReportSpellConsole(FString::Printf(TEXT("%s is now discoverable on this map%s."), *SpellId.ToString(),
++		Spells->IsPermanentSpell(SpellId) ? TEXT(" (already learned)") : TEXT(" (shown as ?)")));
++}
++
++void AShamanCharacter::ShamanToggleCharging(FName SpellId)
++{
++	if (Spells->ToggleSpellCharging(SpellId))
++		ReportSpellConsole(FString::Printf(TEXT("%s charging %s."), *SpellId.ToString(), Spells->IsCharging(SpellId) ? TEXT("ON") : TEXT("OFF")));
++	else
++		ReportSpellConsole(FString::Printf(TEXT("%s cannot charge (not learned permanently, no charge data, no effect, or charges are off)."), *SpellId.ToString()));
++}
++
++void AShamanCharacter::ShamanSpellDump()
++{
++	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, mana %.2f / %.0f, regen %.3f/s, charging draw %.3f/s, %d charging"),
++		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen(),
++		Spells->GetChargeDrawPerSecond(), Spells->GetActiveChargingCount());
++	for (const FName& Id : Spells->KnownSpellIds)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Spells]   %s: %s, charges %d/%d (+%d temporary), progress %.0f%%, charging %s, implemented %s%s"),
++			*Id.ToString(), Spells->IsPermanentSpell(Id) ? TEXT("permanent") : TEXT("temporary"), Spells->GetStoredCharges(Id), Spells->GetMaxCharges(Id),
++			Spells->GetTemporaryCharges(Id), Spells->GetChargeProgress01(Id) * 100.f, Spells->IsCharging(Id) ? TEXT("on") : TEXT("off"),
++			Spells->IsSpellImplemented(Id) ? TEXT("yes") : TEXT("no"), Id == GetSelectedSpellId() ? TEXT("  [selected]") : TEXT(""));
++	}
++	for (const FName& Id : Spells->GetMapSpellIds())
++		UE_LOG(LogShaman, Log, TEXT("[Spells]   on this map: %s%s"), *Id.ToString(), Spells->IsPermanentSpell(Id) ? TEXT(" (learned)") : TEXT(" (undiscovered)"));
++}
+diff --git a/Source/Shaman/Private/MonumentActor.cpp b/Source/Shaman/Private/MonumentActor.cpp
+index 9d6c361..9a7e541 100644
+--- a/Source/Shaman/Private/MonumentActor.cpp
++++ b/Source/Shaman/Private/MonumentActor.cpp
+@@ -3,9 +3,30 @@
+ #include "ProgressionComponent.h"
+ #include "Engine/DataTable.h"
+ #include "Engine/World.h"
++#include "EngineUtils.h"
++#include "Characters/ShamanCharacter.h"
+ 
+ AMonumentActor::AMonumentActor() { PrimaryActorTick.bCanEverTick = false; }
+ 
++bool AMonumentActor::GetSpellUnlockReward(FName& OutSpellId) const
++{
++	const FMonumentRow* Row = GetRow();
++	if (!Row || bSpent || RewardId.IsNone()) return false;
++	const EMonumentRewardType Type = bOverrideRewardType ? RewardTypeOverride : Row->DefaultRewardType;
++	if (Type != EMonumentRewardType::UnlockSpell) return false;
++	OutSpellId = RewardId;
++	return true;
++}
++
++void AMonumentActor::BeginPlay()
++{
++	Super::BeginPlay();
++	FName SpellId;
++	if (!GetSpellUnlockReward(SpellId)) return;
++	for (TActorIterator<AShamanCharacter> It(GetWorld()); It; ++It)
++		if (It->Spells) It->Spells->SetSpellAvailableOnMap(SpellId);
++}
++
+ const FMonumentRow* AMonumentActor::GetRow() const
+ {
+ 	return MonumentTable ? MonumentTable->FindRow<FMonumentRow>(MonumentRowName, TEXT("Monument")) : nullptr;
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+index bf087c3..bd31830 100644
+--- a/Source/Shaman/Private/Player/ShamanPlayerController.cpp
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -16,6 +16,7 @@
+ #include "HAL/IConsoleManager.h"
+ #include "UI/ShamanHUD.h"
+ #include "Characters/ShamanCharacter.h"
++#include "SpellComponent.h"
+ #include "ShamanTypes.h"
+ #include "TribeComponent.h"
+ #include "TribeMemberComponent.h"
+@@ -397,7 +398,7 @@ bool AShamanPlayerController::HandleSpellPanelClick(const FVector2D& ScreenPos)
+ 	const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD());
+ 	if (!HUD || !HUD->IsOverSpellPanel(ScreenPos)) return false;
+ 	FShamanSpellSlot Slot;
+-	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background: swallow, do nothing
++	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background / footer: swallow, do nothing
+ 	AShamanCharacter* S = Cast<AShamanCharacter>(GetPawn());
+ 	if (Slot.State == EShamanSpellSlotState::Available && S && S->SelectSpell(Slot.SpellId))
+ 	{
+@@ -406,8 +407,35 @@ bool AShamanPlayerController::HandleSpellPanelClick(const FVector2D& ScreenPos)
+ 	}
+ 	else
+ 	{
+-		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s is %s: not selectable"), *Slot.SpellId.ToString(),
+-			Slot.State == EShamanSpellSlotState::Discoverable ? TEXT("not discovered on this level") : TEXT("not implemented"));
++		// Undiscovered / locked tiles must not reveal which spell they are.
++		const FString Why = Slot.State == EShamanSpellSlotState::Discoverable ? FString(TEXT("undiscovered spell (learn it on this map first)"))
++			: Slot.State == EShamanSpellSlotState::Locked ? FString(TEXT("locked spell (not available on this map)"))
++			: FString::Printf(TEXT("%s has no effect yet"), *Slot.SpellId.ToString());
++		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s: not selectable"), *Why);
++	}
++	return true;
++}
++
++bool AShamanPlayerController::HandleSpellPanelRightClick(const FVector2D& ScreenPos)
++{
++	const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD());
++	if (!HUD || !HUD->IsOverSpellPanel(ScreenPos)) return false;
++	FShamanSpellSlot Slot;
++	if (!HUD->HitTestSpellPanel(ScreenPos, Slot)) return true; // panel background: swallow (no world command)
++	AShamanCharacter* S = Cast<AShamanCharacter>(GetPawn());
++	if (S && S->Spells && Slot.State == EShamanSpellSlotState::Available && S->Spells->ToggleSpellCharging(Slot.SpellId))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] %s charging %s (%d spell(s) now share the mana)"), *Slot.SpellId.ToString(),
++			S->Spells->IsCharging(Slot.SpellId) ? TEXT("ON") : TEXT("OFF"), S->Spells->GetActiveChargingCount());
++	}
++	else
++	{
++		UE_LOG(LogShaman, Log, TEXT("[SpellPanel] right-click: this tile cannot charge (%s)"),
++			Slot.State == EShamanSpellSlotState::Discoverable ? TEXT("undiscovered")
++			: Slot.State == EShamanSpellSlotState::Locked ? TEXT("locked")
++			: Slot.State == EShamanSpellSlotState::Unimplemented ? TEXT("no effect yet")
++			: Slot.IsTemporaryOnly() ? TEXT("temporary charges never recharge")
++			: !Slot.bChargeEconomy ? TEXT("spell charges are off: reimport Spells.csv") : TEXT("no charge data"));
+ 	}
+ 	return true;
+ }
+@@ -463,8 +491,7 @@ void AShamanPlayerController::OnCommandPressed()
+ 	float X = 0.f, Y = 0.f;
+ 	if (!GetMousePosition(X, Y) || !Selection) return;
+ 	const FVector2D Mouse(X, Y);
+-	if (const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD()))
+-		if (HUD->IsOverSpellPanel(Mouse)) return; // no commands through the panel
++	if (HandleSpellPanelRightClick(Mouse)) return; // the panel takes the click (charging on/off): no world command
+ 	CancelSelectGesture();
+ 	RefreshPlayerTribe();
+ 	const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
+diff --git a/Source/Shaman/Private/SpellComponent.cpp b/Source/Shaman/Private/SpellComponent.cpp
+index 94e7598..ebbbca6 100644
+--- a/Source/Shaman/Private/SpellComponent.cpp
++++ b/Source/Shaman/Private/SpellComponent.cpp
+@@ -1,5 +1,6 @@
+ #include "SpellComponent.h"
+ #include "SpellProjectile.h"
++#include "SpellEffectDispatcherComponent.h"
+ #include "Engine/DataTable.h"
+ #include "GameFramework/Actor.h"
+ #include "GameFramework/Pawn.h"
+@@ -7,6 +8,42 @@
+ #include "Sound/SoundBase.h"
+ #include "Kismet/GameplayStatics.h"
+ 
++// ---- Pure charge rules ------------------------------------------------------------------------------------------------
++
++int32 FSpellChargeRules::GetMaxCharges(const FSpellRow& Row)
++{
++	return FMath::Clamp<int32>(Row.MaxCharges, 0, (int32)MaxChargesLimit); // (int32): no ODR-use under C++14
++}
++
++bool FSpellChargeRules::IsChargeable(const FSpellRow& Row)
++{
++	return !Row.bSuperSpell && GetMaxCharges(Row) > 0 && Row.ManaCost > 0.f;
++}
++
++void FSpellChargeRules::SplitBudget(float Budget, const TArray<float>& Needs, TArray<float>& OutGiven)
++{
++	const int32 N = Needs.Num();
++	OutGiven.Init(0.f, N);
++	if (N == 0 || Budget <= 0.f) return;
++	// Smallest need first so leftover from nearly-full spells flows to the others; stable on ties (input order).
++	TArray<int32> Order;
++	Order.Reserve(N);
++	for (int32 i = 0; i < N; ++i) Order.Add(i);
++	Order.StableSort([&Needs](int32 A, int32 B) { return Needs[A] < Needs[B]; });
++	float Remaining = Budget;
++	int32 Left = N;
++	for (int32 Idx : Order)
++	{
++		const float Share = Remaining / Left;
++		const float Give = FMath::Clamp(Needs[Idx], 0.f, Share);
++		OutGiven[Idx] = Give;
++		Remaining -= Give;
++		--Left;
++	}
++}
++
++// ---- Component ----------------------------------------------------------------------------------------------------------
++
+ USpellComponent::USpellComponent() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.TickInterval = 0.1f; }
+ 
+ float USpellComponent::GetManaRegen() const
+@@ -17,16 +54,100 @@ float USpellComponent::GetManaRegen() const
+ void USpellComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* F)
+ {
+ 	Super::TickComponent(DeltaTime, TickType, F);
+-	Mana = FMath::Min(MaxMana, Mana + GetManaRegen() * DeltaTime);
++	if (!bUseChargeEconomy)
++	{
++		Mana = FMath::Min(MaxMana, Mana + GetManaRegen() * DeltaTime); // Phase 1 rule, unchanged
++		return;
++	}
++	AdvanceChargeEconomy(DeltaTime);
+ }
+ 
+-void USpellComponent::LearnSpell(FName SpellId) { KnownSpellIds.AddUnique(SpellId); }
++void USpellComponent::AdvanceChargeEconomy(float Seconds)
++{
++	if (Seconds <= 0.f) return;
++	const float Step = FMath::Max(0.01f, ChargeStepSeconds);
++	ChargeTimeAccumulator += Seconds;
++	for (int32 Guard = 0; ChargeTimeAccumulator >= Step && Guard < 1000; ++Guard) // 1000 steps = 100 s at the default step
++	{
++		ChargeTimeAccumulator -= Step;
++		ChargeStep(Step);
++	}
++	if (ChargeTimeAccumulator >= Step) ChargeTimeAccumulator = 0.f; // pathological hitch: drop the backlog
++}
++
++void USpellComponent::ChargeStep(float Step)
++{
++	// 1. The existing mana economy: follower-driven generation into the shared pool.
++	const float Generated = FMath::Max(0.f, GetManaRegen() * Step);
++	Mana = FMath::Min(MaxMana, Mana + Generated);
++
++	// 2. Spells charging this step, in spellbook order (deterministic).
++	struct FActive { FName Id; FSpellChargeState* State; float Cost; int32 Max; };
++	TArray<FActive> Active;
++	TArray<float> Needs;
++	for (const FName& Id : KnownSpellIds)
++	{
++		FSpellChargeState* S = ChargeStates.Find(Id);
++		if (!S) continue;
++		S->LastManaPerSecond = 0.f;
++		if (!S->bPermanent || !S->bCharging) continue;
++		const FSpellRow* Row = GetSpellRow(Id);
++		if (!Row || !FSpellChargeRules::IsChargeable(*Row) || !IsSpellImplemented(Id)) continue;
++		const int32 Max = FSpellChargeRules::GetMaxCharges(*Row);
++		if (S->StoredCharges >= Max) { S->ProgressMana = 0.f; continue; } // full: draws nothing
++		const float Need = (Max - S->StoredCharges) * Row->ManaCost - S->ProgressMana;
++		if (Need <= 0.f) continue;
++		Active.Add({ Id, S, Row->ManaCost, Max });
++		Needs.Add(Need);
++	}
++	LastDrawPerSecond = 0.f;
++	if (Active.Num() == 0) return;
++
++	// 3. Charging may use this step's generation only, and only what the pool really holds.
++	const float Budget = FMath::Min(Generated, FMath::Max(0.f, Mana));
++	TArray<float> Given;
++	FSpellChargeRules::SplitBudget(Budget, Needs, Given);
++
++	float Spent = 0.f;
++	bool bChargeGained = false;
++	for (int32 i = 0; i < Active.Num(); ++i)
++	{
++		FSpellChargeState& S = *Active[i].State;
++		S.ProgressMana += Given[i];
++		S.LastManaPerSecond = Given[i] / Step;
++		Spent += Given[i];
++		while (S.StoredCharges < Active[i].Max && S.ProgressMana >= Active[i].Cost - 1e-3f)
++		{
++			++S.StoredCharges;
++			S.ProgressMana -= Active[i].Cost; // may go a hair below 0 (float tolerance): carried, so no mana is created
++			bChargeGained = true;
++		}
++		if (S.StoredCharges >= Active[i].Max) S.ProgressMana = 0.f; // never progress past the maximum
++	}
++	Mana = FMath::Max(0.f, Mana - Spent);
++	LastDrawPerSecond = Spent / Step;
++	if (bChargeGained) NotifySpellbookChanged(NAME_None);
++}
++
++void USpellComponent::LearnSpell(FName SpellId)
++{
++	KnownSpellIds.AddUnique(SpellId);
++	FSpellChargeState& S = ChargeStates.FindOrAdd(SpellId);
++	if (S.bPermanent) return; // already learned: keep its charges, progress and charging setting
++	S.bPermanent = true;
++	S.StoredCharges = 0;
++	S.ProgressMana = 0.f;
++	const FSpellRow* Row = GetSpellRow(SpellId);
++	S.bCharging = Row && Row->bChargingByDefault && FSpellChargeRules::IsChargeable(*Row);
++	NotifySpellbookChanged(SpellId);
++}
+ 
+ void USpellComponent::AddCharges(FName SpellId, int32 Charges)
+ {
+ 	if (Charges <= 0) return;
+ 	KnownSpellIds.AddUnique(SpellId);
+ 	SpellCharges.FindOrAdd(SpellId) += Charges;
++	NotifySpellbookChanged(SpellId);
+ }
+ 
+ float USpellComponent::GetRangeUnits(FName SpellId) const
+@@ -35,6 +156,13 @@ float USpellComponent::GetRangeUnits(FName SpellId) const
+ 	return Row ? Row->RangeRaw * RangeUnitsPerPoint : 0.f;
+ }
+ 
++static bool IsBeyondCastRange(const FSpellRow& Row, float DistanceToTarget, float InRangeUnitsPerPoint)
++{
++	const float RangeUU = Row.RangeRaw * InRangeUnitsPerPoint;
++	return Row.Targeting != ESpellTargeting::Self && RangeUU > 0.f && Row.Targeting != ESpellTargeting::Projectile
++		&& DistanceToTarget > RangeUU;
++}
++
+ ESpellCastResult USpellComponent::EvaluateCast(const FSpellRow& Row, float CurrentMana, int32 Charges, double Now,
+ 	double CooldownEndTime, float DistanceToTarget, float InRangeUnitsPerPoint)
+ {
+@@ -42,12 +170,46 @@ ESpellCastResult USpellComponent::EvaluateCast(const FSpellRow& Row, float Curre
+ 	const float Cost = Row.bSuperSpell ? 0.f : Row.ManaCost;
+ 	if (CurrentMana < Cost) return ESpellCastResult::NotEnoughMana;
+ 	if (Row.bSuperSpell && Charges <= 0) return ESpellCastResult::NoCharges;
+-	const float RangeUU = Row.RangeRaw * InRangeUnitsPerPoint;
+-	if (Row.Targeting != ESpellTargeting::Self && RangeUU > 0.f && Row.Targeting != ESpellTargeting::Projectile
+-		&& DistanceToTarget > RangeUU) return ESpellCastResult::OutOfRange;
++	if (IsBeyondCastRange(Row, DistanceToTarget, InRangeUnitsPerPoint)) return ESpellCastResult::OutOfRange;
+ 	return ESpellCastResult::Success;
+ }
+ 
++ESpellCastResult USpellComponent::EvaluateChargedCast(const FSpellRow& Row, int32 AvailableCharges, double Now,
++	double CooldownEndTime, float DistanceToTarget, float InRangeUnitsPerPoint)
++{
++	if (Now < CooldownEndTime) return ESpellCastResult::OnCooldown;
++	if (AvailableCharges <= 0) return ESpellCastResult::NoCharges;
++	if (IsBeyondCastRange(Row, DistanceToTarget, InRangeUnitsPerPoint)) return ESpellCastResult::OutOfRange;
++	return ESpellCastResult::Success;
++}
++
++bool USpellComponent::IsRowImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects)
++{
++	if (Row.Targeting == ESpellTargeting::Projectile)
++	{
++		// CastSpell spawns nothing for a projectile row without a class: not castable in practice.
++		const TSubclassOf<ASpellProjectile>* Cls = Spells ? Spells->ProjectileClasses.Find(Row.EffectId) : nullptr;
++		return Cls && *Cls;
++	}
++	// Non-projectile rows only broadcast OnSpellCast: they do something only when the dispatcher has the effect.
++	return Effects && Effects->FindEffect(Row.EffectId) != nullptr;
++}
++
++bool USpellComponent::IsSpellImplemented(FName SpellId) const
++{
++	const FSpellRow* Row = GetSpellRow(SpellId);
++	const USpellEffectDispatcherComponent* Effects = GetOwner() ? GetOwner()->FindComponentByClass<USpellEffectDispatcherComponent>() : nullptr;
++	return Row && IsRowImplemented(*Row, this, Effects);
++}
++
++bool USpellComponent::TableHasChargeData(const UDataTable* Table)
++{
++	if (!Table || Table->GetRowStruct() != FSpellRow::StaticStruct()) return false;
++	for (const TPair<FName, uint8*>& It : Table->GetRowMap())
++		if (It.Value && reinterpret_cast<const FSpellRow*>(It.Value)->MaxCharges > 0) return true;
++	return false;
++}
++
+ const FSpellRow* USpellComponent::GetSpellRow(FName SpellId) const
+ {
+ 	return SpellTable ? SpellTable->FindRow<FSpellRow>(SpellId, TEXT("GetSpellRow"), false) : nullptr;
+@@ -59,6 +221,119 @@ float USpellComponent::GetCooldownRemaining(FName SpellId) const
+ 	return End && GetWorld() ? FMath::Max(0.f, (float)(*End - GetWorld()->GetTimeSeconds())) : 0.f;
+ }
+ 
++// ---- Charge queries / control ---------------------------------------------------------------------------------------
++
++bool USpellComponent::IsPermanentSpell(FName SpellId) const
++{
++	const FSpellChargeState* S = ChargeStates.Find(SpellId);
++	return S && S->bPermanent;
++}
++
++int32 USpellComponent::GetMaxCharges(FName SpellId) const
++{
++	const FSpellRow* Row = GetSpellRow(SpellId);
++	return Row ? FSpellChargeRules::GetMaxCharges(*Row) : 0;
++}
++
++int32 USpellComponent::GetStoredCharges(FName SpellId) const
++{
++	const FSpellChargeState* S = ChargeStates.Find(SpellId);
++	return S && S->bPermanent ? S->StoredCharges : 0;
++}
++
++int32 USpellComponent::GetAvailableCharges(FName SpellId) const
++{
++	return GetCharges(SpellId) + GetStoredCharges(SpellId);
++}
++
++float USpellComponent::GetChargeProgress01(FName SpellId) const
++{
++	const FSpellChargeState* S = ChargeStates.Find(SpellId);
++	const FSpellRow* Row = GetSpellRow(SpellId);
++	if (!S || !S->bPermanent || !Row || Row->ManaCost <= 0.f || S->StoredCharges >= FSpellChargeRules::GetMaxCharges(*Row)) return 0.f;
++	return FMath::Clamp(S->ProgressMana / Row->ManaCost, 0.f, 1.f);
++}
++
++bool USpellComponent::IsCharging(FName SpellId) const
++{
++	const FSpellChargeState* S = ChargeStates.Find(SpellId);
++	return S && S->bPermanent && S->bCharging;
++}
++
++bool USpellComponent::CanToggleCharging(FName SpellId) const
++{
++	if (!bUseChargeEconomy || !IsPermanentSpell(SpellId)) return false;
++	const FSpellRow* Row = GetSpellRow(SpellId);
++	return Row && FSpellChargeRules::IsChargeable(*Row) && IsSpellImplemented(SpellId);
++}
++
++bool USpellComponent::SetSpellCharging(FName SpellId, bool bCharge)
++{
++	if (!CanToggleCharging(SpellId)) return false;
++	FSpellChargeState& S = ChargeStates.FindChecked(SpellId);
++	if (S.bCharging != bCharge)
++	{
++		S.bCharging = bCharge;
++		if (!bCharge) S.LastManaPerSecond = 0.f; // stops drawing immediately; ProgressMana is kept
++		NotifySpellbookChanged(SpellId);
++	}
++	return true;
++}
++
++bool USpellComponent::ToggleSpellCharging(FName SpellId)
++{
++	return SetSpellCharging(SpellId, !IsCharging(SpellId));
++}
++
++int32 USpellComponent::GetActiveChargingCount() const
++{
++	int32 N = 0;
++	for (const FName& Id : KnownSpellIds)
++	{
++		if (!CanToggleCharging(Id) || !IsCharging(Id)) continue;
++		if (GetStoredCharges(Id) < GetMaxCharges(Id)) ++N;
++	}
++	return N;
++}
++
++void USpellComponent::SetStoredChargesForTest(FName SpellId, int32 Charges)
++{
++	FSpellChargeState* S = ChargeStates.Find(SpellId);
++	if (!S || !S->bPermanent) return;
++	S->StoredCharges = FMath::Clamp(Charges, 0, GetMaxCharges(SpellId));
++	if (S->StoredCharges >= GetMaxCharges(SpellId)) S->ProgressMana = 0.f;
++	NotifySpellbookChanged(SpellId);
++}
++
++void USpellComponent::SetSpellAvailableOnMap(FName SpellId, bool bAvailable)
++{
++	if (SpellId.IsNone()) return;
++	bool bChanged = false;
++	if (bAvailable) { bChanged = !MapSpellIds.Contains(SpellId); MapSpellIds.AddUnique(SpellId); }
++	else bChanged = MapSpellIds.Remove(SpellId) > 0;
++	if (bChanged) NotifySpellbookChanged(SpellId);
++}
++
++void USpellComponent::ConsumeCharge(FName SpellId)
++{
++	// Temporary (monument) charges first: they never come back, permanent ones recharge.
++	if (int32* Temp = SpellCharges.Find(SpellId))
++	{
++		if (--(*Temp) <= 0)
++		{
++			SpellCharges.Remove(SpellId);
++			if (!IsPermanentSpell(SpellId)) KnownSpellIds.Remove(SpellId); // a temporary-only spell is gone
++		}
++	}
++	else if (FSpellChargeState* S = ChargeStates.Find(SpellId))
++	{
++		if (S->bPermanent && S->StoredCharges > 0) --S->StoredCharges;
++	}
++	NotifySpellbookChanged(SpellId);
++}
++
++// ---- Casting --------------------------------------------------------------------------------------------------------
++
+ bool USpellComponent::CastSpell(FName SpellId, FVector AimTarget)
+ {
+ 	LastCastResult = ESpellCastResult::UnknownSpell;
+@@ -69,10 +344,13 @@ bool USpellComponent::CastSpell(FName SpellId, FVector AimTarget)
+ 	const double Now = GetWorld()->GetTimeSeconds();
+ 	AActor* Owner = GetOwner();
+ 	const double* End = CooldownEnd.Find(SpellId);
+-	LastCastResult = EvaluateCast(*Row, Mana, GetCharges(SpellId), Now, End ? *End : -1.0,
+-		FVector::Dist(Owner->GetActorLocation(), AimTarget), RangeUnitsPerPoint);
++	const float Distance = FVector::Dist(Owner->GetActorLocation(), AimTarget);
++	LastCastResult = bUseChargeEconomy
++		? EvaluateChargedCast(*Row, GetAvailableCharges(SpellId), Now, End ? *End : -1.0, Distance, RangeUnitsPerPoint)
++		: EvaluateCast(*Row, Mana, GetCharges(SpellId), Now, End ? *End : -1.0, Distance, RangeUnitsPerPoint);
+ 	if (LastCastResult != ESpellCastResult::Success) return false;
+-	const float Cost = Row->bSuperSpell ? 0.f : Row->ManaCost;
++	// Charge economy: the mana was paid while charging. Otherwise the Phase 1 rule (super spells are free).
++	const float Cost = (bUseChargeEconomy || Row->bSuperSpell) ? 0.f : Row->ManaCost;
+ 	const float RangeUU = Row->RangeRaw * RangeUnitsPerPoint;
+ 
+ 	Mana -= Cost;
+@@ -94,6 +372,7 @@ bool USpellComponent::CastSpell(FName SpellId, FVector AimTarget)
+ 		OnSpellCast.Broadcast(SpellId, Row->EffectId, AimTarget, Row->Radius, Row->Duration);
+ 	}
+ 
+-	if (Row->bSuperSpell && --SpellCharges.FindOrAdd(SpellId) <= 0) { SpellCharges.Remove(SpellId); KnownSpellIds.Remove(SpellId); }
++	if (bUseChargeEconomy) ConsumeCharge(SpellId); // exactly one charge per successful cast
++	else if (Row->bSuperSpell && --SpellCharges.FindOrAdd(SpellId) <= 0) { SpellCharges.Remove(SpellId); KnownSpellIds.Remove(SpellId); }
+ 	return true;
+ }
+diff --git a/Source/Shaman/Private/Tests/ShamanControlTests.cpp b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+index dadd49a..9cea342 100644
+--- a/Source/Shaman/Private/Tests/ShamanControlTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+@@ -326,6 +326,9 @@ bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
+ 	const FSpellRow BlastBefore = *Blast;
+ 	const float ManaBefore = Spells->Mana;
+ 	const int32 NumRows = Spells->SpellTable->GetRowNames().Num();
++	// Spell panel slice: "?" now means "can be learned on this map" (was: any implemented spell). This test world has no
++	// monuments, so the map offers Convert explicitly; off the map it must never show as "?" (checked below).
++	Spells->SetSpellAvailableOnMap(TEXT("Convert"));
+ 
+ 	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
+ 	TestTrue(TEXT("Panel has spell data"), M.bHasSpellData);
+@@ -344,6 +347,14 @@ bool FShamanSpellPanelTest::RunTest(const FString& Parameters)
+ 
+ 	TestFalse(TEXT("A discoverable spell cannot be selected"), F.S0->SelectSpell(TEXT("Convert")));
+ 	TestTrue(TEXT("Selection unchanged"), F.S0->GetSelectedSpellId() == FName(TEXT("Blast")));
++	Spells->SetSpellAvailableOnMap(TEXT("Convert"), false);
++	{
++		const FShamanSpellPanelModel Off = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
++		const int32 IOff = Off.FindSlot(TEXT("Convert"));
++		TestTrue(TEXT("Not offered by this map: never \"?\""), IOff == INDEX_NONE || Off.Slots[IOff].State != EShamanSpellSlotState::Discoverable);
++		TestEqual(TEXT("Off the map: every table row is still either shown or counted"), Off.Slots.Num() + Off.NumHiddenUnimplemented, NumRows);
++	}
++	Spells->SetSpellAvailableOnMap(TEXT("Convert"));
+ 
+ 	Spells->LearnSpell(TEXT("Convert"));
+ 	M = FShamanSpellPanelModel::Build(Spells, F.S0->EffectDispatcher, F.S0->GetSelectedSpellId());
+diff --git a/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp b/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp
+new file mode 100644
+index 0000000..81cafcf
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp
+@@ -0,0 +1,655 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "SpellComponent.h"
++#include "SpellEffectDispatcherComponent.h"
++#include "SpellProjectile.h"
++#include "SpellRow.h"
++#include "MonumentActor.h"
++#include "MonumentRow.h"
++#include "ProgressionComponent.h"
++#include "Characters/ShamanCharacter.h"
++#include "Player/ShamanPlayerController.h"
++#include "UI/ShamanSpellPanel.h"
++#include "Engine/DataTable.h"
++#include "GameFramework/HUD.h"
++#include "EngineUtils.h"
++#include "ShamanTribeTestWorld.h"
++
++/**
++ * Spell panel slice: spell charges, shared mana charging, discovery and temporary (monument) charges.
++ *  - "Bare" tests: a plain actor with the real USpellComponent + USpellEffectDispatcherComponent and a runtime spell
++ *    table (exact numbers: 4 mana/s generation in 0.25 s steps = 1 mana per step).
++ *  - "Production" tests: real AShamanCharacter / AMonumentActor / AShamanPlayerController on the production spell
++ *    table. They need Content/Data/Spells.csv re-imported with the charge columns (they say so when it is not).
++ */
++namespace ShamanSpellChargeTestsPrivate
++{
++	struct FChargeTestWorld
++	{
++		UWorld* World = nullptr;
++		FChargeTestWorld()
++		{
++			World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("SpellChargeTestWorld"));
++			FWorldContext& Ctx = GEngine->CreateNewWorldContext(EWorldType::Game);
++			Ctx.SetCurrentWorld(World);
++			World->InitializeActorsForPlay(FURL());
++			World->BeginPlay();
++			if (!World->HasBegunPlay()) World->GetWorldSettings()->NotifyBeginPlay();
++		}
++		~FChargeTestWorld()
++		{
++			GEngine->DestroyWorldContext(World);
++			World->DestroyWorld(false);
++			World->RemoveFromRoot();
++		}
++	};
++
++	static FSpellRow MakeChargeRow(ESpellTargeting Targeting, float Cost, int32 MaxCharges, const TCHAR* EffectId,
++		float Cooldown = 0.f, float RangeRaw = 100.f, bool bChargingByDefault = false)
++	{
++		FSpellRow R;
++		R.Targeting = Targeting; R.ManaCost = Cost; R.MaxCharges = MaxCharges; R.EffectId = EffectId; R.Cooldown = Cooldown;
++		R.RangeRaw = RangeRaw; R.Radius = 300.f; R.bChargingByDefault = bChargingByDefault;
++		return R;
++	}
++
++	/** Blast (5 mana, 4 charges, charging by default) and Convert (5, 4) mirror Spells.csv; the others are test spells. */
++	static UDataTable* MakeChargeTable()
++	{
++		UDataTable* T = NewObject<UDataTable>();
++		T->RowStruct = FSpellRow::StaticStruct();
++		auto Add = [T](const TCHAR* Id, FSpellRow R) { R.DisplayName = FText::FromString(Id); T->AddRow(FName(Id), R); };
++		Add(TEXT("Blast"),   MakeChargeRow(ESpellTargeting::Projectile, 5.f, 4, TEXT("FireBlast"), 1.f, 10.f, true));
++		Add(TEXT("Convert"), MakeChargeRow(ESpellTargeting::Ground, 5.f, 4, TEXT("ConvertWildmen"), 2.f, 100.f));
++		Add(TEXT("Heavy"),   MakeChargeRow(ESpellTargeting::Projectile, 10.f, 2, TEXT("FireBlast")));
++		Add(TEXT("Quick"),   MakeChargeRow(ESpellTargeting::Projectile, 5.f, 3, TEXT("FireBlast"))); // no cooldown
++		Add(TEXT("One"),     MakeChargeRow(ESpellTargeting::Projectile, 1.f, 1, TEXT("FireBlast")));
++		Add(TEXT("Two"),     MakeChargeRow(ESpellTargeting::Projectile, 1.f, 2, TEXT("FireBlast")));
++		Add(TEXT("Three"),   MakeChargeRow(ESpellTargeting::Projectile, 1.f, 3, TEXT("FireBlast")));
++		Add(TEXT("Four"),    MakeChargeRow(ESpellTargeting::Projectile, 1.f, 4, TEXT("FireBlast")));
++		Add(TEXT("Nine"),    MakeChargeRow(ESpellTargeting::Projectile, 1.f, 9, TEXT("FireBlast"))); // clamped to 4
++		Add(TEXT("Swarm"),   MakeChargeRow(ESpellTargeting::Ground, 50.f, 3, TEXT("InsectSwarm"), 4.f, 30.f)); // no effect handler
++		FSpellRow Arm = MakeChargeRow(ESpellTargeting::Ground, 0.f, 0, TEXT("Armageddon"));
++		Arm.bSuperSpell = true;
++		Add(TEXT("Armageddon"), Arm);
++		return T;
++	}
++
++	struct FChargeCaster { AActor* Actor = nullptr; USpellComponent* Spells = nullptr; USpellEffectDispatcherComponent* Dispatcher = nullptr; };
++
++	/** Charge-economy caster: RegenPerSecond mana/s, 0.25 s steps, empty pool (Max 1000). */
++	static FChargeCaster SpawnChargeCaster(UWorld* World, UDataTable* Table, float RegenPerSecond = 4.f)
++	{
++		FChargeCaster C;
++		C.Actor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform(FVector::ZeroVector));
++		USceneComponent* Root = NewObject<USceneComponent>(C.Actor, TEXT("Root"));
++		C.Actor->SetRootComponent(Root);
++		Root->RegisterComponent();
++		C.Spells = NewObject<USpellComponent>(C.Actor, TEXT("Spells"));
++		C.Spells->SpellTable = Table;
++		C.Spells->bUseChargeEconomy = true;
++		C.Spells->ChargeStepSeconds = 0.25f;
++		C.Spells->BaseRegen = RegenPerSecond;
++		C.Spells->RegenPerFollower = 0.f;
++		C.Spells->FollowerCount = 0;
++		C.Spells->TemporaryModifier = 1.f;
++		C.Spells->Mana = 0.f;
++		C.Spells->MaxMana = 1000.f;
++		C.Spells->ProjectileClasses.Add(TEXT("FireBlast"), ASpellProjectile::StaticClass());
++		C.Spells->RegisterComponent();
++		C.Dispatcher = NewObject<USpellEffectDispatcherComponent>(C.Actor, TEXT("Dispatcher"));
++		C.Dispatcher->RegisterComponent();
++		return C;
++	}
++
++	static float ProgressMana(const USpellComponent* S, FName Id)
++	{
++		const FSpellChargeState* St = S->GetChargeState(Id);
++		return St ? St->ProgressMana : -1.f;
++	}
++
++	/** Mana held in charges + partial progress (used to check that charging never creates mana). */
++	static float ManaInCharges(const USpellComponent* S)
++	{
++		float Sum = 0.f;
++		for (const FName& Id : S->KnownSpellIds)
++			if (const FSpellRow* Row = S->GetSpellRow(Id))
++				Sum += S->GetStoredCharges(Id) * Row->ManaCost + FMath::Max(0.f, ProgressMana(S, Id));
++		return Sum;
++	}
++
++	static const FShamanSpellSlot* FindSlotPtr(const FShamanSpellPanelModel& M, FName Id)
++	{
++		const int32 I = M.FindSlot(Id);
++		return M.Slots.IsValidIndex(I) ? &M.Slots[I] : nullptr;
++	}
++
++	static int32 CountProjectiles(UWorld* World)
++	{
++		int32 N = 0;
++		for (TActorIterator<ASpellProjectile> It(World); It; ++It) ++N;
++		return N;
++	}
++
++	static const FName Blast(TEXT("Blast")), Convert(TEXT("Convert")), Heavy(TEXT("Heavy")), Quick(TEXT("Quick")),
++		Swarm(TEXT("Swarm")), Armageddon(TEXT("Armageddon"));
++}
++
++#define SHAMAN_CHARGE_TEST(Class, Name) IMPLEMENT_SIMPLE_AUTOMATION_TEST(Class, Name, EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++
++// 2, 3: right-click toggling; only learned, implemented, chargeable permanent spells can charge.
++SHAMAN_CHARGE_TEST(FShamanChargeToggleTest, "Shaman.Spells.Charges.ToggleCharging")
++bool FShamanChargeToggleTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable());
++	USpellComponent* S = C.Spells;
++	S->LearnSpell(Blast);
++	S->LearnSpell(Convert);
++	TestTrue(TEXT("Blast charges by default"), S->IsCharging(Blast));
++	TestFalse(TEXT("A newly learned spell starts idle"), S->IsCharging(Convert));
++	TestTrue(TEXT("Right-click: Convert charging on"), S->ToggleSpellCharging(Convert) && S->IsCharging(Convert));
++	TestEqual(TEXT("Two spells draw mana"), S->GetActiveChargingCount(), 2);
++	TestTrue(TEXT("Right-click again: Convert charging off"), S->ToggleSpellCharging(Convert) && !S->IsCharging(Convert));
++	TestEqual(TEXT("One spell draws mana"), S->GetActiveChargingCount(), 1);
++
++	TestFalse(TEXT("Locked (not learned) spell cannot charge"), S->SetSpellCharging(Heavy, true));
++	S->SetSpellAvailableOnMap(Heavy);
++	TestFalse(TEXT("Undiscovered (\"?\") spell cannot charge"), S->SetSpellCharging(Heavy, true));
++	S->LearnSpell(Swarm);
++	TestFalse(TEXT("Spell without an effect cannot charge"), S->SetSpellCharging(Swarm, true));
++	S->AddCharges(Quick, 2);
++	TestFalse(TEXT("Temporary-only spell cannot charge"), S->SetSpellCharging(Quick, true));
++	S->AddCharges(Armageddon, 1);
++	TestFalse(TEXT("Super spell (no permanent charges) cannot charge"), S->SetSpellCharging(Armageddon, true));
++	TestTrue(TEXT("None of them is charging"), !S->IsCharging(Heavy) && !S->IsCharging(Swarm) && !S->IsCharging(Quick) && !S->IsCharging(Armageddon));
++
++	S->AdvanceChargeEconomy(2.f);
++	TestTrue(TEXT("Ineligible spells never progress"), S->GetStoredCharges(Heavy) == 0 && S->GetChargeProgress01(Swarm) == 0.f
++		&& S->GetStoredCharges(Swarm) == 0 && S->GetStoredCharges(Quick) == 0 && S->GetTemporaryCharges(Quick) == 2);
++	TestEqual(TEXT("Only Blast took mana (2 s x 4/s = 8 = one charge + 3)"), ManaInCharges(S), 8.f, 1e-3f);
++
++	const FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(S, C.Dispatcher, NAME_None);
++	auto CanToggle = [&M](FName Id) { const int32 I = M.FindSlot(Id); return I != INDEX_NONE && M.Slots[I].bCanToggleCharging; };
++	TestTrue(TEXT("Panel: Blast and Convert accept right-click"), CanToggle(Blast) && CanToggle(Convert));
++	TestFalse(TEXT("Panel: unimplemented / temporary / undiscovered tiles do not"), CanToggle(Swarm) || CanToggle(Quick) || CanToggle(Heavy));
++
++	S->bUseChargeEconomy = false;
++	TestFalse(TEXT("No toggling when the charge economy is off"), S->ToggleSpellCharging(Blast));
++	return true;
++}
++
++// 4, 8, 11: progress needs charging + generation; partial progress is kept; full spells stop drawing mana.
++SHAMAN_CHARGE_TEST(FShamanChargeProgressTest, "Shaman.Spells.Charges.ProgressAndPersistence")
++bool FShamanChargeProgressTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable());
++	USpellComponent* S = C.Spells;
++	S->LearnSpell(Blast);
++	TestEqual(TEXT("Learned with zero charges"), S->GetStoredCharges(Blast), 0);
++	S->AdvanceChargeEconomy(1.25f); // 5 steps x 1 mana = one 5-mana charge
++	TestEqual(TEXT("Blast: first charge after 1.25 s"), S->GetStoredCharges(Blast), 1);
++	TestEqual(TEXT("All generation went into the charge"), S->Mana, 0.f, 1e-3f);
++
++	S->LearnSpell(Convert); // idle
++	S->AdvanceChargeEconomy(1.f);
++	TestEqual(TEXT("Idle Convert: no progress"), ProgressMana(S, Convert), 0.f, 1e-4f);
++	TestEqual(TEXT("Charging Blast: 4 of 5 toward charge 2"), ProgressMana(S, Blast), 4.f, 1e-3f);
++
++	S->SetSpellCharging(Blast, false);
++	S->AdvanceChargeEconomy(1.f);
++	TestEqual(TEXT("Switched off: progress kept, not advancing"), ProgressMana(S, Blast), 4.f, 1e-3f);
++	TestEqual(TEXT("Switched off: no mana drawn (it stays in the pool)"), S->Mana, 4.f, 1e-3f);
++	TestEqual(TEXT("Switched off: no draw reported"), S->GetChargeDrawPerSecond(), 0.f);
++	S->SetSpellCharging(Blast, true);
++	S->AdvanceChargeEconomy(0.25f);
++	TestTrue(TEXT("Switched on again: resumes from 4/5 and completes charge 2 in one step"),
++		S->GetStoredCharges(Blast) == 2 && FMath::IsNearlyZero(ProgressMana(S, Blast), 1e-3f));
++
++	const float BaseRegen = S->BaseRegen;
++	S->BaseRegen = 0.f; // no followers, no generation
++	const float ManaBefore = S->Mana;
++	S->AdvanceChargeEconomy(5.f);
++	TestTrue(TEXT("Zero generation: no progress and no mana created"), S->GetStoredCharges(Blast) == 2
++		&& FMath::IsNearlyZero(ProgressMana(S, Blast), 1e-3f) && FMath::IsNearlyEqual(S->Mana, ManaBefore, 1e-3f));
++	S->BaseRegen = BaseRegen;
++
++	S->SetStoredChargesForTest(Blast, 4);
++	const float ManaFull = S->Mana;
++	S->AdvanceChargeEconomy(1.f);
++	TestEqual(TEXT("Full: stays at 4"), S->GetStoredCharges(Blast), 4);
++	TestEqual(TEXT("Full: no progress past the maximum"), S->GetChargeProgress01(Blast), 0.f);
++	TestEqual(TEXT("Full: all generation stays in the pool"), S->Mana, ManaFull + 4.f, 1e-3f);
++	TestEqual(TEXT("Full: not counted as charging"), S->GetActiveChargingCount(), 0);
++	TestTrue(TEXT("Full: charging setting itself is kept"), S->IsCharging(Blast));
++	return true;
++}
++
++// 5, 6: one shared pool; more spells charge slower; cost decides charge time; deterministic and frame-rate independent.
++SHAMAN_CHARGE_TEST(FShamanChargeSharedPoolTest, "Shaman.Spells.Charges.SharedManaPool")
++bool FShamanChargeSharedPoolTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	UDataTable* Table = MakeChargeTable();
++
++	FChargeCaster Alone = SpawnChargeCaster(TW.World, Table);
++	Alone.Spells->LearnSpell(Blast);
++	Alone.Spells->AdvanceChargeEconomy(1.25f);
++	TestEqual(TEXT("Blast alone: 1 charge at 1.25 s"), Alone.Spells->GetStoredCharges(Blast), 1);
++
++	FChargeCaster Two = SpawnChargeCaster(TW.World, Table);
++	USpellComponent* S2 = Two.Spells;
++	S2->LearnSpell(Blast);
++	S2->LearnSpell(Convert);
++	S2->SetSpellCharging(Convert, true);
++	S2->AdvanceChargeEconomy(1.25f);
++	TestTrue(TEXT("Blast + Convert: no charge yet at 1.25 s (half the mana each)"),
++		S2->GetStoredCharges(Blast) == 0 && FMath::IsNearlyEqual(ProgressMana(S2, Blast), 2.5f, 1e-3f) && FMath::IsNearlyEqual(ProgressMana(S2, Convert), 2.5f, 1e-3f));
++	TestEqual(TEXT("Each gets half the generation"), S2->GetChargeState(Blast)->LastManaPerSecond, 2.f, 1e-3f);
++	S2->AdvanceChargeEconomy(1.25f);
++	TestTrue(TEXT("Blast + Convert: both charged at 2.5 s"), S2->GetStoredCharges(Blast) == 1 && S2->GetStoredCharges(Convert) == 1);
++	TestEqual(TEXT("Shared pool: nothing created (charges = generated mana)"), ManaInCharges(S2) + S2->Mana, 4.f * 2.5f, 1e-3f);
++
++	FChargeCaster HeavyAlone = SpawnChargeCaster(TW.World, Table);
++	HeavyAlone.Spells->LearnSpell(Heavy);
++	HeavyAlone.Spells->SetSpellCharging(Heavy, true);
++	HeavyAlone.Spells->AdvanceChargeEconomy(2.25f);
++	TestEqual(TEXT("10-mana spell alone: not ready at 2.25 s"), HeavyAlone.Spells->GetStoredCharges(Heavy), 0);
++	HeavyAlone.Spells->AdvanceChargeEconomy(0.25f);
++	TestEqual(TEXT("10-mana spell alone: ready at 2.5 s (5-mana Blast took 1.25 s)"), HeavyAlone.Spells->GetStoredCharges(Heavy), 1);
++
++	FChargeCaster Mixed = SpawnChargeCaster(TW.World, Table);
++	USpellComponent* SM = Mixed.Spells;
++	SM->LearnSpell(Blast);
++	SM->LearnSpell(Heavy);
++	SM->SetSpellCharging(Heavy, true);
++	SM->AdvanceChargeEconomy(2.5f);
++	TestTrue(TEXT("Same share, different cost: Blast charged, Heavy half way at 2.5 s"),
++		SM->GetStoredCharges(Blast) == 1 && SM->GetStoredCharges(Heavy) == 0 && FMath::IsNearlyEqual(ProgressMana(SM, Heavy), 5.f, 1e-3f));
++	SM->AdvanceChargeEconomy(2.5f);
++	TestTrue(TEXT("At 5 s: Blast 2, Heavy 1"), SM->GetStoredCharges(Blast) == 2 && SM->GetStoredCharges(Heavy) == 1);
++
++	FChargeCaster Fill = SpawnChargeCaster(TW.World, Table);
++	USpellComponent* SF = Fill.Spells;
++	SF->LearnSpell(Blast);
++	SF->SetStoredChargesForTest(Blast, 3);
++	SF->LearnSpell(Convert);
++	SF->SetSpellCharging(Convert, true);
++	SF->AdvanceChargeEconomy(2.5f);
++	TestTrue(TEXT("At 2.5 s Blast is full and Convert has 1"), SF->GetStoredCharges(Blast) == 4 && SF->GetStoredCharges(Convert) == 1);
++	SF->AdvanceChargeEconomy(1.25f);
++	TestEqual(TEXT("Once Blast is full Convert gets all the mana (2 charges at 3.75 s)"), SF->GetStoredCharges(Convert), 2);
++
++	// Same game time in different frame slices -> identical state.
++	const float Slices[] = { 0.0625f, 0.25f, 0.5f, 5.f };
++	FString Reference;
++	for (float Dt : Slices)
++	{
++		FChargeCaster F = SpawnChargeCaster(TW.World, Table);
++		F.Spells->LearnSpell(Blast);
++		F.Spells->LearnSpell(Heavy);
++		F.Spells->SetSpellCharging(Heavy, true);
++		for (int32 i = 0, N = FMath::RoundToInt(5.f / Dt); i < N; ++i) F.Spells->AdvanceChargeEconomy(Dt);
++		const FString State = FString::Printf(TEXT("%d %.4f %d %.4f %.4f"), F.Spells->GetStoredCharges(Blast), ProgressMana(F.Spells, Blast),
++			F.Spells->GetStoredCharges(Heavy), ProgressMana(F.Spells, Heavy), F.Spells->Mana);
++		if (Reference.IsEmpty()) Reference = State;
++		TestEqual(*FString::Printf(TEXT("Frame slice %.4f s gives the same result"), Dt), State, Reference);
++	}
++	return true;
++}
++
++// 7: maximum charges 1-4 are enforced (and values above 4 are clamped).
++SHAMAN_CHARGE_TEST(FShamanChargeMaxTest, "Shaman.Spells.Charges.MaxCharges")
++bool FShamanChargeMaxTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable(), 40.f); // 10 mana per step
++	USpellComponent* S = C.Spells;
++	const TCHAR* Ids[] = { TEXT("One"), TEXT("Two"), TEXT("Three"), TEXT("Four"), TEXT("Nine") };
++	for (const TCHAR* Id : Ids) { S->LearnSpell(Id); S->SetSpellCharging(Id, true); }
++	S->AdvanceChargeEconomy(10.f);
++	TestEqual(TEXT("Max 1: never a second charge"), S->GetStoredCharges(TEXT("One")), 1);
++	TestEqual(TEXT("Max 2"), S->GetStoredCharges(TEXT("Two")), 2);
++	TestEqual(TEXT("Max 3"), S->GetStoredCharges(TEXT("Three")), 3);
++	TestEqual(TEXT("Max 4: stops at 4"), S->GetStoredCharges(TEXT("Four")), 4);
++	TestEqual(TEXT("Row value 9 is clamped to 4"), S->GetMaxCharges(TEXT("Nine")), 4);
++	TestEqual(TEXT("Clamped spell stops at 4"), S->GetStoredCharges(TEXT("Nine")), 4);
++	TestEqual(TEXT("Exactly 14 mana went into charges, the rest is in the pool"), S->Mana, 400.f - 14.f, 1e-2f);
++	bool bNoExcess = true;
++	for (const TCHAR* Id : Ids) bNoExcess &= S->GetChargeProgress01(Id) == 0.f && FMath::IsNearlyZero(ProgressMana(S, Id));
++	TestTrue(TEXT("No progress beyond the maximum"), bNoExcess);
++	return true;
++}
++
++// 9, 10: a successful cast uses exactly one charge (no mana); failed casts use nothing; the charge comes back.
++SHAMAN_CHARGE_TEST(FShamanChargeCastTest, "Shaman.Spells.Charges.CastConsumesCharge")
++bool FShamanChargeCastTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable());
++	USpellComponent* S = C.Spells;
++	S->LearnSpell(Blast);
++	S->SetStoredChargesForTest(Blast, 2);
++	S->Mana = 50.f;
++	const int32 ProjectilesBefore = CountProjectiles(TW.World);
++	TestTrue(TEXT("Blast casts with a charge"), S->CastSpell(Blast, FVector(1000.f, 0.f, 0.f)));
++	TestEqual(TEXT("Exactly one charge used"), S->GetStoredCharges(Blast), 1);
++	TestEqual(TEXT("No mana spent at cast time (paid while charging)"), S->Mana, 50.f);
++	TestEqual(TEXT("TAKA projectile spawned as before"), CountProjectiles(TW.World), ProjectilesBefore + 1);
++	TestFalse(TEXT("Recast inside the 1 s cooldown fails"), S->CastSpell(Blast, FVector(1000.f, 0.f, 0.f)));
++	TestTrue(TEXT("... reported as cooldown, no charge used"), S->LastCastResult == ESpellCastResult::OnCooldown && S->GetStoredCharges(Blast) == 1);
++
++	S->LearnSpell(Convert);
++	TestFalse(TEXT("No charge: cast fails"), S->CastSpell(Convert, FVector(2000.f, 0.f, 0.f)));
++	TestTrue(TEXT("... as NoCharges"), S->LastCastResult == ESpellCastResult::NoCharges);
++	S->SetStoredChargesForTest(Convert, 1);
++	TestFalse(TEXT("Out of range (6000 uu > 5000) fails"), S->CastSpell(Convert, FVector(6000.f, 0.f, 0.f)));
++	TestTrue(TEXT("... no charge used"), S->LastCastResult == ESpellCastResult::OutOfRange && S->GetStoredCharges(Convert) == 1);
++	TestTrue(TEXT("In range: Convert casts"), S->CastSpell(Convert, FVector(2000.f, 0.f, 0.f)));
++	TestEqual(TEXT("... using its only charge"), S->GetStoredCharges(Convert), 0);
++	TestFalse(TEXT("Unknown spell fails"), S->CastSpell(Heavy, FVector(1000.f, 0.f, 0.f)));
++	TestTrue(TEXT("... as UnknownSpell"), S->LastCastResult == ESpellCastResult::UnknownSpell);
++	TestEqual(TEXT("Failed casts never touched mana"), S->Mana, 50.f);
++
++	S->AdvanceChargeEconomy(1.25f); // Blast (charging) refills the spent charge; Convert is idle
++	TestEqual(TEXT("Spent Blast charge recharges"), S->GetStoredCharges(Blast), 2);
++	TestEqual(TEXT("Idle Convert stays empty"), S->GetStoredCharges(Convert), 0);
++	return true;
++}
++
++// 12, 13: "?" only for spells this map offers; learning reveals the spell and leaves the other spells alone.
++SHAMAN_CHARGE_TEST(FShamanChargeDiscoveryTest, "Shaman.Spells.Charges.DiscoveryAndLearning")
++bool FShamanChargeDiscoveryTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable());
++	USpellComponent* S = C.Spells;
++	S->LearnSpell(Blast);
++	S->AdvanceChargeEconomy(1.75f); // 7 steps: 1 charge + 2/5
++	const int32 BlastCharges = S->GetStoredCharges(Blast);
++	const float BlastProgress = ProgressMana(S, Blast);
++	TestTrue(TEXT("Blast has 1 charge and 2/5 progress"), BlastCharges == 1 && FMath::IsNearlyEqual(BlastProgress, 2.f, 1e-3f));
++
++	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(S, C.Dispatcher, Blast);
++	int32 I = M.FindSlot(Convert);
++	TestTrue(TEXT("Convert not offered by this map: locked blank tile, never \"?\""), I != INDEX_NONE && M.Slots[I].State == EShamanSpellSlotState::Locked);
++	TestEqual(TEXT("Future spell without an effect is not listed"), M.FindSlot(Swarm), (int32)INDEX_NONE);
++	TestEqual(TEXT("Super spell without charges is not listed"), M.FindSlot(Armageddon), (int32)INDEX_NONE);
++
++	S->SetSpellAvailableOnMap(Convert);
++	M = FShamanSpellPanelModel::Build(S, C.Dispatcher, Blast);
++	I = M.FindSlot(Convert);
++	if (!TestTrue(TEXT("Map offers Convert: \"?\" tile"), I != INDEX_NONE && M.Slots[I].State == EShamanSpellSlotState::Discoverable)) return false;
++	TestTrue(TEXT("\"?\" reveals no name or icon"), M.Slots[I].DisplayName.IsEmpty() && M.Slots[I].Monogram.IsEmpty() && M.Slots[I].Icon == nullptr);
++	TestFalse(TEXT("\"?\" cannot charge"), M.Slots[I].bCanToggleCharging);
++
++	S->LearnSpell(Convert);
++	M = FShamanSpellPanelModel::Build(S, C.Dispatcher, Blast);
++	const FShamanSpellSlot* Learned = FindSlotPtr(M, Convert);
++	if (!TestTrue(TEXT("Learned: the real tile replaces the \"?\""), Learned && Learned->State == EShamanSpellSlotState::Available
++		&& Learned->DisplayName.ToString() == TEXT("Convert") && Learned->bPermanent)) return false;
++	TestTrue(TEXT("Learned: zero charges, charging off"), S->GetStoredCharges(Convert) == 0 && !S->IsCharging(Convert)
++		&& FMath::IsNearlyZero(ProgressMana(S, Convert)));
++	TestTrue(TEXT("Learning Convert left Blast's charges, progress and charging alone"), S->GetStoredCharges(Blast) == BlastCharges
++		&& FMath::IsNearlyEqual(ProgressMana(S, Blast), BlastProgress) && S->IsCharging(Blast));
++	S->LearnSpell(Blast);
++	TestTrue(TEXT("Learning a known spell again resets nothing"), S->GetStoredCharges(Blast) == BlastCharges
++		&& FMath::IsNearlyEqual(ProgressMana(S, Blast), BlastProgress) && S->IsCharging(Blast));
++	const FShamanSpellSlot* BlastSlot = FindSlotPtr(M, Blast);
++	TestTrue(TEXT("Panel keeps Blast selected"), BlastSlot && BlastSlot->bSelected && !Learned->bSelected);
++	return true;
++}
++
++// 14, 15, 16: temporary charges are finite, never charge, coexist with permanent ones and run out cleanly.
++SHAMAN_CHARGE_TEST(FShamanChargeTemporaryTest, "Shaman.Spells.Charges.TemporaryCharges")
++bool FShamanChargeTemporaryTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable());
++	USpellComponent* S = C.Spells;
++	const FVector Aim(1000.f, 0.f, 0.f);
++
++	S->AddCharges(Quick, 2); // monument reward for a spell the player does not know
++	TestTrue(TEXT("Temporary spell is castable"), S->KnownSpellIds.Contains(Quick) && S->GetAvailableCharges(Quick) == 2);
++	TestTrue(TEXT("... but not learned permanently and not charging"), !S->IsPermanentSpell(Quick) && !S->IsCharging(Quick) && !S->CanToggleCharging(Quick));
++	S->AdvanceChargeEconomy(2.f);
++	TestTrue(TEXT("Temporary charges never recharge or draw mana"), S->GetTemporaryCharges(Quick) == 2 && FMath::IsNearlyEqual(S->Mana, 8.f, 1e-3f)
++		&& S->GetActiveChargingCount() == 0);
++	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(S, C.Dispatcher, NAME_None);
++	int32 I = M.FindSlot(Quick);
++	TestTrue(TEXT("Panel: temporary tile with 2 red charges, no permanent slots"), I != INDEX_NONE && M.Slots[I].State == EShamanSpellSlotState::Available
++		&& M.Slots[I].IsTemporaryOnly() && M.Slots[I].TemporaryCharges == 2 && M.Slots[I].StoredCharges == 0 && !M.Slots[I].bPermanent);
++
++	TestTrue(TEXT("Cast 1 uses a temporary charge"), S->CastSpell(Quick, Aim) && S->GetTemporaryCharges(Quick) == 1);
++	TestTrue(TEXT("Cast 2 uses the last one"), S->CastSpell(Quick, Aim) && S->GetTemporaryCharges(Quick) == 0);
++	TestFalse(TEXT("Exhausted temporary-only spell is gone from the spellbook"), S->KnownSpellIds.Contains(Quick));
++	M = FShamanSpellPanelModel::Build(S, C.Dispatcher, NAME_None);
++	I = M.FindSlot(Quick);
++	TestTrue(TEXT("... and its slot returns to its empty (locked) state"), I != INDEX_NONE && M.Slots[I].State == EShamanSpellSlotState::Locked);
++	TestFalse(TEXT("... and cannot be cast"), S->CastSpell(Quick, Aim));
++	TestFalse(TEXT("Temporary charges never made it permanent"), S->IsPermanentSpell(Quick));
++
++	// Permanent + temporary on the same spell.
++	S->LearnSpell(Quick);
++	S->SetStoredChargesForTest(Quick, 2);
++	S->AddCharges(Quick, 2);
++	S->LearnSpell(Quick); // a second learn (e.g. Vault) must not wipe either source
++	TestTrue(TEXT("Both sources kept: 2 permanent + 2 temporary"), S->GetStoredCharges(Quick) == 2 && S->GetTemporaryCharges(Quick) == 2
++		&& S->GetAvailableCharges(Quick) == 4);
++	TestTrue(TEXT("Temporary charges are used first"), S->CastSpell(Quick, Aim) && S->GetTemporaryCharges(Quick) == 1 && S->GetStoredCharges(Quick) == 2);
++	TestTrue(TEXT("Last temporary charge"), S->CastSpell(Quick, Aim) && S->GetTemporaryCharges(Quick) == 0 && S->GetStoredCharges(Quick) == 2);
++	TestTrue(TEXT("Exhausting temporary charges leaves the permanent spell intact"), S->IsPermanentSpell(Quick) && S->KnownSpellIds.Contains(Quick)
++		&& S->GetMaxCharges(Quick) == 3);
++	TestTrue(TEXT("Then permanent charges are used"), S->CastSpell(Quick, Aim) && S->GetStoredCharges(Quick) == 1);
++
++	S->SetSpellCharging(Quick, true);
++	S->AddCharges(Quick, 1);
++	const float Before = ProgressMana(S, Quick);
++	S->AdvanceChargeEconomy(0.5f);
++	TestTrue(TEXT("Permanent progress continues while a temporary charge waits"), ProgressMana(S, Quick) > Before && S->GetTemporaryCharges(Quick) == 1);
++	M = FShamanSpellPanelModel::Build(S, C.Dispatcher, NAME_None);
++	I = M.FindSlot(Quick);
++	TestTrue(TEXT("Panel shows both: blue permanent + red temporary"), I != INDEX_NONE && M.Slots[I].bPermanent && M.Slots[I].StoredCharges == 1
++		&& M.Slots[I].TemporaryCharges == 1 && M.Slots[I].MaxCharges == 3 && !M.Slots[I].IsTemporaryOnly());
++	return true;
++}
++
++// 1 (+ the unlock cheat): production Shaman at level start.
++SHAMAN_CHARGE_TEST(FShamanChargeInitialStateTest, "Shaman.Spells.Charges.InitialLevelState")
++bool FShamanChargeInitialStateTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	using namespace ShamanTribeTestsPrivate;
++	FTribeTestWorld W;
++	if (!TestTrue(TEXT("Production spell table has the charge columns (reimport Content/Data/Spells.csv into the Spells DataTable)"),
++		USpellComponent::TableHasChargeData(W.Data->SpellTable))) return false;
++	AShamanCharacter* S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++	AShamanCharacter* S1 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 0.f, 100.f));
++	USpellComponent* S = S0->Spells;
++	TestTrue(TEXT("Player Shaman uses spell charges"), S->bUseChargeEconomy && !S0->IsSpellChargeDataMissing());
++	TestFalse(TEXT("AI Shaman keeps the Phase 1 mana-at-cast rule"), S1->Spells->bUseChargeEconomy);
++	TestTrue(TEXT("Only Blast is learned"), S->KnownSpellIds.Num() == 1 && S->KnownSpellIds[0] == Blast && S->IsPermanentSpell(Blast));
++	TestTrue(TEXT("Blast is charging, with no stored charge yet"), S->IsCharging(Blast) && S->GetStoredCharges(Blast) == 0);
++	TestEqual(TEXT("Blast holds 4 charges"), S->GetMaxCharges(Blast), 4);
++	TestEqual(TEXT("Exactly one spell draws mana"), S->GetActiveChargingCount(), 1);
++	bool bOthersIdle = true;
++	for (const FName& Id : S->SpellTable->GetRowNames())
++		if (Id != Blast) bOthersIdle &= !S->IsCharging(Id) && !S->CanToggleCharging(Id) && !S->IsPermanentSpell(Id);
++	TestTrue(TEXT("Every other spell is unlearned and idle"), bOthersIdle);
++	TestTrue(TEXT("Blast selected"), S0->GetSelectedSpellId() == Blast);
++
++	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId());
++	int32 NumDiscoverable = 0, NumAvailable = 0;
++	for (const FShamanSpellSlot& Slot : M.Slots)
++	{
++		NumDiscoverable += Slot.State == EShamanSpellSlotState::Discoverable ? 1 : 0;
++		NumAvailable += Slot.State == EShamanSpellSlotState::Available ? 1 : 0;
++	}
++	TestEqual(TEXT("No \"?\" without a map offering the spell"), NumDiscoverable, 0);
++	TestEqual(TEXT("One usable tile (Blast)"), NumAvailable, 1);
++
++	S->FollowerCount = 0; // regen = BaseRegen
++	S->AdvanceChargeEconomy(1.f);
++	TestTrue(TEXT("Blast progresses from the shared mana"), S->GetChargeProgress01(Blast) > 0.f || S->GetStoredCharges(Blast) > 0);
++
++	// Test cheat: unlock everything that can be learned permanently, charges full.
++	S0->ShamanUnlockAllSpells();
++	bool bAllFull = true;
++	int32 NumChargeable = 0;
++	for (const FName& Id : S->SpellTable->GetRowNames())
++	{
++		const FSpellRow* Row = S->GetSpellRow(Id);
++		if (!Row || !FSpellChargeRules::IsChargeable(*Row)) continue;
++		++NumChargeable;
++		bAllFull &= S->IsPermanentSpell(Id) && S->GetStoredCharges(Id) == FSpellChargeRules::GetMaxCharges(*Row);
++	}
++	TestTrue(TEXT("Cheat: every permanent spell learned and full"), NumChargeable > 1 && bAllFull);
++	TestTrue(TEXT("Cheat: charging settings untouched (Blast on, Convert off)"), S->IsCharging(Blast) && !S->IsCharging(Convert));
++	TestTrue(TEXT("Cheat: selection unchanged"), S0->GetSelectedSpellId() == Blast);
++	M = FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId());
++	bool bHonest = true;
++	for (const FShamanSpellSlot& Slot : M.Slots)
++		if (!Slot.bImplemented) bHonest &= Slot.State == EShamanSpellSlotState::Unimplemented && !Slot.bCanToggleCharging;
++	TestTrue(TEXT("Cheat: spells without an effect still show as not implemented"), bHonest);
++
++	const FSpellRow* BlastRow = S->GetSpellRow(Blast);
++	TestTrue(TEXT("TAKA row unchanged"), BlastRow && BlastRow->ManaCost == 5.f && BlastRow->RangeRaw == 10.f && BlastRow->Damage == 40.f
++		&& BlastRow->Knockback == 1.f && BlastRow->bHoming && BlastRow->EffectId == FName(TEXT("FireBlast")));
++	return true;
++}
++
++// 14 / 12 through the real monument code (Vault of Knowledge -> learn + discovery, Stone Head -> temporary charges).
++SHAMAN_CHARGE_TEST(FShamanChargeMonumentTest, "Shaman.Spells.Charges.MonumentRewards")
++bool FShamanChargeMonumentTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	using namespace ShamanTribeTestsPrivate;
++	FTribeTestWorld W;
++	if (!TestTrue(TEXT("Production spell table has the charge columns (reimport Content/Data/Spells.csv)"),
++		USpellComponent::TableHasChargeData(W.Data->SpellTable))) return false;
++	AShamanCharacter* S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++	USpellComponent* S = S0->Spells;
++
++	UDataTable* MT = NewObject<UDataTable>();
++	MT->RowStruct = FMonumentRow::StaticStruct();
++	FMonumentRow Vault;
++	Vault.MonumentType = EMonumentType::VaultOfKnowledge; Vault.WorshipRule = EWorshipRule::ShamanOnly; Vault.WorshipRequired = 30.f;
++	Vault.ProgressPerWorshipperPerSec = 1.f; Vault.MaxWorshippers = 1; Vault.DefaultRewardType = EMonumentRewardType::UnlockSpell;
++	Vault.bPersistsAcrossMaps = true;
++	MT->AddRow(TEXT("Vault"), Vault);
++	FMonumentRow Head;
++	Head.MonumentType = EMonumentType::StoneHead; Head.WorshipRule = EWorshipRule::ShamanAndBraves; Head.WorshipRequired = 10.f;
++	Head.ProgressPerWorshipperPerSec = 1.f; Head.MaxWorshippers = 8; Head.DefaultRewardType = EMonumentRewardType::GrantCharges;
++	Head.DefaultRewardCount = 3; Head.ChargesPerCycle = 1;
++	MT->AddRow(TEXT("StoneHead"), Head);
++	auto SpawnMonument = [&W, MT](FName Row, FName Reward)
++	{
++		const FTransform At(FVector(600.f, 0.f, 100.f));
++		AMonumentActor* Mon = W.World->SpawnActorDeferred<AMonumentActor>(AMonumentActor::StaticClass(), At, nullptr, nullptr,
++			ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++		Mon->MonumentTable = MT;
++		Mon->MonumentRowName = Row;
++		Mon->RewardId = Reward;
++		Mon->FinishSpawning(At);
++		if (!Mon->HasActorBegunPlay()) Mon->DispatchBeginPlay();
++		return Mon;
++	};
++
++	TestFalse(TEXT("Before the Vault: Convert is not offered here"), S->IsSpellAvailableOnMap(Convert));
++	AMonumentActor* VaultActor = SpawnMonument(TEXT("Vault"), Convert);
++	TestTrue(TEXT("A Vault teaching Convert makes it discoverable for existing Shamans"), S->IsSpellAvailableOnMap(Convert));
++	AShamanCharacter* Late = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 0.f, 100.f));
++	TestTrue(TEXT("... and for Shamans that spawn later"), Late->Spells->IsSpellAvailableOnMap(Convert));
++	FShamanSpellPanelModel M = FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId());
++	const FShamanSpellSlot* Q = FindSlotPtr(M, Convert);
++	TestTrue(TEXT("Panel: \"?\" tile for Convert"), Q && Q->State == EShamanSpellSlotState::Discoverable);
++
++	S->FollowerCount = 0;
++	S->AdvanceChargeEconomy(1.f);
++	const int32 BlastCharges = S->GetStoredCharges(Blast);
++	const float BlastProgress = S->GetChargeProgress01(Blast);
++	VaultActor->Worship(S0, S0, 31.f); // one full worship cycle
++	TestTrue(TEXT("Vault worshipped: Convert learned permanently"), VaultActor->IsSpent() && S->IsPermanentSpell(Convert));
++	TestTrue(TEXT("... with zero charges and charging off"), S->GetStoredCharges(Convert) == 0 && !S->IsCharging(Convert));
++	TestTrue(TEXT("... carried to future maps"), S0->Progression->GetPermanentSpells().Contains(Convert));
++	TestTrue(TEXT("... without touching Blast"), S->GetStoredCharges(Blast) == BlastCharges && FMath::IsNearlyEqual(S->GetChargeProgress01(Blast), BlastProgress)
++		&& S->IsCharging(Blast));
++	M = FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId());
++	const FShamanSpellSlot* Real = FindSlotPtr(M, Convert);
++	TestTrue(TEXT("Panel: the \"?\" became the Convert tile"), Real && Real->State == EShamanSpellSlotState::Available);
++
++	AMonumentActor* HeadActor = SpawnMonument(TEXT("StoneHead"), Blast);
++	for (int32 i = 0; i < 3; ++i) HeadActor->Worship(S0, S0, 11.f);
++	TestTrue(TEXT("Stone Head: 3 temporary Blast charges, then spent"), S->GetTemporaryCharges(Blast) == 3 && HeadActor->IsSpent());
++	TestTrue(TEXT("... permanent Blast charges untouched"), S->GetStoredCharges(Blast) == BlastCharges && S->IsPermanentSpell(Blast));
++	TestEqual(TEXT("... temporary charges do not add a charging spell"), S->GetActiveChargingCount(), 1);
++	return true;
++}
++
++// 17: switching control modes keeps the spellbook and never duplicates the HUD / panel.
++SHAMAN_CHARGE_TEST(FShamanChargeModeSwitchTest, "Shaman.Spells.Charges.ModeSwitchKeepsSpellbook")
++bool FShamanChargeModeSwitchTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	using namespace ShamanTribeTestsPrivate;
++	FTribeTestWorld W;
++	if (!TestTrue(TEXT("Production spell table has the charge columns (reimport Content/Data/Spells.csv)"),
++		USpellComponent::TableHasChargeData(W.Data->SpellTable))) return false;
++	AShamanCharacter* S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++	USpellComponent* S = S0->Spells;
++	S->FollowerCount = 0;
++
++	// Selection follows the spell, not the list index, when temporary spells come and go.
++	S->AddCharges(Convert, 1);
++	TestTrue(TEXT("Select the temporary Convert"), S0->SelectSpell(Convert) && S0->GetSelectedSpellId() == Convert);
++	TestTrue(TEXT("Cast it (uses the temporary charge)"), S0->TryCastSpell(Convert, S0->GetActorLocation() + FVector(1000.f, 0.f, 0.f)));
++	TestTrue(TEXT("Convert gone, selection falls back to Blast"), !S->KnownSpellIds.Contains(Convert) && S0->GetSelectedSpellId() == Blast);
++
++	S->LearnSpell(Convert);
++	S->SetSpellCharging(Convert, true);
++	S->AdvanceChargeEconomy(1.f);
++	S->AddCharges(Blast, 1);
++	S->SetSpellAvailableOnMap(Swarm);
++	S0->SelectSpell(Convert);
++	auto Snapshot = [S, S0]()
++	{
++		FString Out;
++		for (const FName& Id : S->KnownSpellIds)
++			Out += FString::Printf(TEXT("%s:%d:%d:%.5f:%d:%d|"), *Id.ToString(), S->IsPermanentSpell(Id) ? 1 : 0, S->GetStoredCharges(Id),
++				S->GetChargeProgress01(Id), S->IsCharging(Id) ? 1 : 0, S->GetTemporaryCharges(Id));
++		for (const FName& Id : S->GetMapSpellIds()) Out += Id.ToString() + TEXT(",");
++		return Out + S0->GetSelectedSpellId().ToString() + FString::Printf(TEXT(" %.4f"), S->Mana);
++	};
++	auto CountHUDs = [&W]() { int32 N = 0; for (TActorIterator<AHUD> It(W.World); It; ++It) ++N; return N; };
++	const FString Before = Snapshot();
++	const int32 SlotsBefore = FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId()).Slots.Num();
++
++	AShamanPlayerController* PC = W.World->SpawnActor<AShamanPlayerController>();
++	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
++	PC->CameraSettings.ModeBlendTime = 0.f;
++	PC->Possess(S0);
++	const int32 HUDs = CountHUDs();
++	for (int32 i = 0; i < 4; ++i)
++	{
++		PC->ToggleControlMode();
++		TestEqual(*FString::Printf(TEXT("Switch %d: spellbook unchanged"), i + 1), Snapshot(), Before);
++		TestEqual(*FString::Printf(TEXT("Switch %d: no extra HUD"), i + 1), CountHUDs(), HUDs);
++	}
++	TestEqual(TEXT("Panel slots unchanged (no duplicates)"),
++		FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId()).Slots.Num(), SlotsBefore);
++	PC->UnPossess();
++	PC->Destroy();
++	return true;
++}
++
++#endif
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index 93d56d3..fa73096 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -15,6 +15,7 @@
+ #include "Engine/Canvas.h"
+ #include "Engine/Engine.h"
+ #include "Engine/Font.h"
++#include "Engine/Texture2D.h"
+ 
+ void AShamanHUD::DrawLine(const FString& Text, float X, float Y, const FLinearColor& Color, float Scale, bool bCentered)
+ {
+@@ -42,7 +43,7 @@ static FString CastResultText(ESpellCastResult R)
+ 	{
+ 	case ESpellCastResult::OnCooldown:     return TEXT("Not ready yet");
+ 	case ESpellCastResult::NotEnoughMana:  return TEXT("Not enough mana");
+-	case ESpellCastResult::NoCharges:      return TEXT("No charges left");
++	case ESpellCastResult::NoCharges:      return TEXT("No charge ready (right-click the spell in RTS mode to charge it)");
+ 	case ESpellCastResult::OutOfRange:     return TEXT("Out of range");
+ 	case ESpellCastResult::UnknownSpell:   return TEXT("Spell not learned (or no spell data loaded)");
+ 	case ESpellCastResult::CasterDisabled: return TEXT("Cannot cast right now");
+@@ -80,7 +81,10 @@ void AShamanHUD::DrawHUD()
+ 		FString::Printf(TEXT("Health %.0f / %.0f"), S->Health->Health, S->Health->MaxHealth));
+ 	BY += BH + 10.f * UI;
+ 	DrawBar(BX, BY, BW, BH, S->Spells->Mana / FMath::Max(1.f, S->Spells->MaxMana), FLinearColor(0.15f, 0.35f, 0.95f),
+-		FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
++		S->Spells->bUseChargeEconomy // charge economy: generation feeds charging spells first, the rest is stored
++		? FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s   (-%.2f/s to %d charging)"), S->Spells->Mana, S->Spells->MaxMana,
++			S->Spells->GetManaRegen(), S->Spells->GetChargeDrawPerSecond(), S->Spells->GetActiveChargingCount())
++		: FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
+ 	BY += BH + 10.f * UI;
+ 	DrawLine(FString::Printf(TEXT("Followers %d / %d   (more followers = faster mana & rebirth)"), Followers, Cap), BX, BY, FLinearColor::White, 0.85f * UI);
+ 
+@@ -92,11 +96,15 @@ void AShamanHUD::DrawHUD()
+ 	if (const FSpellRow* Row = S->Spells->GetSpellRow(SpellId))
+ 	{
+ 		const float CD = S->Spells->GetCooldownRemaining(SpellId);
+-		const bool bAffordable = S->Spells->Mana >= (Row->bSuperSpell ? 0.f : Row->ManaCost);
++		const bool bCharges = S->Spells->bUseChargeEconomy;
++		const bool bAffordable = bCharges ? S->Spells->GetAvailableCharges(SpellId) > 0 : S->Spells->Mana >= (Row->bSuperSpell ? 0.f : Row->ManaCost);
+ 		const FLinearColor C = (CD > 0.f || !bAffordable) ? FLinearColor(0.6f, 0.6f, 0.6f) : FLinearColor(1.f, 0.8f, 0.3f);
+ 		DrawLine(Row->DisplayName.ToString(), SW * 0.5f, SH - 120.f * UI, C, 1.3f * UI, true);
+-		FString Info = FString::Printf(TEXT("%.0f mana   range %.0f (%.0fm)   %s"), Row->ManaCost, Row->RangeRaw,
+-			S->Spells->GetRangeUnits(SpellId) / 100.f, CD > 0.f ? *FString::Printf(TEXT("ready in %.1fs"), CD) : TEXT("ready"));
++		const FString Cost = !bCharges ? FString::Printf(TEXT("%.0f mana"), Row->ManaCost)
++			: FString::Printf(TEXT("charges %d/%d%s"), S->Spells->GetStoredCharges(SpellId), S->Spells->GetMaxCharges(SpellId),
++				S->Spells->GetTemporaryCharges(SpellId) > 0 ? *FString::Printf(TEXT(" +%d temp"), S->Spells->GetTemporaryCharges(SpellId)) : TEXT(""));
++		FString Info = FString::Printf(TEXT("%s   range %.0f (%.0fm)   %s"), *Cost, Row->RangeRaw,
++			S->Spells->GetRangeUnits(SpellId) / 100.f, CD > 0.f ? *FString::Printf(TEXT("ready in %.1fs"), CD) : (bCharges && !bAffordable) ? TEXT("no charge ready") : TEXT("ready"));
+ 		if (Row->bFriendlyFire) Info += TEXT("   ! hits your followers too");
+ 		DrawLine(Info, SW * 0.5f, SH - 88.f * UI, FLinearColor::White, 0.85f * UI, true);
+ 		if (!bRTS) // wheel / Q drive the camera in RTS mode
+@@ -204,7 +212,7 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
+ 		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
+ 	DrawLine(bRTS
+-		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move there (on your Shaman: guard him)   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
++		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move there (on your Shaman: guard him)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
+ 		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
+ 
+ 	// Selection rings (shown in both modes; selection is kept across switches).
+@@ -271,15 +279,221 @@ void AShamanHUD::DrawSlotText(const FString& Text, const FBox2D& Box, float Y, c
+ 	DrawText(Text, Color, X, Y, Font, Scale);
+ }
+ 
++namespace ShamanSpellPanelStyle
++{
++	static const FLinearColor Frame(0.10f, 0.07f, 0.03f, 0.82f);
++	static const FLinearColor Parchment(0.87f, 0.71f, 0.42f, 1.f);
++	static const FLinearColor ParchmentDim(0.62f, 0.50f, 0.30f, 1.f);
++	static const FLinearColor Ink(0.24f, 0.13f, 0.05f, 1.f);
++	static const FLinearColor Border(0.18f, 0.10f, 0.04f, 1.f);
++	static const FLinearColor Blue(0.22f, 0.48f, 1.f, 1.f);      // permanent charges
++	static const FLinearColor Red(0.92f, 0.16f, 0.10f, 1.f);     // temporary (monument) charges
++	static const FLinearColor Amber(0.98f, 0.68f, 0.12f, 1.f);   // charging progress
++	static const FLinearColor Paused(0.56f, 0.53f, 0.48f, 1.f);  // progress kept while charging is off
++	static const FLinearColor Gold(1.f, 0.88f, 0.28f, 1.f);      // selection
++	static const FLinearColor Lamp(0.35f, 0.92f, 0.35f, 1.f);    // charging lamp
++}
++
++void AShamanHUD::DrawBoxOutline(const FBox2D& B, const FLinearColor& Color, float T)
++{
++	AHUD::DrawLine(B.Min.X, B.Min.Y, B.Max.X, B.Min.Y, Color, T); AHUD::DrawLine(B.Max.X, B.Min.Y, B.Max.X, B.Max.Y, Color, T);
++	AHUD::DrawLine(B.Max.X, B.Max.Y, B.Min.X, B.Max.Y, Color, T); AHUD::DrawLine(B.Min.X, B.Max.Y, B.Min.X, B.Min.Y, Color, T);
++}
++
++void AShamanHUD::DrawChargeDot(float CX, float CY, float R, const FLinearColor& Fill, bool bFilled)
++{
++	auto Blob = [this, CX, CY](float Rad, const FLinearColor& C)
++	{
++		DrawRect(C, CX - Rad, CY - Rad * 0.6f, 2.f * Rad, 1.2f * Rad); // two crossed bars read as a round dot
++		DrawRect(C, CX - Rad * 0.6f, CY - Rad, 1.2f * Rad, 2.f * Rad);
++	};
++	Blob(R + 1.f, ShamanSpellPanelStyle::Border);
++	Blob(R, bFilled ? Fill : FLinearColor(0.70f, 0.56f, 0.32f, 1.f)); // empty socket
++	if (bFilled) DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.35f), CX - R * 0.55f, CY - R * 0.55f, R * 0.5f, R * 0.5f); // glint
++}
++
++void AShamanHUD::DrawPlaceholderIcon(const FString& Monogram, const FVector2D& C, float R, const FLinearColor& Ink, float UI)
++{
++	FVector2D Prev = C + FVector2D(R, 0.f);
++	for (int32 i = 1; i <= 8; ++i) // octagonal ink ring
++	{
++		const float A = 2.f * PI * i / 8.f;
++		const FVector2D P = C + FVector2D(FMath::Cos(A), FMath::Sin(A)) * R;
++		AHUD::DrawLine(Prev.X, Prev.Y, P.X, P.Y, Ink, 1.5f * UI);
++		Prev = P;
++	}
++	UFont* Font = GEngine->GetMediumFont();
++	float W = 0.f, H = 0.f;
++	const float Scale = 0.95f * UI;
++	GetTextSize(Monogram, W, H, Font, Scale);
++	DrawText(Monogram, Ink, C.X - W * 0.5f, C.Y - H * 0.5f, Font, Scale);
++}
++
++void AShamanHUD::DrawSpellTile(const FShamanSpellSlot& Slot, const FBox2D& B, float UI)
++{
++	using namespace ShamanSpellPanelStyle;
++	const FVector2D Sz = B.GetSize();
++	const float X = B.Min.X, Y = B.Min.Y, W = Sz.X, H = Sz.Y;
++	const FVector2D Centre(X + W * 0.5f, Y + H * 0.46f);
++
++	switch (Slot.State)
++	{
++	case EShamanSpellSlotState::Locked: // blank, dim, padlock: nothing revealed, nothing to click
++	{
++		DrawRect(FLinearColor(0.40f, 0.32f, 0.20f, 0.85f), X, Y, W, H);
++		const FLinearColor Faded(0.20f, 0.13f, 0.06f, 0.75f);
++		const float CX = Centre.X, CY = Centre.Y + 3.f * UI;
++		DrawRect(Faded, CX - 7.f * UI, CY - 2.f * UI, 14.f * UI, 11.f * UI);
++		AHUD::DrawLine(CX - 4.f * UI, CY - 2.f * UI, CX - 4.f * UI, CY - 8.f * UI, Faded, 2.f * UI);
++		AHUD::DrawLine(CX - 4.f * UI, CY - 8.f * UI, CX + 4.f * UI, CY - 8.f * UI, Faded, 2.f * UI);
++		AHUD::DrawLine(CX + 4.f * UI, CY - 8.f * UI, CX + 4.f * UI, CY - 2.f * UI, Faded, 2.f * UI);
++		DrawBoxOutline(B, Border, 1.5f * UI);
++		return;
++	}
++	case EShamanSpellSlotState::Discoverable: // "?" only: no name, no icon until learned
++		DrawRect(ParchmentDim, X, Y, W, H);
++		DrawSlotText(TEXT("?"), B, Y + H * 0.12f, Ink, 2.0f * UI);
++		DrawSlotText(TEXT("undiscovered"), B, Y + H * 0.74f, Ink, 0.5f * UI);
++		DrawBoxOutline(B, Border, 1.5f * UI);
++		return;
++	case EShamanSpellSlotState::Unimplemented:
++		DrawRect(FLinearColor(0.33f, 0.33f, 0.33f, 0.95f), X, Y, W, H);
++		DrawPlaceholderIcon(Slot.Monogram, Centre - FVector2D(0.f, 4.f * UI), H * 0.2f, FLinearColor(0.75f, 0.75f, 0.75f, 0.8f), UI);
++		DrawSlotText(Slot.DisplayName.ToString(), B, Y + H * 0.66f, FLinearColor(0.88f, 0.88f, 0.88f), 0.5f * UI);
++		DrawSlotText(TEXT("no effect yet"), B, Y + H * 0.80f, FLinearColor(1.f, 0.55f, 0.45f), 0.45f * UI);
++		DrawBoxOutline(B, Border, 1.5f * UI);
++		return;
++	default:
++		break;
++	}
++
++	// Available: permanent and / or temporary charges.
++	const bool bTempOnly = Slot.IsTemporaryOnly();
++	const bool bChargeSlots = Slot.bChargeEconomy && Slot.bPermanent && Slot.MaxCharges > 0;
++	const bool bIdle = bChargeSlots && !Slot.bCharging && !Slot.bFull;
++	DrawRect(Parchment, X, Y, W, H);
++
++	// Charge dots along the top: blue = ready permanent charge (empty socket = not yet), red = temporary charges.
++	const float DotR = 3.2f * UI, DotStep = 2.f * DotR + 3.f * UI, DotY = Y + 5.f * UI + DotR;
++	float DotX = X + 5.f * UI + DotR;
++	if (bChargeSlots)
++		for (int32 i = 0; i < Slot.MaxCharges; ++i) { DrawChargeDot(DotX, DotY, DotR, Blue, i < Slot.StoredCharges); DotX += DotStep; }
++	if (Slot.TemporaryCharges > 0)
++	{
++		if (bChargeSlots) DotX += 3.f * UI;
++		const int32 Shown = FMath::Min(Slot.TemporaryCharges, 5);
++		for (int32 i = 0; i < Shown; ++i) { DrawChargeDot(DotX, DotY, DotR, Red, true); DotX += DotStep; }
++		if (Slot.TemporaryCharges > Shown) DrawText(FString::Printf(TEXT("+%d"), Slot.TemporaryCharges - Shown), Red, DotX - DotR, DotY - 6.f * UI, GEngine->GetMediumFont(), 0.45f * UI);
++	}
++	if (bChargeSlots && Slot.bCharging && !Slot.bFull && DotX < X + W - 9.f * UI) // charging lamp, top-right
++		DrawRect(Lamp, X + W - 9.f * UI, Y + 4.f * UI, 5.f * UI, 5.f * UI);
++
++	// Icon (row texture) or placeholder monogram; faded while nothing is ready to cast.
++	const FLinearColor InkNow = Slot.bAffordable ? Ink : FLinearColor(Ink.R, Ink.G, Ink.B, 0.45f);
++	const float R = H * 0.21f;
++	if (Slot.Icon) DrawTexture(Slot.Icon, Centre.X - R, Centre.Y - R, 2.f * R, 2.f * R, 0.f, 0.f, 1.f, 1.f,
++		Slot.bAffordable ? FLinearColor::White : FLinearColor(1.f, 1.f, 1.f, 0.45f));
++	else DrawPlaceholderIcon(Slot.Monogram, Centre, R, InkNow, UI);
++	FString Name = Slot.DisplayName.ToString(), Alias;
++	Name.Split(TEXT(" ("), &Name, &Alias);
++	DrawSlotText(Name, B, Y + H * 0.67f, InkNow, 0.5f * UI);
++
++	// Bottom: progress toward the next permanent charge (amber while charging, grey while switched off).
++	const float BarX = X + 5.f * UI, BarW = W - 10.f * UI, BarH = 5.f * UI, BarY = Y + H - BarH - 4.f * UI;
++	if (bChargeSlots)
++	{
++		DrawRect(FLinearColor(0.18f, 0.11f, 0.04f, 0.9f), BarX - 1.f, BarY - 1.f, BarW + 2.f, BarH + 2.f);
++		if (!Slot.bFull && Slot.Progress01 > 0.f) DrawRect(Slot.bCharging ? Amber : Paused, BarX, BarY, BarW * Slot.Progress01, BarH);
++	}
++	else if (bTempOnly)
++		DrawSlotText(TEXT("temporary"), B, BarY - 5.f * UI, Red, 0.42f * UI);
++	else if (!Slot.bChargeEconomy) // mana-at-cast fallback (no charge data): the Phase 1 cost label
++		DrawSlotText(Slot.bSuperSpell ? FString::Printf(TEXT("x%d"), Slot.Charges) : FString::Printf(TEXT("%.0f mana"), Slot.ManaCost),
++			B, BarY - 6.f * UI, Slot.bAffordable ? Ink : FLinearColor(0.75f, 0.05f, 0.05f), 0.45f * UI);
++
++	if (bIdle) // not charging: dimmed, "off" on the bar
++	{
++		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.20f), X, Y, W, H);
++		DrawSlotText(TEXT("off"), FBox2D(FVector2D(X, BarY), FVector2D(X + W, BarY)), BarY - 3.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.85f), 0.42f * UI);
++	}
++	if (Slot.CooldownRemaining > 0.f && Slot.CooldownTotal > 0.f) // recast shade, shrinking as it recovers
++		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.40f), X, Y, W, H * FMath::Clamp(Slot.CooldownRemaining / Slot.CooldownTotal, 0.f, 1.f));
++
++	DrawBoxOutline(B, bTempOnly ? Red : Border, bTempOnly ? 2.f * UI : 1.5f * UI);
++	if (Slot.bSelected)
++	{
++		DrawBoxOutline(FBox2D(B.Min - FVector2D(2.f, 2.f) * UI, B.Max + FVector2D(2.f, 2.f) * UI), FLinearColor(0.f, 0.f, 0.f, 0.6f), 1.f * UI);
++		DrawBoxOutline(B, Gold, 3.f * UI);
++	}
++}
++
++void AShamanHUD::DrawSpellTooltip(const FShamanSpellSlot& Slot, const FBox2D& Tile, float UI, bool bRTS)
++{
++	TArray<FString> Lines;
++	switch (Slot.State)
++	{
++	case EShamanSpellSlotState::Locked:
++		Lines.Add(TEXT("Locked"));
++		Lines.Add(TEXT("Not available on this map"));
++		break;
++	case EShamanSpellSlotState::Discoverable:
++		Lines.Add(TEXT("Undiscovered spell"));
++		Lines.Add(TEXT("Can be learned on this map"));
++		break;
++	case EShamanSpellSlotState::Unimplemented:
++		Lines.Add(Slot.DisplayName.ToString());
++		Lines.Add(TEXT("Effect not implemented yet: cannot be cast or charged"));
++		break;
++	default:
++	{
++		Lines.Add(Slot.DisplayName.ToString());
++		if (!Slot.bChargeEconomy)
++		{
++			Lines.Add(FString::Printf(TEXT("%.0f mana per cast"), Slot.ManaCost));
++			break;
++		}
++		if (Slot.bPermanent && Slot.MaxCharges > 0)
++		{
++			Lines.Add(FString::Printf(TEXT("Charges %d / %d%s"), Slot.StoredCharges, Slot.MaxCharges,
++				Slot.TemporaryCharges > 0 ? *FString::Printf(TEXT("   +%d temporary"), Slot.TemporaryCharges) : TEXT("")));
++			Lines.Add(FString::Printf(TEXT("%.0f mana per charge"), Slot.ManaCost));
++			if (Slot.bFull) Lines.Add(TEXT("Full: not drawing mana"));
++			else if (!Slot.bCharging) Lines.Add(FString::Printf(TEXT("Charging OFF (%.0f%% kept)%s"), Slot.Progress01 * 100.f, bRTS ? TEXT(" - right-click to charge") : TEXT("")));
++			else if (Slot.ManaPerSecond > 0.f)
++				Lines.Add(FString::Printf(TEXT("Charging: %.2f mana/s, next charge in %.1fs"), Slot.ManaPerSecond,
++					FMath::Max(0.f, Slot.ManaCost - Slot.ProgressMana) / Slot.ManaPerSecond));
++			else Lines.Add(TEXT("Charging: waiting for mana"));
++		}
++		else if (Slot.TemporaryCharges > 0)
++			Lines.Add(FString::Printf(TEXT("%d temporary charge(s) from a monument - no recharge"), Slot.TemporaryCharges));
++		Lines.Add(Slot.bAffordable ? TEXT("Ready to cast") : TEXT("No charge ready"));
++		break;
++	}
++	}
++	UFont* Font = GEngine->GetMediumFont();
++	const float Scale = 0.62f * UI, LineH = 15.f * UI, Pad = 6.f * UI;
++	float MaxW = 0.f;
++	for (const FString& L : Lines) { float W = 0.f, H = 0.f; GetTextSize(L, W, H, Font, Scale); MaxW = FMath::Max(MaxW, W); }
++	const float BoxW = MaxW + 2.f * Pad, BoxH = Lines.Num() * LineH + 2.f * Pad;
++	const float BX = PanelRect.Min.X - 8.f * UI - BoxW;
++	const float BY = FMath::Clamp(Tile.Min.Y, 0.f, FMath::Max(0.f, Canvas->ClipY - BoxH));
++	DrawRect(FLinearColor(0.08f, 0.05f, 0.02f, 0.9f), BX, BY, BoxW, BoxH);
++	DrawBoxOutline(FBox2D(FVector2D(BX, BY), FVector2D(BX + BoxW, BY + BoxH)), ShamanSpellPanelStyle::Parchment, 1.f);
++	for (int32 i = 0; i < Lines.Num(); ++i)
++		DrawText(Lines[i], i == 0 ? FLinearColor(1.f, 0.85f, 0.45f) : FLinearColor(1.f, 1.f, 1.f, 0.9f), BX + Pad, BY + Pad + i * LineH, Font, Scale);
++}
++
+ void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS)
+ {
++	using namespace ShamanSpellPanelStyle;
+ 	PanelModel = FShamanSpellPanelModel::Build(S->Spells, S->EffectDispatcher, S->GetSelectedSpellId());
++	for (const FShamanSpellSlot& Slot : PanelModel.Slots) if (Slot.Icon) PanelIcons.AddUnique(Slot.Icon);
+ 	FShamanSpellPanelLayout::ComputeSlotRects(PanelModel.Slots.Num(), SW, SH, UI, PanelSlotRects, PanelRect);
+ 	bPanelDrawn = true;
+ 
+-	const FLinearColor Frame(0.10f, 0.07f, 0.03f, 0.78f), Ink(0.22f, 0.12f, 0.04f, 1.f);
+ 	DrawRect(Frame, PanelRect.Min.X, PanelRect.Min.Y, PanelRect.GetSize().X, PanelRect.GetSize().Y);
+-	DrawLine(TEXT("SPELLS"), PanelRect.GetCenter().X, PanelRect.Min.Y + 6.f * UI, FLinearColor(1.f, 0.85f, 0.45f), 0.8f * UI, true);
++	DrawBoxOutline(PanelRect, FLinearColor(0.55f, 0.40f, 0.18f, 0.9f), 1.f);
++	DrawLine(TEXT("SPELLS"), PanelRect.GetCenter().X, PanelRect.Min.Y + 4.f * UI, FLinearColor(1.f, 0.85f, 0.45f), 0.75f * UI, true);
+ 
+ 	if (!PanelModel.bHasSpellData)
+ 	{
+@@ -287,62 +501,39 @@ void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, f
+ 		return;
+ 	}
+ 
+-	for (int32 i = 0; i < PanelModel.Slots.Num(); ++i)
++	for (int32 i = 0; i < PanelModel.Slots.Num(); ++i) DrawSpellTile(PanelModel.Slots[i], PanelSlotRects[i], UI);
++
++	// Footer: shared mana economy and what the clicks do.
++	const float FootY = PanelRect.Max.Y - FShamanSpellPanelLayout::FooterHeight(UI) + 3.f * UI;
++	const float FX = PanelRect.Min.X + 7.f * UI, FW = PanelRect.GetSize().X - 14.f * UI;
++	if (PanelModel.bChargeEconomy)
+ 	{
+-		const FShamanSpellSlot& Slot = PanelModel.Slots[i];
+-		const FBox2D& B = PanelSlotRects[i];
+-		const FVector2D Sz = B.GetSize();
+-		const float Top = B.Min.Y;
+-		switch (Slot.State)
+-		{
+-		case EShamanSpellSlotState::Available:
+-		{
+-			DrawRect(FLinearColor(0.86f, 0.68f, 0.36f, 1.f), B.Min.X, B.Min.Y, Sz.X, Sz.Y); // parchment tile
+-			DrawRect(FLinearColor(0.15f, 0.35f, 0.95f, 1.f), B.Min.X + 5.f * UI, Top + 5.f * UI, 7.f * UI, 7.f * UI); // mana pip
+-			const FString Full = Slot.DisplayName.ToString();
+-			FString Name = Full, Alias;
+-			if (Full.Split(TEXT(" ("), &Name, &Alias)) Alias = TEXT("(") + Alias; // "Blast (Taka)" -> two lines
+-			DrawSlotText(Name, B, Top + Sz.Y * 0.22f, Ink, 0.85f * UI);
+-			if (!Alias.IsEmpty()) DrawSlotText(Alias, B, Top + Sz.Y * 0.44f, Ink, 0.7f * UI);
+-			const FString Cost = Slot.bSuperSpell ? FString::Printf(TEXT("x%d"), Slot.Charges) : FString::Printf(TEXT("%.0f mana"), Slot.ManaCost);
+-			DrawSlotText(Cost, B, Top + Sz.Y * 0.70f, Slot.bAffordable ? Ink : FLinearColor(0.75f, 0.05f, 0.05f), 0.65f * UI);
+-			if (Slot.CooldownRemaining > 0.f && Slot.CooldownTotal > 0.f) // recharge shade, shrinking as it recovers
+-			{
+-				const float F = FMath::Clamp(Slot.CooldownRemaining / Slot.CooldownTotal, 0.f, 1.f);
+-				DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.45f), B.Min.X, B.Min.Y, Sz.X, Sz.Y * F);
+-			}
+-			if (!Slot.bAffordable) DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.25f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
+-			break;
+-		}
+-		case EShamanSpellSlotState::Discoverable:
+-			DrawRect(FLinearColor(0.55f, 0.43f, 0.24f, 1.f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
+-			DrawSlotText(TEXT("?"), B, Top + Sz.Y * 0.08f, Ink, 2.2f * UI);
+-			DrawSlotText(TEXT("undiscovered"), B, Top + Sz.Y * 0.72f, Ink, 0.55f * UI);
+-			break;
+-		case EShamanSpellSlotState::Unimplemented:
+-			DrawRect(FLinearColor(0.33f, 0.33f, 0.33f, 0.95f), B.Min.X, B.Min.Y, Sz.X, Sz.Y);
+-			DrawSlotText(Slot.DisplayName.ToString(), B, Top + Sz.Y * 0.25f, FLinearColor(0.85f, 0.85f, 0.85f), 0.7f * UI);
+-			DrawSlotText(TEXT("not implemented"), B, Top + Sz.Y * 0.62f, FLinearColor(1.f, 0.55f, 0.45f), 0.55f * UI);
+-			break;
+-		}
+-		if (Slot.bSelected) // selected: bright border
+-		{
+-			const FLinearColor Gold(1.f, 0.9f, 0.3f, 1.f);
+-			const float T = 3.f * UI;
+-			AHUD::DrawLine(B.Min.X, B.Min.Y, B.Max.X, B.Min.Y, Gold, T); AHUD::DrawLine(B.Max.X, B.Min.Y, B.Max.X, B.Max.Y, Gold, T);
+-			AHUD::DrawLine(B.Max.X, B.Max.Y, B.Min.X, B.Max.Y, Gold, T); AHUD::DrawLine(B.Min.X, B.Max.Y, B.Min.X, B.Min.Y, Gold, T);
+-		}
++		DrawLine(FString::Printf(TEXT("Mana +%.2f/s   %d charging"), PanelModel.ManaRegen, PanelModel.ActiveCharging),
++			PanelRect.GetCenter().X, FootY, FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
++		// Share of this second's generation going into charges.
++		const float Frac = PanelModel.ManaRegen > 0.f ? FMath::Clamp(PanelModel.ChargeDrawPerSecond / PanelModel.ManaRegen, 0.f, 1.f) : 0.f;
++		const float BarY = FootY + 15.f * UI;
++		DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.6f), FX, BarY, FW, 3.f * UI);
++		DrawRect(Amber, FX, BarY, FW * Frac, 3.f * UI);
++	}
++	else
++	{
++		DrawLine(FString::Printf(TEXT("Mana %.0f / %.0f"), PanelModel.Mana, PanelModel.MaxMana), PanelRect.GetCenter().X, FootY,
++			FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
+ 	}
++	DrawLine(bRTS ? TEXT("LMB select   RMB charge on/off") : TEXT("Wheel / Q change   LMB cast"), PanelRect.GetCenter().X, FootY + 22.f * UI,
++		FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.55f * UI, true);
++	if (S->IsSpellChargeDataMissing())
++		DrawLine(TEXT("Spell charges off: reimport Content/Data/Spells.csv"), PanelRect.GetCenter().X, PanelRect.Max.Y + 4.f * UI,
++			FLinearColor(1.f, 0.35f, 0.3f), 0.55f * UI, true);
+ 
+-	float Y = PanelRect.Max.Y + 4.f * UI;
+-	if (PanelModel.NumHiddenUnimplemented > 0)
++	// Hover details (RTS: the cursor is visible).
++	float MX = 0.f, MY = 0.f;
++	if (bRTS && PlayerOwner && PlayerOwner->GetMousePosition(MX, MY))
+ 	{
+-		DrawLine(FString::Printf(TEXT("+%d spells not implemented yet"), PanelModel.NumHiddenUnimplemented), PanelRect.GetCenter().X, Y,
+-			FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.6f * UI, true);
+-		Y += 16.f * UI;
++		const int32 Hover = FShamanSpellPanelLayout::HitTest(PanelSlotRects, FVector2D(MX, MY));
++		if (PanelModel.Slots.IsValidIndex(Hover)) DrawSpellTooltip(PanelModel.Slots[Hover], PanelSlotRects[Hover], UI, bRTS);
+ 	}
+-	DrawLine(bRTS ? TEXT("Click a spell to select it") : TEXT("Wheel / Q: change spell"), PanelRect.GetCenter().X, Y,
+-		FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.6f * UI, true);
+ }
+ 
+ void AShamanHUD::DrawGroundCircle(const FVector& Centre, float Radius, const FLinearColor& Color, float Thickness)
+diff --git a/Source/Shaman/Private/UI/ShamanSpellPanel.cpp b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+index 77c60dc..d9cdd57 100644
+--- a/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
++++ b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+@@ -4,17 +4,22 @@
+ #include "SpellProjectile.h"
+ #include "SpellRow.h"
+ #include "Engine/DataTable.h"
++#include "Engine/Texture2D.h"
+ 
+ bool FShamanSpellPanelModel::IsSpellImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects)
+ {
+-	if (Row.Targeting == ESpellTargeting::Projectile)
+-	{
+-		// USpellComponent::CastSpell spawns nothing for a projectile row without a class: not castable in practice.
+-		const TSubclassOf<ASpellProjectile>* Cls = Spells ? Spells->ProjectileClasses.Find(Row.EffectId) : nullptr;
+-		return Cls && *Cls;
+-	}
+-	// Non-projectile rows only broadcast OnSpellCast: they do something only when the dispatcher has the effect.
+-	return Effects && Effects->FindEffect(Row.EffectId) != nullptr;
++	return USpellComponent::IsRowImplemented(Row, Spells, Effects); // one rule for the panel, charging and the cheats
++}
++
++FString FShamanSpellPanelModel::MakeMonogram(const FString& DisplayName)
++{
++	FString Name = DisplayName, Alias;
++	DisplayName.Split(TEXT(" ("), &Name, &Alias); // "Blast (Taka)" -> "Blast"
++	TArray<FString> Words;
++	Name.ParseIntoArrayWS(Words);
++	if (Words.Num() >= 2) return Words[0].Left(1).ToUpper() + Words[1].Left(1).ToUpper();
++	if (Words.Num() == 1) return Words[0].Left(1).ToUpper() + Words[0].Mid(1, 1).ToLower();
++	return TEXT("?");
+ }
+ 
+ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects, FName SelectedSpellId)
+@@ -22,22 +27,49 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
+ 	FShamanSpellPanelModel M;
+ 	if (!Spells || !Spells->SpellTable) return M;
+ 	M.bHasSpellData = true;
++	M.bChargeEconomy = Spells->bUseChargeEconomy;
++	M.ManaRegen = Spells->GetManaRegen();
++	M.ChargeDrawPerSecond = Spells->GetChargeDrawPerSecond();
++	M.ActiveCharging = Spells->GetActiveChargingCount();
++	M.Mana = Spells->Mana;
++	M.MaxMana = Spells->MaxMana;
+ 
+ 	auto AddSlot = [&](FName Id, const FSpellRow* Row, EShamanSpellSlotState State)
+ 	{
+ 		FShamanSpellSlot S;
+ 		S.SpellId = Id;
+ 		S.State = State;
+-		S.DisplayName = Row ? Row->DisplayName : FText::FromName(Id);
++		S.bChargeEconomy = M.bChargeEconomy;
++		const bool bReveal = State == EShamanSpellSlotState::Available || State == EShamanSpellSlotState::Unimplemented;
++		S.DisplayName = !bReveal ? FText::GetEmpty() : Row ? Row->DisplayName : FText::FromName(Id);
++		S.Monogram = bReveal ? MakeMonogram(S.DisplayName.ToString()) : FString();
+ 		if (Row)
+ 		{
+ 			S.bSuperSpell = Row->bSuperSpell;
+-			S.ManaCost = Row->bSuperSpell ? 0.f : Row->ManaCost;
++			S.ManaCost = (Row->bSuperSpell && !M.bChargeEconomy) ? 0.f : Row->ManaCost;
+ 			S.CooldownTotal = Row->Cooldown;
++			S.bImplemented = IsSpellImplemented(*Row, Spells, Effects);
++			if (bReveal && !Row->Icon.IsNull()) S.Icon = Row->Icon.LoadSynchronous();
++		}
++		if (bReveal)
++		{
++			S.bPermanent = Spells->IsPermanentSpell(Id);
++			S.MaxCharges = Spells->GetMaxCharges(Id);
++			S.StoredCharges = Spells->GetStoredCharges(Id);
++			S.TemporaryCharges = Spells->GetTemporaryCharges(Id);
++			S.Charges = S.TemporaryCharges;
++			S.Progress01 = Spells->GetChargeProgress01(Id);
++			if (const FSpellChargeState* CS = Spells->GetChargeState(Id))
++			{
++				S.ProgressMana = S.bPermanent ? CS->ProgressMana : 0.f;
++				S.ManaPerSecond = CS->LastManaPerSecond;
++			}
++			S.bCharging = Spells->IsCharging(Id);
++			S.bCanToggleCharging = Spells->CanToggleCharging(Id);
++			S.bFull = S.bPermanent && S.MaxCharges > 0 && S.StoredCharges >= S.MaxCharges;
++			S.CooldownRemaining = Spells->GetCooldownRemaining(Id);
++			S.bAffordable = M.bChargeEconomy ? S.GetAvailableCharges() > 0 : Spells->Mana >= S.ManaCost;
+ 		}
+-		S.bAffordable = Spells->Mana >= S.ManaCost;
+-		S.CooldownRemaining = Spells->GetCooldownRemaining(Id);
+-		S.Charges = Spells->GetCharges(Id);
+ 		S.bSelected = State == EShamanSpellSlotState::Available && Id == SelectedSpellId;
+ 		M.Slots.Add(S);
+ 	};
+@@ -50,8 +82,9 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
+ 		const bool bKnown = Spells->KnownSpellIds.Contains(Id);
+ 		const bool bImplemented = IsSpellImplemented(*Row, Spells, Effects);
+ 		if (bKnown) AddSlot(Id, Row, bImplemented ? EShamanSpellSlotState::Available : EShamanSpellSlotState::Unimplemented);
+-		else if (bImplemented) AddSlot(Id, Row, EShamanSpellSlotState::Discoverable);
+-		else ++M.NumHiddenUnimplemented;
++		else if (Spells->IsSpellAvailableOnMap(Id)) AddSlot(Id, Row, EShamanSpellSlotState::Discoverable);
++		else if (bImplemented && FSpellChargeRules::IsChargeable(*Row)) AddSlot(Id, Row, EShamanSpellSlotState::Locked);
++		else ++M.NumHiddenUnimplemented; // future spells: never listed just because a row exists
+ 	}
+ 	// Known ids with no table row cannot be cast (CastSpell needs the row): show them as unavailable, never hide them.
+ 	for (const FName& Id : Spells->KnownSpellIds)
+@@ -67,17 +100,18 @@ int32 FShamanSpellPanelModel::FindSlot(FName SpellId) const
+ void FShamanSpellPanelLayout::ComputeSlotRects(int32 NumSlots, float ScreenW, float ScreenH, float UIScale, TArray<FBox2D>& OutRects, FBox2D& OutPanel)
+ {
+ 	OutRects.Reset();
+-	const float Tile = 68.f * UIScale, Gap = 6.f * UIScale, Pad = 8.f * UIScale, Margin = 16.f * UIScale;
++	const float Tile = 64.f * UIScale, Gap = 5.f * UIScale, Pad = 7.f * UIScale, Margin = 16.f * UIScale, Title = 20.f * UIScale;
+ 	const int32 Rows = FMath::Max(1, FMath::DivideAndRoundUp(FMath::Max(NumSlots, 1), Columns));
+ 	const float PanelW = Columns * Tile + (Columns - 1) * Gap + 2.f * Pad;
+-	const float PanelH = Rows * Tile + (Rows - 1) * Gap + 2.f * Pad + 22.f * UIScale; // + title strip
++	const float PanelH = Title + Rows * Tile + (Rows - 1) * Gap + 2.f * Pad + FooterHeight(UIScale);
+ 	const float X0 = ScreenW - Margin - PanelW;
+-	const float Y0 = FMath::Max(90.f * UIScale, ScreenH * 0.5f - PanelH * 0.5f); // below the mode banner and help line
++	// Right edge, vertically centred, below the mode banner / help line and clear of the bottom-left bars.
++	const float Y0 = FMath::Clamp(ScreenH * 0.5f - PanelH * 0.5f, 90.f * UIScale, FMath::Max(90.f * UIScale, ScreenH - PanelH - 16.f * UIScale));
+ 	OutPanel = FBox2D(FVector2D(X0, Y0), FVector2D(X0 + PanelW, Y0 + PanelH));
+ 	for (int32 i = 0; i < NumSlots; ++i)
+ 	{
+ 		const float X = X0 + Pad + (i % Columns) * (Tile + Gap);
+-		const float Y = Y0 + Pad + 22.f * UIScale + (i / Columns) * (Tile + Gap);
++		const float Y = Y0 + Pad + Title + (i / Columns) * (Tile + Gap);
+ 		OutRects.Add(FBox2D(FVector2D(X, Y), FVector2D(X + Tile, Y + Tile)));
+ 	}
+ }
+diff --git a/Source/Shaman/Public/Characters/ShamanCharacter.h b/Source/Shaman/Public/Characters/ShamanCharacter.h
+index 79a0df3..970b602 100644
+--- a/Source/Shaman/Public/Characters/ShamanCharacter.h
++++ b/Source/Shaman/Public/Characters/ShamanCharacter.h
+@@ -53,6 +53,24 @@ public:
+ 	/** Console (playtests): ShamanLearnSpell Convert */
+ 	UFUNCTION(Exec) void ShamanLearnSpell(FName SpellId);
+ 
++	// ---- Spell panel slice: test cheats / fixtures (console, non-shipping playtests) ----
++	/** CHEAT: learn every spell that can be learned permanently (rows with MaxCharges > 0) and fill all charges.
++	 *  Spells without an effect yet show as "not implemented" (they still cannot be cast). */
++	UFUNCTION(Exec) void ShamanUnlockAllSpells();
++	/** Fill every permanent spell's charges to its maximum. */
++	UFUNCTION(Exec) void ShamanFillSpellCharges();
++	/** Monument reward fixture: ShamanGrantTempCharges Convert 2 (same path a Stone Head uses). */
++	UFUNCTION(Exec) void ShamanGrantTempCharges(FName SpellId, int32 Count);
++	/** Map discovery fixture: ShamanSpellOnMap Convert - marks a spell as discoverable here ("?" until learned). */
++	UFUNCTION(Exec) void ShamanSpellOnMap(FName SpellId);
++	/** Toggle charging from the console (Shaman mode has no cursor for the panel). */
++	UFUNCTION(Exec) void ShamanToggleCharging(FName SpellId);
++	/** Logs the spellbook: charges, progress, charging, map availability, mana. */
++	UFUNCTION(Exec) void ShamanSpellDump();
++
++	/** True when this Shaman should use spell charges but the spell table has no charge columns (HUD warning). */
++	bool IsSpellChargeDataMissing() const { return bChargeDataMissing; }
++
+ protected:
+ 	virtual void BeginPlay() override;
+ 	virtual void Tick(float DeltaSeconds) override;
+@@ -78,6 +96,11 @@ protected:
+ 	void UpdateFocus();
+ 
+ 	int32 SelectedSpellIndex = 0;
++	/** Selected spell by id, so the selection survives spells being added / removed from KnownSpellIds. */
++	FName SelectedSpellIdCache;
++	void HandleSpellbookChanged(FName SpellId);
++	void CacheSelectedSpell();
++	bool bChargeDataMissing = false;
+ 	TWeakObjectPtr<AActor> FocusedInteractable;
+ 	double LastCastFeedbackTime = -100.0;
+ 	ESpellCastResult LastCastFeedback = ESpellCastResult::Success;
+diff --git a/Source/Shaman/Public/Game/ShamanGameData.h b/Source/Shaman/Public/Game/ShamanGameData.h
+index a03e262..3a105f5 100644
+--- a/Source/Shaman/Public/Game/ShamanGameData.h
++++ b/Source/Shaman/Public/Game/ShamanGameData.h
+@@ -57,6 +57,10 @@ public:
+ 
+ 	/** Spells every Shaman starts with (spec: TAKA / Blast only). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TArray<FName> StartingSpells;
++	/** Player-controlled tribes' Shamans use spell charges (charged from the shared mana economy, spent on cast)
++	 *  instead of paying mana at cast time. AI Shamans keep the Phase 1 mana-at-cast rule. Falls back to mana-at-cast
++	 *  (with a HUD warning) when the spell table has no charge columns yet. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") bool bPlayerUsesSpellCharges = true;
+ 	/** Projectile class per spell EffectId. Defaults FireBlast -> ADefaultSpellProjectile (placeholder visual). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TMap<FName, TSubclassOf<ASpellProjectile>> ProjectileClasses;
+ 
+diff --git a/Source/Shaman/Public/MonumentActor.h b/Source/Shaman/Public/MonumentActor.h
+index 3646609..3678600 100644
+--- a/Source/Shaman/Public/MonumentActor.h
++++ b/Source/Shaman/Public/MonumentActor.h
+@@ -27,6 +27,8 @@ public:
+ 	UFUNCTION(BlueprintCallable) bool CanWorship(AActor* Worshipper) const;
+ 	UFUNCTION(BlueprintCallable) float GetProgress01() const;
+ 	UFUNCTION(BlueprintCallable) bool IsSpent() const { return bSpent; }
++	/** Spell this monument teaches (UnlockSpell reward, not spent). Used for map-specific discovery ("?" slots). */
++	bool GetSpellUnlockReward(FName& OutSpellId) const;
+ 
+ 	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnProgress, float, Progress01);
+ 	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCompleted, AMonumentActor*, Monument, AActor*, Beneficiary);
+@@ -37,6 +39,11 @@ public:
+ 	UPROPERTY(BlueprintAssignable) FOnWorldEvent OnWorldEvent;   // handled by the world-event system (paths, landscape, teleport, ending AoDs)
+ 	UPROPERTY(BlueprintAssignable) FOnDepleted OnDepleted;       // Stone Head sinking animation
+ 
++protected:
++	/** Registers an UnlockSpell reward as discoverable on this map with every Shaman already in the world
++	 *  (Shamans spawned later scan the monuments themselves). */
++	virtual void BeginPlay() override;
++
+ private:
+ 	const FMonumentRow* GetRow() const;
+ 	void CompleteCycle(AActor* Beneficiary, const FMonumentRow& Row);
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+index 45e7689..7ef3eaa 100644
+--- a/Source/Shaman/Public/Player/ShamanPlayerController.h
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -20,7 +20,7 @@ class UInputComponent;
+  * toggles once). Keys held during a switch are flushed so nothing carries over.
+  *
+  * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman: selected
+- * Braves follow and guard him), WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
++ * Braves follow and guard him), LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
+  * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
+  * before the game sees it, so use Backspace there), F3 debug.
+  */
+@@ -98,6 +98,9 @@ protected:
+ 	void OnSelectPressed();
+ 	/** RTS: LMB over the spell panel selects a spell (never casts). Returns true when the panel took the click. */
+ 	bool HandleSpellPanelClick(const FVector2D& ScreenPos);
++	/** RTS: RMB over the spell panel toggles charging of an eligible permanent spell (never selects, never commands).
++	 *  Returns true when the panel took the click. */
++	bool HandleSpellPanelRightClick(const FVector2D& ScreenPos);
+ 	void OnSelectReleased();
+ 	void OnCommandPressed();
+ 	/** Ground point under a screen position (terrain / static world; planets fall back to the sphere). */
+diff --git a/Source/Shaman/Public/SpellComponent.h b/Source/Shaman/Public/SpellComponent.h
+index 7a3fb1e..9231caa 100644
+--- a/Source/Shaman/Public/SpellComponent.h
++++ b/Source/Shaman/Public/SpellComponent.h
+@@ -6,9 +6,60 @@
+ 
+ class UDataTable;
+ class ASpellProjectile;
++class USpellEffectDispatcherComponent;
++
++/** Charge state of one spell in a caster's spellbook (spell panel slice). Owned by USpellComponent only. */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FSpellChargeState
++{
++	GENERATED_BODY()
++	/** Learned permanently (LearnSpell / Vault of Knowledge / starting spell). Temporary-only spells are not. */
++	UPROPERTY(BlueprintReadOnly) bool bPermanent = false;
++	/** Player wants this spell to draw mana and charge (right-click on the panel). Only acts on chargeable spells. */
++	UPROPERTY(BlueprintReadOnly) bool bCharging = false;
++	/** Ready permanent charges (0..MaxCharges). Temporary (monument) charges are counted separately. */
++	UPROPERTY(BlueprintReadOnly) int32 StoredCharges = 0;
++	/** Mana already paid toward the next charge (0..ManaCost). Kept while charging is switched off. */
++	UPROPERTY(BlueprintReadOnly) float ProgressMana = 0.f;
++	/** Mana per second this spell received in the last charging step (HUD only). */
++	UPROPERTY(BlueprintReadOnly) float LastManaPerSecond = 0.f;
++};
++
++/** Pure charge rules (no world). Shared by USpellComponent, the panel and the tests. */
++struct SHAMAN_API FSpellChargeRules
++{
++	static constexpr int32 MaxChargesLimit = 4;
++	/** Row MaxCharges clamped to 0..4 (0 = cannot hold permanent charges). */
++	static int32 GetMaxCharges(const FSpellRow& Row);
++	/** A permanently known spell can charge when the row defines charges and a positive mana cost per charge. */
++	static bool IsChargeable(const FSpellRow& Row);
++	/**
++	 * Splits one step's mana Budget between the spells that are charging (max-min fair "water filling"):
++	 * every spell gets an equal share, a spell that needs less than its share takes only what it needs and the rest
++	 * is shared among the others. Needs[i] = mana spell i can still absorb. Deterministic (ties keep input order);
++	 * sum(OutGiven) <= Budget, OutGiven[i] <= Needs[i].
++	 */
++	static void SplitBudget(float Budget, const TArray<float>& Needs, TArray<float>& OutGiven);
++};
++
++/** Fired when the spellbook changes: learned / temporary charges / charge gained or spent / charging toggled. */
++DECLARE_MULTICAST_DELEGATE_OneParam(FOnSpellbookChanged, FName /*SpellId (None = several)*/);
+ 
+ /** Owns known spell ids, mana, cooldowns. ManaRegen = BaseRegen * FollowerMultiplier * TemporaryModifier.
+- *  Projectile spells spawn a projectile; every other spell fires OnSpellCast for an effect handler to implement. */
++ *  Projectile spells spawn a projectile; every other spell fires OnSpellCast for an effect handler to implement.
++ *
++ *  Spell charges (bUseChargeEconomy, on for the player tribe's Shaman): the single source of truth for the spell panel.
++ *   - Permanent spells hold up to FSpellRow::MaxCharges (1-4) charges. Charging spells are paid from the shared mana
++ *     economy in fixed steps (ChargeStepSeconds): each step the tribe's mana generation (GetManaRegen * step) is added
++ *     to Mana as before, and that same step's generation - never more, and never more than Mana holds - is split
++ *     between the charging spells (FSpellChargeRules::SplitBudget). No generation, no progress; nothing is created.
++ *   - Casting then needs a charge instead of mana: a successful cast uses one temporary charge if there is one,
++ *     otherwise one permanent charge. Failed casts use nothing. Mana is not spent at cast time.
++ *   - Temporary charges (AddCharges: Stone Heads, test fixtures) never recharge and never draw mana. A spell known only
++ *     through temporary charges is forgotten when they run out; a permanent spell keeps its own charges untouched.
++ *  With bUseChargeEconomy off (enemy Shamans, older tests) every rule above is skipped and casting spends ManaCost as
++ *  before.
++ */
+ UCLASS(ClassGroup=(Shaman), meta=(BlueprintSpawnableComponent))
+ class SHAMAN_API USpellComponent : public UActorComponent
+ {
+@@ -17,7 +68,7 @@ public:
+ 	USpellComponent();
+ 
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite) UDataTable* SpellTable = nullptr;       // rows of FSpellRow
+-	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FName> KnownSpellIds;            // e.g. Blast, Convert
++	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FName> KnownSpellIds;            // castable now: permanent + temporary
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite) TMap<FName, TSubclassOf<ASpellProjectile>> ProjectileClasses; // by EffectId
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float RangeUnitsPerPoint = 50.f;        // 100 raw range = 5000 uu
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite) float MaxMana = 100.f;
+@@ -27,13 +78,23 @@ public:
+ 	UPROPERTY(BlueprintReadWrite) int32 FollowerCount = 3;
+ 	UPROPERTY(BlueprintReadWrite) float TemporaryModifier = 1.f;
+ 
++	/** Spell charges instead of mana-at-cast (see class comment). Set by AShamanCharacter for the player tribe. */
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") bool bUseChargeEconomy = false;
++	/** Fixed economy step: results depend only on elapsed game time, never on frame rate. */
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges", meta=(ClampMin="0.01")) float ChargeStepSeconds = 0.1f;
++
+ 	DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnSpellCast, FName, SpellId, FName, EffectId, FVector, Target, float, Radius, float, Duration);
+ 	UPROPERTY(BlueprintAssignable) FOnSpellCast OnSpellCast;
++	FOnSpellbookChanged OnSpellbookChanged;
+ 
+ 	UFUNCTION(BlueprintCallable) bool CastSpell(FName SpellId, FVector AimTarget);
+ 	UFUNCTION(BlueprintCallable) float GetManaRegen() const;
++	/** Permanent learn. New entries start with 0 stored charges and charging = row bChargingByDefault. Learning a spell
++	 *  that is already permanent changes nothing; other spells are never touched. */
+ 	UFUNCTION(BlueprintCallable) void LearnSpell(FName SpellId);
+-	UFUNCTION(BlueprintCallable) void AddCharges(FName SpellId, int32 Charges); // Stone Heads: super spells run on charges
++	/** Temporary charges (Stone Heads / monument rewards; super spells run on these). Never recharge. */
++	UFUNCTION(BlueprintCallable) void AddCharges(FName SpellId, int32 Charges);
++	/** Temporary charges (name kept from Phase 1). */
+ 	UFUNCTION(BlueprintCallable) int32 GetCharges(FName SpellId) const { const int32* C = SpellCharges.Find(SpellId); return C ? *C : 0; }
+ 	UFUNCTION(BlueprintCallable) float GetRangeUnits(FName SpellId) const;
+ 
+@@ -48,9 +109,61 @@ public:
+ 	UPROPERTY(BlueprintReadOnly) ESpellCastResult LastCastResult = ESpellCastResult::Success;
+ 	const TMap<FName, int32>& GetAllCharges() const { return SpellCharges; }
+ 
++	// --- Spell charges (spell panel slice) ---
++	/** Charge-economy cast check: cooldown, then a charge (temporary or permanent), then range. No mana check. */
++	static ESpellCastResult EvaluateChargedCast(const FSpellRow& Row, int32 AvailableCharges, double Now,
++		double CooldownEndTime, float DistanceToTarget, float RangeUnitsPerPoint);
++	/** True when casting the row does something: a projectile class for its EffectId, or a dispatcher effect. */
++	static bool IsRowImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects);
++	bool IsSpellImplemented(FName SpellId) const;
++	/** True when at least one row of Table defines MaxCharges > 0 (the table was imported with the charge columns). */
++	static bool TableHasChargeData(const UDataTable* Table);
++
++	const FSpellChargeState* GetChargeState(FName SpellId) const { return ChargeStates.Find(SpellId); }
++	UFUNCTION(BlueprintCallable, Category="Charges") bool IsPermanentSpell(FName SpellId) const;
++	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetMaxCharges(FName SpellId) const;
++	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetStoredCharges(FName SpellId) const;
++	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetTemporaryCharges(FName SpellId) const { return GetCharges(SpellId); }
++	/** Temporary + permanent charges usable right now (charge economy). */
++	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetAvailableCharges(FName SpellId) const;
++	/** Progress toward the next permanent charge, 0..1 (0 when full). */
++	UFUNCTION(BlueprintCallable, Category="Charges") float GetChargeProgress01(FName SpellId) const;
++	/** Charging switched on (whether or not it can progress right now). */
++	UFUNCTION(BlueprintCallable, Category="Charges") bool IsCharging(FName SpellId) const;
++	/** Permanent, chargeable, implemented spell under the charge economy: charging may be switched on. */
++	UFUNCTION(BlueprintCallable, Category="Charges") bool CanToggleCharging(FName SpellId) const;
++	/** Switch charging. Returns false (nothing changed) for spells that cannot charge (locked, undiscovered,
++	 *  temporary-only, unimplemented, no charge data, economy off). Progress is kept either way. */
++	UFUNCTION(BlueprintCallable, Category="Charges") bool SetSpellCharging(FName SpellId, bool bCharge);
++	UFUNCTION(BlueprintCallable, Category="Charges") bool ToggleSpellCharging(FName SpellId);
++	/** Spells currently drawing mana (charging, below max). */
++	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetActiveChargingCount() const;
++	/** Mana per second spent on charges in the last step (HUD). */
++	UFUNCTION(BlueprintCallable, Category="Charges") float GetChargeDrawPerSecond() const { return LastDrawPerSecond; }
++	/** Test / cheat: set permanent stored charges directly (clamped to 0..Max). */
++	void SetStoredChargesForTest(FName SpellId, int32 Charges);
++
++	/** Map-specific discovery: spells that can be learned on this map (monuments, scripted rewards). Drawn as "?"
++	 *  until learned. A spell defined in the table but not listed here never shows as discoverable. */
++	UFUNCTION(BlueprintCallable, Category="Charges") void SetSpellAvailableOnMap(FName SpellId, bool bAvailable = true);
++	UFUNCTION(BlueprintCallable, Category="Charges") bool IsSpellAvailableOnMap(FName SpellId) const { return MapSpellIds.Contains(SpellId); }
++	const TArray<FName>& GetMapSpellIds() const { return MapSpellIds; }
++
++	/** Runs the charge economy for Seconds of game time in fixed ChargeStepSeconds steps (TickComponent calls this;
++	 *  tests call it directly). Leftover time is carried to the next call. */
++	void AdvanceChargeEconomy(float Seconds);
++
+ 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+ 
+ private:
++	void ChargeStep(float Step);
++	void ConsumeCharge(FName SpellId);
++	void NotifySpellbookChanged(FName SpellId) { OnSpellbookChanged.Broadcast(SpellId); }
++
+ 	TMap<FName, double> CooldownEnd;
+-	TMap<FName, int32> SpellCharges;
++	TMap<FName, int32> SpellCharges;          // temporary charges
++	TMap<FName, FSpellChargeState> ChargeStates;
++	TArray<FName> MapSpellIds;
++	float ChargeTimeAccumulator = 0.f;
++	float LastDrawPerSecond = 0.f;
+ };
+diff --git a/Source/Shaman/Public/SpellRow.h b/Source/Shaman/Public/SpellRow.h
+index 054444e..fd7c012 100644
+--- a/Source/Shaman/Public/SpellRow.h
++++ b/Source/Shaman/Public/SpellRow.h
+@@ -6,6 +6,7 @@
+ 
+ class UParticleSystem;
+ class USoundBase;
++class UTexture2D;
+ 
+ /** One row per spell in DT_Spells (import Content/Data/Spells.csv). Replaces the per-asset USpellDefinition.
+  *  RangeRaw and ManaCost use the original 0-100 scales; world units = RangeRaw * USpellComponent::RangeUnitsPerPoint. */
+@@ -40,4 +41,17 @@ struct SHAMAN_API FSpellRow : public FTableRowBase
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bFriendlyFire = true;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<USoundBase> CastSound;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<USoundBase> ImpactSound;
++
++	// ---- Spell charges (spell panel slice) -------------------------------------------------------------------------
++	// Used when the caster's USpellComponent runs the charge economy (player tribe). ManaCost above is then the mana
++	// needed to fill ONE charge (paid while charging, not at cast time). Values are explicit per spell; nothing is
++	// inferred from rarity, icons or other columns.
++	/** Stored charges a permanently learned spell can hold (1-4). 0 = cannot be learned permanently / never charges
++	 *  (super spells that only come as temporary charges from monuments). Values above 4 are clamped to 4. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0", ClampMax="4")) int32 MaxCharges = 0;
++	/** Charging is switched on when the spell is learned (level start for starting spells). Off for everything but
++	 *  Blast in Spells.csv; the player toggles charging with right-click on the panel. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bChargingByDefault = false;
++	/** Panel icon. Empty = a placeholder monogram drawn by the HUD. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<UTexture2D> Icon;
+ };
+diff --git a/Source/Shaman/Public/UI/ShamanHUD.h b/Source/Shaman/Public/UI/ShamanHUD.h
+index 96a6251..daf1968 100644
+--- a/Source/Shaman/Public/UI/ShamanHUD.h
++++ b/Source/Shaman/Public/UI/ShamanHUD.h
+@@ -7,6 +7,7 @@
+ class AShamanCharacter;
+ class AShamanUnitBase;
+ class AShamanPlayerController;
++class UTexture2D;
+ 
+ /**
+  * Phase 1 HUD drawn on the canvas (no widget assets needed): health, mana and regen, followers, selected spell
+@@ -37,8 +38,19 @@ private:
+ 	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
+ 	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
+ 	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);
++	/** One spell tile (state, charge dots, icon / placeholder, progress bar, selection). */
++	void DrawSpellTile(const FShamanSpellSlot& Slot, const FBox2D& B, float UI);
++	/** Small round-ish charge dot (filled or empty socket). */
++	void DrawChargeDot(float CX, float CY, float R, const FLinearColor& Fill, bool bFilled);
++	void DrawBoxOutline(const FBox2D& B, const FLinearColor& Color, float Thickness);
++	/** Placeholder icon: monogram inside an ink ring (no art assets yet). */
++	void DrawPlaceholderIcon(const FString& Monogram, const FVector2D& Centre, float Radius, const FLinearColor& Ink, float UI);
++	/** Details of the hovered tile, drawn to the left of the panel (RTS mode, cursor visible). */
++	void DrawSpellTooltip(const FShamanSpellSlot& Slot, const FBox2D& Tile, float UI, bool bRTS);
+ 
+ 	FShamanSpellPanelModel PanelModel;
++	/** Keeps spell icons loaded by the panel alive between frames (the model holds raw pointers). */
++	UPROPERTY(Transient) TArray<UTexture2D*> PanelIcons;
+ 	TArray<FBox2D> PanelSlotRects;
+ 	FBox2D PanelRect = FBox2D(ForceInit);
+ 	bool bPanelDrawn = false;
+diff --git a/Source/Shaman/Public/UI/ShamanSpellPanel.h b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+index 441274f..2a74450 100644
+--- a/Source/Shaman/Public/UI/ShamanSpellPanel.h
++++ b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+@@ -3,54 +3,85 @@
+ 
+ class USpellComponent;
+ class USpellEffectDispatcherComponent;
++class UTexture2D;
+ struct FSpellRow;
+ 
+ /** What a spell-panel slot shows. Nothing here ever casts: it only reflects USpellComponent state. */
+ enum class EShamanSpellSlotState : uint8
+ {
+-	Available,     // known and implemented: selectable (may still be on cooldown or short of mana)
+-	Discoverable,  // implemented but not known on this level: drawn as "?" and not selectable
+-	Unimplemented, // known (e.g. via ShamanLearnSpell) but its effect has no handler yet: shown, explicitly unavailable
++	Available,     // known (permanent or temporary charges) and implemented: selectable
++	Discoverable,  // can be learned on this map but is not yet: drawn as "?" (no name, no icon) and not selectable
++	Unimplemented, // known (e.g. via the unlock cheat) but its effect has no handler yet: shown, never castable
++	Locked,        // a working spell the player does not have and cannot discover on this map: blank, non-interactive
+ };
+ 
+ struct SHAMAN_API FShamanSpellSlot
+ {
+ 	FName SpellId;
+-	FText DisplayName;
++	FText DisplayName;           // empty for Discoverable / Locked (not revealed)
+ 	EShamanSpellSlotState State = EShamanSpellSlotState::Unimplemented;
+-	float ManaCost = 0.f;
++	float ManaCost = 0.f;        // mana per charge (charge economy) / per cast (mana-at-cast)
+ 	bool bSelected = false;
+-	bool bAffordable = true;
++	bool bAffordable = true;     // castable now: a charge is ready (charge economy) / enough mana (mana-at-cast)
+ 	float CooldownRemaining = 0.f;
+ 	float CooldownTotal = 0.f;
+ 	bool bSuperSpell = false;
+-	int32 Charges = 0;
++	int32 Charges = 0;           // temporary charges (Phase 1 name)
++
++	// Spell charges (spell panel slice)
++	bool bChargeEconomy = false;
++	bool bPermanent = false;     // learned permanently
++	bool bImplemented = false;
++	int32 MaxCharges = 0;        // permanent charge slots (0..4)
++	int32 StoredCharges = 0;     // ready permanent charges
++	int32 TemporaryCharges = 0;  // monument charges (red)
++	float Progress01 = 0.f;      // next permanent charge
++	float ProgressMana = 0.f;
++	float ManaPerSecond = 0.f;   // drawn by this spell in the last step
++	bool bCharging = false;      // charging switched on
++	bool bCanToggleCharging = false;
++	bool bFull = false;
++	UTexture2D* Icon = nullptr;  // row icon (loaded), null = placeholder monogram
++	FString Monogram;            // placeholder glyph text
++
++	bool IsTemporaryOnly() const { return !bPermanent && TemporaryCharges > 0; }
++	int32 GetAvailableCharges() const { return StoredCharges + TemporaryCharges; }
+ };
+ 
+ /**
+- * Data model of the spell panel (RTS milestone acceptance fix; the full Stage C panel builds on it). Built every frame
+- * from the caster's USpellComponent (SpellTable rows + KnownSpellIds) and its USpellEffectDispatcherComponent, in
+- * DataTable row order. No assets needed: the table already resolves without DA_ShamanGameData (path / row-type lookup).
+- *   - a spell is "implemented" when casting it does something: a Projectile row with a projectile class for its
+- *     EffectId, or any other row whose EffectId has a dispatcher effect;
+- *   - unknown + unimplemented spells are not shown (counted in NumHiddenUnimplemented).
++ * Data model of the spell panel. Built every frame from the caster's USpellComponent (the only spell state) and its
++ * USpellEffectDispatcherComponent, in DataTable row order. One slot per spell that is relevant here:
++ *   - known (permanent or temporary charges): Available, or Unimplemented when its effect has no handler;
++ *   - available to discover on this map (USpellComponent::IsSpellAvailableOnMap) and not learned: Discoverable ("?");
++ *   - otherwise a working permanent spell: Locked (blank tile);
++ *   - everything else (future spells without an effect, super spells without charges) is not shown at all; it is
++ *     only counted in NumHiddenUnimplemented for tests and logs.
+  */
+ struct SHAMAN_API FShamanSpellPanelModel
+ {
+ 	TArray<FShamanSpellSlot> Slots;
+ 	int32 NumHiddenUnimplemented = 0;
+ 	bool bHasSpellData = false;
++	bool bChargeEconomy = false;
++	float ManaRegen = 0.f;          // tribe mana generation per second
++	float ChargeDrawPerSecond = 0.f;
++	int32 ActiveCharging = 0;
++	float Mana = 0.f, MaxMana = 0.f;
+ 
+ 	static bool IsSpellImplemented(const FSpellRow& Row, const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects);
+ 	static FShamanSpellPanelModel Build(const USpellComponent* Spells, const USpellEffectDispatcherComponent* Effects, FName SelectedSpellId);
+ 	int32 FindSlot(FName SpellId) const;
++	/** Two-letter placeholder glyph from a display name ("Blast (Taka)" -> "Bl", "Magical Shield" -> "MS"). */
++	static FString MakeMonogram(const FString& DisplayName);
+ };
+ 
+-/** Screen layout of the panel (3 columns, parchment tiles, right edge). Shared by the HUD (drawing) and the controller
+- *  (click hit test) so both always agree. */
++/** Screen layout of the panel (3 columns, parchment tiles, right edge, footer for the mana line and hints). Shared by
++ *  the HUD (drawing) and the controller (click hit test) so both always agree. */
+ struct SHAMAN_API FShamanSpellPanelLayout
+ {
+ 	static constexpr int32 Columns = 3;
+ 	static void ComputeSlotRects(int32 NumSlots, float ScreenW, float ScreenH, float UIScale, TArray<FBox2D>& OutRects, FBox2D& OutPanel);
+ 	static int32 HitTest(const TArray<FBox2D>& Rects, const FVector2D& Point);
++	/** Footer strip (inside OutPanel, below the tiles). */
++	static float FooterHeight(float UIScale) { return 46.f * UIScale; }
+ };

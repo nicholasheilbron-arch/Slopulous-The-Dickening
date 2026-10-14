@@ -53,6 +53,24 @@ public:
 	/** Console (playtests): ShamanLearnSpell Convert */
 	UFUNCTION(Exec) void ShamanLearnSpell(FName SpellId);
 
+	// ---- Spell panel slice: test cheats / fixtures (console, non-shipping playtests) ----
+	/** CHEAT: learn every spell that can be learned permanently (rows with MaxCharges > 0) and fill all charges.
+	 *  Spells without an effect yet show as "not implemented" (they still cannot be cast). */
+	UFUNCTION(Exec) void ShamanUnlockAllSpells();
+	/** Fill every permanent spell's charges to its maximum. */
+	UFUNCTION(Exec) void ShamanFillSpellCharges();
+	/** Monument reward fixture: ShamanGrantTempCharges Convert 2 (same path a Stone Head uses). */
+	UFUNCTION(Exec) void ShamanGrantTempCharges(FName SpellId, int32 Count);
+	/** Map discovery fixture: ShamanSpellOnMap Convert - marks a spell as discoverable here ("?" until learned). */
+	UFUNCTION(Exec) void ShamanSpellOnMap(FName SpellId);
+	/** Toggle charging from the console (Shaman mode has no cursor for the panel). */
+	UFUNCTION(Exec) void ShamanToggleCharging(FName SpellId);
+	/** Logs the spellbook: charges, progress, charging, map availability, mana. */
+	UFUNCTION(Exec) void ShamanSpellDump();
+
+	/** True when this Shaman should use spell charges but the spell table has no charge columns (HUD warning). */
+	bool IsSpellChargeDataMissing() const { return bChargeDataMissing; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -78,6 +96,11 @@ protected:
 	void UpdateFocus();
 
 	int32 SelectedSpellIndex = 0;
+	/** Selected spell by id, so the selection survives spells being added / removed from KnownSpellIds. */
+	FName SelectedSpellIdCache;
+	void HandleSpellbookChanged(FName SpellId);
+	void CacheSelectedSpell();
+	bool bChargeDataMissing = false;
 	TWeakObjectPtr<AActor> FocusedInteractable;
 	double LastCastFeedbackTime = -100.0;
 	ESpellCastResult LastCastFeedback = ESpellCastResult::Success;

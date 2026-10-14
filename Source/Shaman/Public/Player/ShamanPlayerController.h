@@ -20,7 +20,7 @@ class UInputComponent;
  * toggles once). Keys held during a switch are flushed so nothing carries over.
  *
  * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman: selected
- * Braves follow and guard him), WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
+ * Braves follow and guard him), LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
  * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
  * before the game sees it, so use Backspace there), F3 debug.
  */
@@ -98,6 +98,9 @@ protected:
 	void OnSelectPressed();
 	/** RTS: LMB over the spell panel selects a spell (never casts). Returns true when the panel took the click. */
 	bool HandleSpellPanelClick(const FVector2D& ScreenPos);
+	/** RTS: RMB over the spell panel toggles charging of an eligible permanent spell (never selects, never commands).
+	 *  Returns true when the panel took the click. */
+	bool HandleSpellPanelRightClick(const FVector2D& ScreenPos);
 	void OnSelectReleased();
 	void OnCommandPressed();
 	/** Ground point under a screen position (terrain / static world; planets fall back to the sphere). */

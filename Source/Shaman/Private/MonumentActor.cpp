@@ -3,8 +3,29 @@
 #include "ProgressionComponent.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "Characters/ShamanCharacter.h"
 
 AMonumentActor::AMonumentActor() { PrimaryActorTick.bCanEverTick = false; }
+
+bool AMonumentActor::GetSpellUnlockReward(FName& OutSpellId) const
+{
+	const FMonumentRow* Row = GetRow();
+	if (!Row || bSpent || RewardId.IsNone()) return false;
+	const EMonumentRewardType Type = bOverrideRewardType ? RewardTypeOverride : Row->DefaultRewardType;
+	if (Type != EMonumentRewardType::UnlockSpell) return false;
+	OutSpellId = RewardId;
+	return true;
+}
+
+void AMonumentActor::BeginPlay()
+{
+	Super::BeginPlay();
+	FName SpellId;
+	if (!GetSpellUnlockReward(SpellId)) return;
+	for (TActorIterator<AShamanCharacter> It(GetWorld()); It; ++It)
+		if (It->Spells) It->Spells->SetSpellAvailableOnMap(SpellId);
+}
 
 const FMonumentRow* AMonumentActor::GetRow() const
 {

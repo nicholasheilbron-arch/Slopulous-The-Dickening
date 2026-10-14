@@ -27,6 +27,8 @@ public:
 	UFUNCTION(BlueprintCallable) bool CanWorship(AActor* Worshipper) const;
 	UFUNCTION(BlueprintCallable) float GetProgress01() const;
 	UFUNCTION(BlueprintCallable) bool IsSpent() const { return bSpent; }
+	/** Spell this monument teaches (UnlockSpell reward, not spent). Used for map-specific discovery ("?" slots). */
+	bool GetSpellUnlockReward(FName& OutSpellId) const;
 
 	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnProgress, float, Progress01);
 	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCompleted, AMonumentActor*, Monument, AActor*, Beneficiary);
@@ -36,6 +38,11 @@ public:
 	UPROPERTY(BlueprintAssignable) FOnCompleted OnCompleted;
 	UPROPERTY(BlueprintAssignable) FOnWorldEvent OnWorldEvent;   // handled by the world-event system (paths, landscape, teleport, ending AoDs)
 	UPROPERTY(BlueprintAssignable) FOnDepleted OnDepleted;       // Stone Head sinking animation
+
+protected:
+	/** Registers an UnlockSpell reward as discoverable on this map with every Shaman already in the world
+	 *  (Shamans spawned later scan the monuments themselves). */
+	virtual void BeginPlay() override;
 
 private:
 	const FMonumentRow* GetRow() const;

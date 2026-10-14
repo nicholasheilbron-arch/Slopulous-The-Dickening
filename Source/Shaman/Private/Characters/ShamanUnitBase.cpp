@@ -25,6 +25,8 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "DrawDebugHelpers.h"
@@ -173,13 +175,40 @@ void AShamanUnitBase::ApplyVisuals()
 		PlaceholderBody->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
 	}
 	PlaceholderRestTransform = PlaceholderBody->GetRelativeTransform();
+	RefreshTint();
+}
 
-	const UShamanGameData* Data = UShamanGameData::Get(this);
-	FLinearColor Color = Data->WildmenColor;
-	if (const FTribeDefinition* T = Data->GetTribe(TribeId)) Color = T->Color;
-	if (IsShaman()) Color = FMath::Lerp(Color, FLinearColor::White, 0.35f);
+void AShamanUnitBase::RefreshTint()
+{
+	const int32 Tribe = GetTribeId();
+	FLinearColor Color;
+	if (ShamanVisuals::TeamColorsEnabled())
+		Color = ShamanVisuals::GetTeamColor(Tribe, ShamanTribe::Player);
+	else
+	{
+		const UShamanGameData* Data = UShamanGameData::Get(this);
+		Color = Data->WildmenColor;
+		if (const FTribeDefinition* T = Data->GetTribe(Tribe)) Color = T->Color;
+	}
+	if (IsShaman()) Color = FMath::Lerp(Color, FLinearColor::White, 0.35f); // Shamans stay a lighter shade of their side
 	ShamanVisuals::SetTint(PlaceholderBody, Color);
 }
+
+/** Console: ShamanTeamColors [0|1] (no argument toggles). Recolours every unit in the world immediately. */
+static void ShamanTeamColorsCommand(const TArray<FString>& Args, UWorld* World)
+{
+	const bool bOn = Args.Num() > 0 ? FCString::Atoi(*Args[0]) != 0 : !ShamanVisuals::TeamColorsEnabled();
+	ShamanVisuals::SetTeamColorsEnabled(bOn);
+	int32 Count = 0;
+	if (World)
+		for (TActorIterator<AShamanUnitBase> It(World); It; ++It) { It->RefreshTint(); ++Count; }
+	UE_LOG(LogShaman, Log, TEXT("ShamanTeamColors %s (%d units recoloured)"), bOn ? TEXT("on") : TEXT("off"), Count);
+}
+
+static FAutoConsoleCommandWithWorldAndArgs GShamanTeamColorsCommand(
+	TEXT("ShamanTeamColors"),
+	TEXT("ShamanTeamColors [0|1]: testing colours (player tribe blue, other tribes red, Wildmen grey). No argument toggles."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&ShamanTeamColorsCommand));
 
 bool AShamanUnitBase::IsAlive() const { return Health && !Health->IsDead(); }
 bool AShamanUnitBase::IsRagdolling() const { return HitReaction && HitReaction->IsRagdolling(); }

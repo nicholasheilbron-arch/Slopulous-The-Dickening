@@ -8,6 +8,7 @@
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/ShamanCharacter.h"
 #include "Characters/ShamanUnitAIController.h"
+#include "Player/ShamanPlayerController.h"
 #include "Tribes/TribeSubsystem.h"
 #include "Tribes/TribeTaskTypes.h"
 #include "Tribes/TribeTaskExecution.h"
@@ -40,6 +41,7 @@ AShamanGameMode::AShamanGameMode()
 	PrimaryActorTick.bCanEverTick = true;
 	DefaultPawnClass = AShamanCharacter::StaticClass();
 	HUDClass = AShamanHUD::StaticClass();
+	PlayerControllerClass = AShamanPlayerController::StaticClass(); // RTS / Shaman hybrid controls (starts in RTS mode)
 	UnitClass = AShamanUnitBase::StaticClass();
 	ShamanClass = AShamanCharacter::StaticClass();
 	DefaultGameDataPath = TSoftObjectPtr<UShamanGameData>(FSoftObjectPath(TEXT("/Game/Data/DA_ShamanGameData.DA_ShamanGameData")));

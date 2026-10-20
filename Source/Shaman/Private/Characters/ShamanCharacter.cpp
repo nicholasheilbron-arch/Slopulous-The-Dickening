@@ -379,11 +379,11 @@ void AShamanCharacter::ShamanUnlockAllSpells()
 	int32 Learned = 0, Working = 0, Total = 0;
 	for (const FName& Id : Spells->SpellTable->GetRowNames())
 	{
-		const FSpellRow* Row = Spells->GetSpellRow(Id);
-		if (!Row || !FSpellChargeRules::IsChargeable(*Row)) continue; // super spells only come as temporary charges
+		const FSpellRow* SpellRow = Spells->GetSpellRow(Id);
+		if (!SpellRow || !FSpellChargeRules::IsChargeable(*SpellRow)) continue; // super spells only come as temporary charges
 		++Total;
 		if (!Spells->IsPermanentSpell(Id)) { Spells->LearnSpell(Id); ++Learned; }
-		Spells->SetStoredChargesForTest(Id, FSpellChargeRules::GetMaxCharges(*Row));
+		Spells->SetStoredChargesForTest(Id, FSpellChargeRules::GetMaxCharges(*SpellRow));
 		if (Spells->IsSpellImplemented(Id)) ++Working;
 	}
 	ReportSpellConsole(FString::Printf(TEXT("CHEAT: unlocked %d new spell(s) (%d permanent spells in total, %d with a working effect); all charges full.%s"),

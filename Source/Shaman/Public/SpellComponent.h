@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "SpellRow.h"
+#include "Tribes/TribeMana.h"
 #include "SpellComponent.generated.h"
 
 class UDataTable;
@@ -31,6 +32,8 @@ struct SHAMAN_API FSpellChargeRules
 	static constexpr int32 MaxChargesLimit = 4;
 	/** Row MaxCharges clamped to 0..4 (0 = cannot hold permanent charges). */
 	static int32 GetMaxCharges(const FSpellRow& Row);
+	/** Mana to fill one charge (FSpellRow::ChargeManaCost). */
+	static float GetChargeCost(const FSpellRow& Row) { return Row.ChargeManaCost; }
 	/** A permanently known spell can charge when the row defines charges and a positive mana cost per charge. */
 	static bool IsChargeable(const FSpellRow& Row);
 	/**
@@ -49,10 +52,11 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnSpellbookChanged, FName /*SpellId (None =
  *  Projectile spells spawn a projectile; every other spell fires OnSpellCast for an effect handler to implement.
  *
  *  Spell charges (bUseChargeEconomy, on for the player tribe's Shaman): the single source of truth for the spell panel.
- *   - Permanent spells hold up to FSpellRow::MaxCharges (1-4) charges. Charging spells are paid from the shared mana
- *     economy in fixed steps (ChargeStepSeconds): each step the tribe's mana generation (GetManaRegen * step) is added
- *     to Mana as before, and that same step's generation - never more, and never more than Mana holds - is split
- *     between the charging spells (FSpellChargeRules::SplitBudget). No generation, no progress; nothing is created.
+ *   - Permanent spells hold up to FSpellRow::MaxCharges (1-4) charges; one charge costs FSpellRow::ChargeManaCost.
+ *   - Each fixed step (ChargeStepSeconds) the step's new mana (GetManaRegen * step) is split between the spell and
+ *     training pipelines (FTribeManaRules::SplitPipelines: 50/50, or 100% to the only active one). The spell share is
+ *     divided fairly between the charging spells (FSpellChargeRules::SplitBudget). Whatever nothing uses is banked in
+ *     Mana up to MaxMana and wasted past that. Banked mana is not drawn back by charging: only new mana charges spells.
  *   - Casting then needs a charge instead of mana: a successful cast uses one temporary charge if there is one,
  *     otherwise one permanent charge. Failed casts use nothing. Mana is not spent at cast time.
  *   - Temporary charges (AddCharges: Stone Heads, test fixtures) never recharge and never draw mana. A spell known only
@@ -80,6 +84,14 @@ public:
 
 	/** Spell charges instead of mana-at-cast (see class comment). Set by AShamanCharacter for the player tribe. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") bool bUseChargeEconomy = false;
+	/** Populous tribe mana: generation comes only from the owner's living tribe members by activity
+	 *  (FTribeManaRules); GetManaRegen() then ignores BaseRegen / RegenPerFollower. Set with the charge economy for the
+	 *  player tribe. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") bool bTribeManaGeneration = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") FTribeManaConfig ManaConfig;
+	/** Training huts currently training (0 until training exists). While > 0, new mana is split between spells and
+	 *  training (FTribeManaConfig::SpellShareWhileTraining). */
+	UPROPERTY(BlueprintReadWrite, Category="Charges") int32 ActiveTrainingConsumers = 0;
 	/** Fixed economy step: results depend only on elapsed game time, never on frame rate. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges", meta=(ClampMin="0.01")) float ChargeStepSeconds = 0.1f;
 
@@ -88,7 +100,10 @@ public:
 	FOnSpellbookChanged OnSpellbookChanged;
 
 	UFUNCTION(BlueprintCallable) bool CastSpell(FName SpellId, FVector AimTarget);
+	/** Mana per second (tribe mana: sum of member rates / 60; otherwise the Phase 1 formula). */
 	UFUNCTION(BlueprintCallable) float GetManaRegen() const;
+	/** Who makes the tribe's mana now (tribe mana only; empty otherwise). */
+	FTribeManaBreakdown GetManaBreakdown() const;
 	/** Permanent learn. New entries start with 0 stored charges and charging = row bChargingByDefault. Learning a spell
 	 *  that is already permanent changes nothing; other spells are never touched. */
 	UFUNCTION(BlueprintCallable) void LearnSpell(FName SpellId);
@@ -140,6 +155,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetActiveChargingCount() const;
 	/** Mana per second spent on charges in the last step (HUD). */
 	UFUNCTION(BlueprintCallable, Category="Charges") float GetChargeDrawPerSecond() const { return LastDrawPerSecond; }
+	/** Last step's flow, per second: generated, to training, banked in the pool, wasted (pool full). */
+	float GetGeneratedPerSecond() const { return LastGeneratedPerSecond; }
+	float GetTrainingPerSecond() const { return LastTrainingPerSecond; }
+	float GetBankedPerSecond() const { return LastBankedPerSecond; }
+	float GetWastedPerSecond() const { return LastWastedPerSecond; }
 	/** Test / cheat: set permanent stored charges directly (clamped to 0..Max). */
 	void SetStoredChargesForTest(FName SpellId, int32 Charges);
 
@@ -156,7 +176,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 private:
-	void ChargeStep(float Step);
+	void ChargeStep(float Step, float RegenPerSecond);
 	void ConsumeCharge(FName SpellId);
 	void NotifySpellbookChanged(FName SpellId) { OnSpellbookChanged.Broadcast(SpellId); }
 
@@ -166,4 +186,5 @@ private:
 	TArray<FName> MapSpellIds;
 	float ChargeTimeAccumulator = 0.f;
 	float LastDrawPerSecond = 0.f;
+	float LastGeneratedPerSecond = 0.f, LastTrainingPerSecond = 0.f, LastBankedPerSecond = 0.f, LastWastedPerSecond = 0.f;
 };

@@ -30,6 +30,8 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
 	M.bChargeEconomy = Spells->bUseChargeEconomy;
 	M.ManaRegen = Spells->GetManaRegen();
 	M.ChargeDrawPerSecond = Spells->GetChargeDrawPerSecond();
+	M.WastedPerSecond = Spells->GetWastedPerSecond();
+	M.bTribeMana = Spells->bTribeManaGeneration;
 	M.ActiveCharging = Spells->GetActiveChargingCount();
 	M.Mana = Spells->Mana;
 	M.MaxMana = Spells->MaxMana;
@@ -47,6 +49,7 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
 		{
 			S.bSuperSpell = Row->bSuperSpell;
 			S.ManaCost = (Row->bSuperSpell && !M.bChargeEconomy) ? 0.f : Row->ManaCost;
+			S.ChargeCost = FSpellChargeRules::GetChargeCost(*Row);
 			S.CooldownTotal = Row->Cooldown;
 			S.bImplemented = IsSpellImplemented(*Row, Spells, Effects);
 			if (bReveal && !Row->Icon.IsNull()) S.Icon = Row->Icon.LoadSynchronous();

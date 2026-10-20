@@ -15,6 +15,8 @@
 #include "Engine/DataTable.h"
 #include "GameFramework/HUD.h"
 #include "EngineUtils.h"
+#include "TribeMemberComponent.h"
+#include "Characters/HealthComponent.h"
 #include "ShamanTribeTestWorld.h"
 
 /**
@@ -50,7 +52,7 @@ namespace ShamanSpellChargeTestsPrivate
 		float Cooldown = 0.f, float RangeRaw = 100.f, bool bChargingByDefault = false)
 	{
 		FSpellRow R;
-		R.Targeting = Targeting; R.ManaCost = Cost; R.MaxCharges = MaxCharges; R.EffectId = EffectId; R.Cooldown = Cooldown;
+		R.Targeting = Targeting; R.ManaCost = Cost; R.ChargeManaCost = Cost; R.MaxCharges = MaxCharges; R.EffectId = EffectId; R.Cooldown = Cooldown;
 		R.RangeRaw = RangeRaw; R.Radius = 300.f; R.bChargingByDefault = bChargingByDefault;
 		return R;
 	}
@@ -116,7 +118,7 @@ namespace ShamanSpellChargeTestsPrivate
 		float Sum = 0.f;
 		for (const FName& Id : S->KnownSpellIds)
 			if (const FSpellRow* Row = S->GetSpellRow(Id))
-				Sum += S->GetStoredCharges(Id) * Row->ManaCost + FMath::Max(0.f, ProgressMana(S, Id));
+				Sum += S->GetStoredCharges(Id) * Row->ChargeManaCost + FMath::Max(0.f, ProgressMana(S, Id));
 		return Sum;
 	}
 
@@ -481,6 +483,9 @@ bool FShamanChargeInitialStateTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Only Blast is learned"), S->KnownSpellIds.Num() == 1 && S->KnownSpellIds[0] == Blast && S->IsPermanentSpell(Blast));
 	TestTrue(TEXT("Blast is charging, with no stored charge yet"), S->IsCharging(Blast) && S->GetStoredCharges(Blast) == 0);
 	TestEqual(TEXT("Blast holds 4 charges"), S->GetMaxCharges(Blast), 4);
+	TestTrue(TEXT("Populous tribe mana: generation from tribe members, empty pool at level start"),
+		S->bTribeManaGeneration && S->Mana == W.Data->Mana.StartingMana && S->Mana == 0.f && S->MaxMana == W.Data->Mana.PoolCap);
+	TestEqual(TEXT("Blast charge costs 100 (Populous scale)"), S->GetSpellRow(Blast)->ChargeManaCost, 100.f);
 	TestEqual(TEXT("Exactly one spell draws mana"), S->GetActiveChargingCount(), 1);
 	bool bOthersIdle = true;
 	for (const FName& Id : S->SpellTable->GetRowNames())
@@ -649,6 +654,118 @@ bool FShamanChargeModeSwitchTest::RunTest(const FString& Parameters)
 		FShamanSpellPanelModel::Build(S, S0->EffectDispatcher, S0->GetSelectedSpellId()).Slots.Num(), SlotsBefore);
 	PC->UnPossess();
 	PC->Destroy();
+	return true;
+}
+
+// ---- Populous mana economy -------------------------------------------------------------------------------------------
+
+// Rates per member and activity; the 50/50 spells / training split and its overrides.
+SHAMAN_CHARGE_TEST(FShamanManaRulesTest, "Shaman.Spells.Mana.Rules")
+bool FShamanManaRulesTest::RunTest(const FString& Parameters)
+{
+	const FTribeManaConfig C;
+	auto Rate = [&C](bool bShaman, EUnitRole Role, EUnitSimState State, bool bAlive)
+		{ return FTribeManaRules::RatePerMinute(bShaman, Role, State, bAlive, C); };
+	TestEqual(TEXT("Shaman alive: 66.6 / min"), Rate(true, EUnitRole::Shaman, EUnitSimState::Idle, true), 66.6f, 1e-3f);
+	TestEqual(TEXT("Shaman dead: nothing"), Rate(true, EUnitRole::Shaman, EUnitSimState::Idle, false), 0.f);
+	TestEqual(TEXT("Brave working: 34.6"), Rate(false, EUnitRole::Brave, EUnitSimState::Working, true), 34.6f, 1e-3f);
+	TestEqual(TEXT("Brave resting in a hut: 34.6"), Rate(false, EUnitRole::Brave, EUnitSimState::Sleeping, true), 34.6f, 1e-3f);
+	TestEqual(TEXT("Brave following: 11.3"), Rate(false, EUnitRole::Brave, EUnitSimState::Following, true), 11.3f, 1e-3f);
+	TestEqual(TEXT("Warrior guarding / patrolling: 11.3"), Rate(false, EUnitRole::Warrior, EUnitSimState::Guarding, true), 11.3f, 1e-3f);
+	TestEqual(TEXT("Warrior 'working' counts as moving, never the Brave rate"), Rate(false, EUnitRole::Warrior, EUnitSimState::Working, true), 11.3f, 1e-3f);
+	TestEqual(TEXT("Idle follower: 9.1"), Rate(false, EUnitRole::Brave, EUnitSimState::Idle, true), 9.1f, 1e-3f);
+	TestEqual(TEXT("Dead follower: nothing"), Rate(false, EUnitRole::Brave, EUnitSimState::Dead, false), 0.f);
+	TestEqual(TEXT("Unavailable follower: nothing"), Rate(false, EUnitRole::Brave, EUnitSimState::Unavailable, true), 0.f);
+	TestEqual(TEXT("No passive generation: starting pool 0"), C.StartingMana, 0.f);
+
+	float Sp = 0.f, Tr = 0.f;
+	FTribeManaRules::SplitPipelines(10.f, true, true, C.SpellShareWhileTraining, Sp, Tr);
+	TestTrue(TEXT("Spells and training: 50 / 50"), FMath::IsNearlyEqual(Sp, 5.f) && FMath::IsNearlyEqual(Tr, 5.f));
+	FTribeManaRules::SplitPipelines(10.f, true, false, C.SpellShareWhileTraining, Sp, Tr);
+	TestTrue(TEXT("No training: 100% to spells"), Sp == 10.f && Tr == 0.f);
+	FTribeManaRules::SplitPipelines(10.f, false, true, C.SpellShareWhileTraining, Sp, Tr);
+	TestTrue(TEXT("No spells charging: 100% to training"), Sp == 0.f && Tr == 10.f);
+	FTribeManaRules::SplitPipelines(10.f, false, false, C.SpellShareWhileTraining, Sp, Tr);
+	TestTrue(TEXT("Neither: nothing allocated (banked or wasted)"), Sp == 0.f && Tr == 0.f);
+	return true;
+}
+
+// The real tribe makes the mana: Shaman + Braves by activity; it all goes into Blast from an empty pool; unused mana
+// is banked, and wasted once the pool is full.
+SHAMAN_CHARGE_TEST(FShamanManaTribeTest, "Shaman.Spells.Mana.TribeGeneration")
+bool FShamanManaTribeTest::RunTest(const FString& Parameters)
+{
+	using namespace ShamanSpellChargeTestsPrivate;
+	using namespace ShamanTribeTestsPrivate;
+	FTribeTestWorld W;
+	if (!TestTrue(TEXT("Production spell table has the charge columns (reimport Content/Data/Spells.csv)"),
+		USpellComponent::TableHasChargeData(W.Data->SpellTable))) return false;
+	AShamanCharacter* S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
+	TArray<AShamanUnitBase*> Braves;
+	for (int32 i = 0; i < 3; ++i) Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
+	USpellComponent* S = S0->Spells;
+	if (!TestTrue(TEXT("Player Shaman uses tribe mana"), S->bTribeManaGeneration)) return false;
+	const FTribeManaConfig& C = S->ManaConfig;
+
+	// No AI controller in this test world: the Braves stand idle.
+	FTribeManaBreakdown B = S->GetManaBreakdown();
+	TestTrue(TEXT("Shaman + 3 idle Braves"), B.bShamanAlive && B.Idle == 3 && B.Working == 0 && B.Moving == 0);
+	TestEqual(TEXT("66.6 + 3 x 9.1 = 93.9 / min"), S->GetManaRegen() * 60.f, C.ShamanPerMinute + 3.f * C.IdlePerMinute, 1e-2f);
+	Braves[0]->TribeMember->SetActivity(EUnitSimState::Working);
+	Braves[1]->TribeMember->SetActivity(EUnitSimState::Following);
+	B = S->GetManaBreakdown();
+	TestTrue(TEXT("1 working, 1 moving, 1 idle"), B.Working == 1 && B.Moving == 1 && B.Idle == 1);
+	const float Expected = C.ShamanPerMinute + C.BraveWorkingPerMinute + C.MovingPerMinute + C.IdlePerMinute;
+	TestEqual(TEXT("66.6 + 34.6 + 11.3 + 9.1 = 121.6 / min"), S->GetManaRegen() * 60.f, Expected, 1e-2f);
+	Braves[2]->Health->Kill(nullptr);
+	TestEqual(TEXT("A dead Brave makes nothing"), S->GetManaRegen() * 60.f, Expected - C.IdlePerMinute, 1e-2f);
+	const float PerMinute = S->GetManaRegen() * 60.f; // 112.5
+
+	// Level start: empty pool, everything made goes into Blast (the only charging spell).
+	TestEqual(TEXT("Pool starts empty"), S->Mana, 0.f);
+	S->AdvanceChargeEconomy(30.f);
+	TestEqual(TEXT("30 s: half a minute of mana is in Blast's progress"), S->GetChargeState(Blast)->ProgressMana, PerMinute * 0.5f, 0.1f);
+	TestEqual(TEXT("... nothing banked while Blast charges"), S->Mana, 0.f, 1e-3f);
+	TestEqual(TEXT("... all of it reported as going to spells"), S->GetChargeDrawPerSecond() * 60.f, PerMinute, 0.1f);
+	S->AdvanceChargeEconomy(30.f);
+	TestEqual(TEXT("60 s at 112.5 / min: first Blast charge (cost 100)"), S->GetStoredCharges(Blast), 1);
+
+	// Nothing charging: mana is banked in the pool, then wasted once the pool is full.
+	S->SetSpellCharging(Blast, false);
+	S->AdvanceChargeEconomy(10.f);
+	TestEqual(TEXT("Charging off: the mana is banked"), S->Mana, PerMinute / 6.f, 0.1f);
+	TestEqual(TEXT("... none wasted yet"), S->GetWastedPerSecond(), 0.f);
+	S->Mana = S->MaxMana;
+	S->AdvanceChargeEconomy(1.f);
+	TestTrue(TEXT("Pool full and nothing charging: mana is wasted (HUD flashes red)"), S->Mana == S->MaxMana && S->GetWastedPerSecond() > 0.f);
+	S->SetSpellCharging(Blast, true);
+	S->AdvanceChargeEconomy(1.f);
+	TestEqual(TEXT("Charging again: no waste"), S->GetWastedPerSecond(), 0.f);
+	TestEqual(TEXT("Banked mana is not drawn back into charging (only new mana charges spells)"), S->Mana, S->MaxMana);
+	return true;
+}
+
+// Spells share new mana 50/50 with training while units train; training alone takes it all.
+SHAMAN_CHARGE_TEST(FShamanManaTrainingSplitTest, "Shaman.Spells.Mana.TrainingSplit")
+bool FShamanManaTrainingSplitTest::RunTest(const FString& Parameters)
+{
+	using namespace ShamanSpellChargeTestsPrivate;
+	FChargeTestWorld TW;
+	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable()); // 1 mana per 0.25 s step
+	USpellComponent* S = C.Spells;
+	S->LearnSpell(Blast);
+	S->ActiveTrainingConsumers = 1; // a training hut at work (training itself is not implemented yet)
+	S->AdvanceChargeEconomy(1.25f);
+	TestEqual(TEXT("With training on, Blast gets half: 2.5 of 5 after 1.25 s"), ProgressMana(S, Blast), 2.5f, 1e-3f);
+	TestEqual(TEXT("... and training the other half (2 / s)"), S->GetTrainingPerSecond(), 2.f, 1e-3f);
+	TestEqual(TEXT("... nothing banked"), S->Mana, 0.f, 1e-3f);
+	S->SetSpellCharging(Blast, false);
+	S->AdvanceChargeEconomy(1.f);
+	TestTrue(TEXT("No spell charging: training gets 100%"), FMath::IsNearlyEqual(S->GetTrainingPerSecond(), 4.f, 1e-3f) && FMath::IsNearlyZero(S->Mana, 1e-3f));
+	S->ActiveTrainingConsumers = 0;
+	S->SetSpellCharging(Blast, true);
+	S->AdvanceChargeEconomy(0.25f);
+	TestEqual(TEXT("No training: spells get 100% again"), S->GetChargeDrawPerSecond(), 4.f, 1e-3f);
 	return true;
 }
 

@@ -43,12 +43,15 @@ struct SHAMAN_API FSpellRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<USoundBase> ImpactSound;
 
 	// ---- Spell charges (spell panel slice) -------------------------------------------------------------------------
-	// Used when the caster's USpellComponent runs the charge economy (player tribe). ManaCost above is then the mana
-	// needed to fill ONE charge (paid while charging, not at cast time). Values are explicit per spell; nothing is
-	// inferred from rarity, icons or other columns.
+	// Used when the caster's USpellComponent runs the charge economy (player tribe): mana is paid while charging
+	// (ChargeManaCost per charge), not at cast time. Values are explicit per spell; nothing is inferred from rarity,
+	// icons or other columns.
 	/** Stored charges a permanently learned spell can hold (1-4). 0 = cannot be learned permanently / never charges
 	 *  (super spells that only come as temporary charges from monuments). Values above 4 are clamped to 4. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0", ClampMax="4")) int32 MaxCharges = 0;
+	/** Mana to fill ONE charge under the charge economy, in the tribe-mana units of FTribeManaConfig (Populous scale:
+	 *  Blast 100). ManaCost above stays the Phase 1 per-cast price used by AI Shamans (mana-at-cast). 0 = cannot charge. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) float ChargeManaCost = 0.f;
 	/** Charging is switched on when the spell is learned (level start for starting spells). Off for everything but
 	 *  Blast in Spells.csv; the player toggles charging with right-click on the panel. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bChargingByDefault = false;

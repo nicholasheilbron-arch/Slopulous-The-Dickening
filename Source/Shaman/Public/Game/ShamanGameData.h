@@ -4,6 +4,7 @@
 #include "World/WorldGenTypes.h"
 #include "Tribes/TribeDefinitions.h"
 #include "Tribes/TribeTaskExecution.h"
+#include "Tribes/TribeMana.h"
 #include "ShamanGameData.generated.h"
 
 class UDataTable;
@@ -61,6 +62,8 @@ public:
 	 *  instead of paying mana at cast time. AI Shamans keep the Phase 1 mana-at-cast rule. Falls back to mana-at-cast
 	 *  (with a HUD warning) when the spell table has no charge columns yet. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") bool bPlayerUsesSpellCharges = true;
+	/** Populous tribe mana for the player tribe (per-member rates per minute, starting pool, cap, spells/training split). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") FTribeManaConfig Mana;
 	/** Projectile class per spell EffectId. Defaults FireBlast -> ADefaultSpellProjectile (placeholder visual). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TMap<FName, TSubclassOf<ASpellProjectile>> ProjectileClasses;
 

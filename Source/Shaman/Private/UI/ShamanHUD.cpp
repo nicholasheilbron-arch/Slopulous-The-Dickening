@@ -74,18 +74,42 @@ void AShamanHUD::DrawHUD()
 	const int32 Followers = MyTribeComp ? MyTribeComp->GetPopulationUsed() : 0; // same units as the capacity check
 	const int32 Cap = Tribes ? Tribes->GetPopulationCapacity(MyTribe) : 0;
 
-	// Bars (bottom-left).
+	// Bars (bottom-left). Tribe mana adds two flow lines, so the block starts higher.
+	const bool bTribeMana = S->Spells->bTribeManaGeneration;
 	const float BX = 30.f * UI, BW = 320.f * UI, BH = 22.f * UI;
-	float BY = SH - 110.f * UI;
+	float BY = SH - (bTribeMana ? 150.f : 110.f) * UI;
 	DrawBar(BX, BY, BW, BH, S->Health->GetHealthFraction(), FLinearColor(0.75f, 0.1f, 0.1f),
 		FString::Printf(TEXT("Health %.0f / %.0f"), S->Health->Health, S->Health->MaxHealth));
 	BY += BH + 10.f * UI;
-	DrawBar(BX, BY, BW, BH, S->Spells->Mana / FMath::Max(1.f, S->Spells->MaxMana), FLinearColor(0.15f, 0.35f, 0.95f),
-		S->Spells->bUseChargeEconomy // charge economy: generation feeds charging spells first, the rest is stored
-		? FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s   (-%.2f/s to %d charging)"), S->Spells->Mana, S->Spells->MaxMana,
-			S->Spells->GetManaRegen(), S->Spells->GetChargeDrawPerSecond(), S->Spells->GetActiveChargingCount())
-		: FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
-	BY += BH + 10.f * UI;
+	if (!bTribeMana)
+	{
+		DrawBar(BX, BY, BW, BH, S->Spells->Mana / FMath::Max(1.f, S->Spells->MaxMana), FLinearColor(0.15f, 0.35f, 0.95f),
+			FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
+		BY += BH + 10.f * UI;
+	}
+	else
+	{
+		// Populous mana: who makes it, where it goes this moment, and a red flash when the full pool throws it away.
+		const USpellComponent* Sp = S->Spells;
+		const FTribeManaBreakdown Made = Sp->GetManaBreakdown();
+		const bool bWasting = Sp->GetWastedPerSecond() > 0.f;
+		const bool bFlash = bWasting && FMath::Fmod((float)GetWorld()->GetRealTimeSeconds(), 0.8f) < 0.4f;
+		DrawBar(BX, BY, BW, BH, Sp->Mana / FMath::Max(1.f, Sp->MaxMana), bFlash ? FLinearColor(0.9f, 0.1f, 0.08f) : FLinearColor(0.15f, 0.35f, 0.95f),
+			FString::Printf(TEXT("Mana pool %.0f / %.0f      +%.1f / min"), Sp->Mana, Sp->MaxMana, Made.PerMinute));
+		BY += BH + 6.f * UI;
+		const float ToSpells = Sp->GetChargeDrawPerSecond() * 60.f, ToTraining = Sp->GetTrainingPerSecond() * 60.f;
+		const FString Flow = bWasting
+			? FString::Printf(TEXT("POOL FULL: %.1f / min wasted - right-click a spell to charge it"), Sp->GetWastedPerSecond() * 60.f)
+			: FString::Printf(TEXT("-> Spells %.1f / min (%d charging)   Training %.1f / min   Pool +%.1f / min"),
+				ToSpells, Sp->GetActiveChargingCount(), ToTraining, Sp->GetBankedPerSecond() * 60.f);
+		DrawLine(Flow, BX, BY, bWasting ? FLinearColor(1.f, 0.3f, 0.25f) : FLinearColor(0.75f, 0.85f, 1.f), 0.75f * UI);
+		BY += 18.f * UI;
+		const FTribeManaConfig& C = Sp->ManaConfig;
+		DrawLine(FString::Printf(TEXT("Made by: Shaman %.1f   %d working x%.1f   %d moving x%.1f   %d idle x%.1f"),
+			Made.bShamanAlive ? C.ShamanPerMinute : 0.f, Made.Working, C.BraveWorkingPerMinute, Made.Moving, C.MovingPerMinute,
+			Made.Idle, C.IdlePerMinute), BX, BY, FLinearColor(1.f, 1.f, 1.f, 0.6f), 0.7f * UI);
+		BY += 22.f * UI;
+	}
 	DrawLine(FString::Printf(TEXT("Followers %d / %d   (more followers = faster mana & rebirth)"), Followers, Cap), BX, BY, FLinearColor::White, 0.85f * UI);
 
 	if (!S->Spells->SpellTable)
@@ -456,12 +480,12 @@ void AShamanHUD::DrawSpellTooltip(const FShamanSpellSlot& Slot, const FBox2D& Ti
 		{
 			Lines.Add(FString::Printf(TEXT("Charges %d / %d%s"), Slot.StoredCharges, Slot.MaxCharges,
 				Slot.TemporaryCharges > 0 ? *FString::Printf(TEXT("   +%d temporary"), Slot.TemporaryCharges) : TEXT("")));
-			Lines.Add(FString::Printf(TEXT("%.0f mana per charge"), Slot.ManaCost));
+			Lines.Add(FString::Printf(TEXT("%.0f mana per charge"), Slot.ChargeCost));
 			if (Slot.bFull) Lines.Add(TEXT("Full: not drawing mana"));
 			else if (!Slot.bCharging) Lines.Add(FString::Printf(TEXT("Charging OFF (%.0f%% kept)%s"), Slot.Progress01 * 100.f, bRTS ? TEXT(" - right-click to charge") : TEXT("")));
 			else if (Slot.ManaPerSecond > 0.f)
-				Lines.Add(FString::Printf(TEXT("Charging: %.2f mana/s, next charge in %.1fs"), Slot.ManaPerSecond,
-					FMath::Max(0.f, Slot.ManaCost - Slot.ProgressMana) / Slot.ManaPerSecond));
+				Lines.Add(FString::Printf(TEXT("Charging: %.1f mana / min, next charge in %.0fs"), Slot.ManaPerSecond * 60.f,
+					FMath::Max(0.f, Slot.ChargeCost - Slot.ProgressMana) / Slot.ManaPerSecond));
 			else Lines.Add(TEXT("Charging: waiting for mana"));
 		}
 		else if (Slot.TemporaryCharges > 0)
@@ -508,8 +532,10 @@ void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, f
 	const float FX = PanelRect.Min.X + 7.f * UI, FW = PanelRect.GetSize().X - 14.f * UI;
 	if (PanelModel.bChargeEconomy)
 	{
-		DrawLine(FString::Printf(TEXT("Mana +%.2f/s   %d charging"), PanelModel.ManaRegen, PanelModel.ActiveCharging),
-			PanelRect.GetCenter().X, FootY, FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
+		const bool bWasting = PanelModel.WastedPerSecond > 0.f;
+		DrawLine(bWasting ? FString::Printf(TEXT("Pool full: %.0f / min wasted"), PanelModel.WastedPerSecond * 60.f)
+			: FString::Printf(TEXT("+%.1f / min -> %d charging"), PanelModel.ManaRegen * 60.f, PanelModel.ActiveCharging),
+			PanelRect.GetCenter().X, FootY, bWasting ? FLinearColor(1.f, 0.3f, 0.25f) : FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
 		// Share of this second's generation going into charges.
 		const float Frac = PanelModel.ManaRegen > 0.f ? FMath::Clamp(PanelModel.ChargeDrawPerSecond / PanelModel.ManaRegen, 0.f, 1.f) : 0.f;
 		const float BarY = FootY + 15.f * UI;

@@ -1,6 +1,9 @@
 #include "SpellComponent.h"
 #include "SpellProjectile.h"
 #include "SpellEffectDispatcherComponent.h"
+#include "Characters/ShamanUnitBase.h"
+#include "TribeComponent.h"
+#include "TribeMemberComponent.h"
 #include "Engine/DataTable.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
@@ -17,7 +20,7 @@ int32 FSpellChargeRules::GetMaxCharges(const FSpellRow& Row)
 
 bool FSpellChargeRules::IsChargeable(const FSpellRow& Row)
 {
-	return !Row.bSuperSpell && GetMaxCharges(Row) > 0 && Row.ManaCost > 0.f;
+	return !Row.bSuperSpell && GetMaxCharges(Row) > 0 && GetChargeCost(Row) > 0.f;
 }
 
 void FSpellChargeRules::SplitBudget(float Budget, const TArray<float>& Needs, TArray<float>& OutGiven)
@@ -46,8 +49,32 @@ void FSpellChargeRules::SplitBudget(float Budget, const TArray<float>& Needs, TA
 
 USpellComponent::USpellComponent() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.TickInterval = 0.1f; }
 
+FTribeManaBreakdown USpellComponent::GetManaBreakdown() const
+{
+	FTribeManaBreakdown B;
+	if (!bTribeManaGeneration) return B;
+	const AShamanUnitBase* Self = Cast<AShamanUnitBase>(GetOwner());
+	B.bShamanAlive = Self && Self->IsAlive();
+	if (B.bShamanAlive) B.PerMinute += FTribeManaRules::RatePerMinute(true, EUnitRole::Shaman, EUnitSimState::Idle, true, ManaConfig);
+	const UTribeComponent* Tribe = GetOwner() ? GetOwner()->FindComponentByClass<UTribeComponent>() : nullptr;
+	if (!Tribe) return B;
+	for (const UTribeMemberComponent* M : Tribe->GetFollowers())
+	{
+		if (!M || M->GetOwner() == GetOwner()) continue; // the Shaman is counted above
+		const AShamanUnitBase* U = Cast<AShamanUnitBase>(M->GetOwner());
+		const EUnitRole Role = U ? U->GetRow().Role : EUnitRole::Brave;
+		const ETribeManaActivity Activity = FTribeManaRules::Classify(false, Role, M->GetSimState(), M->IsAlive());
+		B.PerMinute += FTribeManaRules::RateFor(Activity, ManaConfig);
+		B.Working += Activity == ETribeManaActivity::Working ? 1 : 0;
+		B.Moving += Activity == ETribeManaActivity::Moving ? 1 : 0;
+		B.Idle += Activity == ETribeManaActivity::Idle ? 1 : 0;
+	}
+	return B;
+}
+
 float USpellComponent::GetManaRegen() const
 {
+	if (bTribeManaGeneration) return GetManaBreakdown().PerMinute / 60.f; // Populous: only living members make mana
 	return BaseRegen * (1.f + RegenPerFollower * FollowerCount) * TemporaryModifier;
 }
 
@@ -66,20 +93,20 @@ void USpellComponent::AdvanceChargeEconomy(float Seconds)
 {
 	if (Seconds <= 0.f) return;
 	const float Step = FMath::Max(0.01f, ChargeStepSeconds);
+	const float Regen = GetManaRegen(); // the tribe is read once per call (units change state far slower than a step)
 	ChargeTimeAccumulator += Seconds;
 	for (int32 Guard = 0; ChargeTimeAccumulator >= Step && Guard < 1000; ++Guard) // 1000 steps = 100 s at the default step
 	{
 		ChargeTimeAccumulator -= Step;
-		ChargeStep(Step);
+		ChargeStep(Step, Regen);
 	}
 	if (ChargeTimeAccumulator >= Step) ChargeTimeAccumulator = 0.f; // pathological hitch: drop the backlog
 }
 
-void USpellComponent::ChargeStep(float Step)
+void USpellComponent::ChargeStep(float Step, float RegenPerSecond)
 {
-	// 1. The existing mana economy: follower-driven generation into the shared pool.
-	const float Generated = FMath::Max(0.f, GetManaRegen() * Step);
-	Mana = FMath::Min(MaxMana, Mana + Generated);
+	// 1. New mana this step (tribe members only; nothing is created anywhere else).
+	const float Generated = FMath::Max(0.f, RegenPerSecond * Step);
 
 	// 2. Spells charging this step, in spellbook order (deterministic).
 	struct FActive { FName Id; FSpellChargeState* State; float Cost; int32 Max; };
@@ -94,20 +121,22 @@ void USpellComponent::ChargeStep(float Step)
 		const FSpellRow* Row = GetSpellRow(Id);
 		if (!Row || !FSpellChargeRules::IsChargeable(*Row) || !IsSpellImplemented(Id)) continue;
 		const int32 Max = FSpellChargeRules::GetMaxCharges(*Row);
+		const float Cost = FSpellChargeRules::GetChargeCost(*Row);
 		if (S->StoredCharges >= Max) { S->ProgressMana = 0.f; continue; } // full: draws nothing
-		const float Need = (Max - S->StoredCharges) * Row->ManaCost - S->ProgressMana;
+		const float Need = (Max - S->StoredCharges) * Cost - S->ProgressMana;
 		if (Need <= 0.f) continue;
-		Active.Add({ Id, S, Row->ManaCost, Max });
+		Active.Add({ Id, S, Cost, Max });
 		Needs.Add(Need);
 	}
-	LastDrawPerSecond = 0.f;
-	if (Active.Num() == 0) return;
 
-	// 3. Charging may use this step's generation only, and only what the pool really holds.
-	const float Budget = FMath::Min(Generated, FMath::Max(0.f, Mana));
+	// 3. Populous split: spells / training 50-50, or 100% to the only active pipeline.
+	float SpellBudget = 0.f, TrainingBudget = 0.f;
+	FTribeManaRules::SplitPipelines(Generated, Active.Num() > 0, ActiveTrainingConsumers > 0, ManaConfig.SpellShareWhileTraining,
+		SpellBudget, TrainingBudget);
+
+	// 4. The spell share is divided fairly between the charging spells.
 	TArray<float> Given;
-	FSpellChargeRules::SplitBudget(Budget, Needs, Given);
-
+	FSpellChargeRules::SplitBudget(SpellBudget, Needs, Given);
 	float Spent = 0.f;
 	bool bChargeGained = false;
 	for (int32 i = 0; i < Active.Num(); ++i)
@@ -124,8 +153,16 @@ void USpellComponent::ChargeStep(float Step)
 		}
 		if (S.StoredCharges >= Active[i].Max) S.ProgressMana = 0.f; // never progress past the maximum
 	}
-	Mana = FMath::Max(0.f, Mana - Spent);
+
+	// 5. Anything unused (nothing charging / training, or spells topping out) is banked; past the cap it is wasted.
+	const float Unused = FMath::Max(0.f, Generated - Spent - TrainingBudget);
+	const float Banked = FMath::Clamp(MaxMana - Mana, 0.f, Unused);
+	Mana += Banked;
+	LastGeneratedPerSecond = Generated / Step;
 	LastDrawPerSecond = Spent / Step;
+	LastTrainingPerSecond = TrainingBudget / Step; // no training consumer exists yet (ActiveTrainingConsumers stays 0)
+	LastBankedPerSecond = Banked / Step;
+	LastWastedPerSecond = (Unused - Banked) / Step;
 	if (bChargeGained) NotifySpellbookChanged(NAME_None);
 }
 
@@ -206,7 +243,10 @@ bool USpellComponent::TableHasChargeData(const UDataTable* Table)
 {
 	if (!Table || Table->GetRowStruct() != FSpellRow::StaticStruct()) return false;
 	for (const TPair<FName, uint8*>& It : Table->GetRowMap())
-		if (It.Value && reinterpret_cast<const FSpellRow*>(It.Value)->MaxCharges > 0) return true;
+	{
+		const FSpellRow* Row = reinterpret_cast<const FSpellRow*>(It.Value);
+		if (Row && Row->MaxCharges > 0 && Row->ChargeManaCost > 0.f) return true; // both charge columns imported
+	}
 	return false;
 }
 
@@ -250,8 +290,9 @@ float USpellComponent::GetChargeProgress01(FName SpellId) const
 {
 	const FSpellChargeState* S = ChargeStates.Find(SpellId);
 	const FSpellRow* Row = GetSpellRow(SpellId);
-	if (!S || !S->bPermanent || !Row || Row->ManaCost <= 0.f || S->StoredCharges >= FSpellChargeRules::GetMaxCharges(*Row)) return 0.f;
-	return FMath::Clamp(S->ProgressMana / Row->ManaCost, 0.f, 1.f);
+	const float Cost = Row ? FSpellChargeRules::GetChargeCost(*Row) : 0.f;
+	if (!S || !S->bPermanent || Cost <= 0.f || S->StoredCharges >= FSpellChargeRules::GetMaxCharges(*Row)) return 0.f;
+	return FMath::Clamp(S->ProgressMana / Cost, 0.f, 1.f);
 }
 
 bool USpellComponent::IsCharging(FName SpellId) const

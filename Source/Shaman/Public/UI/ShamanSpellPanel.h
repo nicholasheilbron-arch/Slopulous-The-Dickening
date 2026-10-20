@@ -20,7 +20,8 @@ struct SHAMAN_API FShamanSpellSlot
 	FName SpellId;
 	FText DisplayName;           // empty for Discoverable / Locked (not revealed)
 	EShamanSpellSlotState State = EShamanSpellSlotState::Unimplemented;
-	float ManaCost = 0.f;        // mana per charge (charge economy) / per cast (mana-at-cast)
+	float ManaCost = 0.f;        // row ManaCost: per-cast price under mana-at-cast
+	float ChargeCost = 0.f;      // mana to fill one charge (charge economy)
 	bool bSelected = false;
 	bool bAffordable = true;     // castable now: a charge is ready (charge economy) / enough mana (mana-at-cast)
 	float CooldownRemaining = 0.f;
@@ -65,6 +66,8 @@ struct SHAMAN_API FShamanSpellPanelModel
 	bool bChargeEconomy = false;
 	float ManaRegen = 0.f;          // tribe mana generation per second
 	float ChargeDrawPerSecond = 0.f;
+	float WastedPerSecond = 0.f;    // pool full and nothing using the mana
+	bool bTribeMana = false;        // Populous per-member generation (rates shown per minute)
 	int32 ActiveCharging = 0;
 	float Mana = 0.f, MaxMana = 0.f;
 

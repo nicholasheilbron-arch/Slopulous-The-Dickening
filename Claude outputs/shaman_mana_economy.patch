@@ -1,0 +1,885 @@
+diff --git a/Content/Data/Spells.csv b/Content/Data/Spells.csv
+index 591b897..3a66246 100644
+--- a/Content/Data/Spells.csv
++++ b/Content/Data/Spells.csv
+@@ -1,20 +1,20 @@
+----,DisplayName,Description,Targeting,ManaCost,RangeRaw,Radius,CastTime,Cooldown,Damage,Knockback,Duration,BuildingDamageMultiplier,ProjectileSpeed,bHoming,bIgnites,bSuperSpell,bOneShot,EffectId,UnlockCondition,TerrainEffectId,TargetFilter,bFriendlyFire,MaxCharges,bChargingByDefault,Icon
+-Blast,Blast (Taka),Tracking fire blast. Low mana cost. Hurls nearby followers into the air.,Projectile,5,10,300,0.4,1.0,40,1.0,0,1.0,2500,true,true,false,false,FireBlast,Start,,AllUnits,true,4,true,
+-Convert,Convert,Converts wildmen in the radius into Braves of your tribe.,Ground,5,100,500,0.6,2.0,0,0,0,1.0,0,false,false,false,false,ConvertWildmen,Start,,WildmenOnly,false,4,false,
+-Swarm,Swarm,"Insects make enemy followers flee in panic; they abandon preaching, boats, and balloons.",Ground,50,30,600,0.6,4.0,0,0,12,1.0,0,false,false,false,false,InsectSwarm,Locked,,EnemiesOnly,false,3,false,
+-Invisibility,Invisibility,Followers turn invisible until they start fighting.,Ground,25,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,Invisibility,Locked,,FriendlyOnly,false,3,false,
+-MagicalShield,Magical Shield,Shields followers from direct spells and boosts them in battle.,Ground,30,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,MagicalShield,Locked,,FriendlyOnly,false,3,false,
+-LandBridge,Land Bridge,Raises a land bridge from the Shaman to the target point.,Ground,30,50,300,0.8,3.0,0,0,0,1.0,0,false,false,false,false,LandBridge,Locked,LandBridge,AllUnits,false,3,false,
+-Lightning,Lightning,"Powerful strike that kills unshielded followers, flings nearby ones, and ignites buildings.",Ground,30,60,250,0.5,2.0,100,0.6,0,1.5,0,false,true,false,false,Lightning,Locked,,AllUnits,true,3,false,
+-Hypnotize,Hypnotize,Enemy followers in the radius fight for you for about 15 seconds.,Ground,35,30,500,0.6,4.0,0,0,15,1.0,0,false,false,false,false,Hypnotize,Locked,,EnemiesOnly,false,2,false,
+-Tornado,Tornado,"Roams randomly, hurling followers and sucking up buildings.",Ground,35,30,300,0.8,5.0,0,0,30,1.0,0,false,false,false,false,Tornado,Locked,,AllUnits,true,2,false,
+-Swamp,Swamp,Followers entering it die. Disappears after 10 kills.,Ground,50,30,400,0.8,5.0,0,0,0,1.0,0,false,false,false,false,Swamp,Locked,Swamp,AllUnits,true,2,false,
+-Flatten,Flatten,Levels the land around the target to the target height.,Ground,60,30,800,1.0,6.0,0,0,0,1.0,0,false,false,false,false,Flatten,Locked,Flatten,AllUnits,false,2,false,
+-Earthquake,Earthquake,Splits the ground with lava; low shoreline land sinks briefly.,Ground,60,30,700,1.2,8.0,0,0,5,1.5,0,false,false,false,false,Earthquake,Locked,Earthquake,AllUnits,true,1,false,
+-Erode,Erode,Quickly sinks the land; low land floods with buildings and people on it.,Ground,80,30,800,1.2,10.0,0,0,8,1.5,0,false,false,false,false,Erode,Locked,Erode,AllUnits,true,1,false,
+-Firestorm,Firestorm,Flaming meteors ignite everyone (not your Shaman) and wreck buildings in a large radius.,Ground,85,30,1200,1.5,12.0,80,1.0,10,3.0,0,false,true,false,false,Firestorm,Locked,,AllUnits,true,1,false,
+-AngelOfDeath,Angel of Death,"Summons a flyer that seizes and kills enemy followers, shielded or not. Lives about 5 minutes.",Ground,90,15,300,1.5,15.0,0,0,300,1.0,0,false,true,false,false,AngelOfDeath,Locked,,EnemiesOnly,false,1,false,
+-Volcano,Volcano,Raises a volcano that burns buildings and followers and spreads lava and land.,Ground,100,15,900,2.0,20.0,0,0,0,2.0,0,false,true,false,false,Volcano,Locked,Volcano,AllUnits,true,1,false,
+-Armageddon,Armageddon,Super spell. Raises an arena and teleports every follower in the world into one battle.,Ground,0,100,3000,3.0,0,0,0,0,1.0,0,false,false,true,true,Armageddon,StoneHead,Armageddon,AllUnits,true,0,false,
+-Teleport,Teleport,Super spell. Instantly teleports the Shaman anywhere on the map.,Ground,0,100,0,0.5,0,0,0,0,1.0,0,false,false,true,true,Teleport,StoneHead,,FriendlyOnly,false,0,false,
+-Bloodlust,Bloodlust,Super spell. Followers deal and take far more damage.,Ground,0,30,500,0.5,0,0,0,30,1.0,0,false,false,true,true,Bloodlust,StoneHead,,FriendlyOnly,false,0,false,
++---,DisplayName,Description,Targeting,ManaCost,RangeRaw,Radius,CastTime,Cooldown,Damage,Knockback,Duration,BuildingDamageMultiplier,ProjectileSpeed,bHoming,bIgnites,bSuperSpell,bOneShot,EffectId,UnlockCondition,TerrainEffectId,TargetFilter,bFriendlyFire,MaxCharges,bChargingByDefault,Icon,ChargeManaCost
++Blast,Blast (Taka),Tracking fire blast. Low mana cost. Hurls nearby followers into the air.,Projectile,5,10,300,0.4,1.0,40,1.0,0,1.0,2500,true,true,false,false,FireBlast,Start,,AllUnits,true,4,true,,100
++Convert,Convert,Converts wildmen in the radius into Braves of your tribe.,Ground,5,100,500,0.6,2.0,0,0,0,1.0,0,false,false,false,false,ConvertWildmen,Start,,WildmenOnly,false,4,false,,100
++Swarm,Swarm,"Insects make enemy followers flee in panic; they abandon preaching, boats, and balloons.",Ground,50,30,600,0.6,4.0,0,0,12,1.0,0,false,false,false,false,InsectSwarm,Locked,,EnemiesOnly,false,3,false,,400
++Invisibility,Invisibility,Followers turn invisible until they start fighting.,Ground,25,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,Invisibility,Locked,,FriendlyOnly,false,3,false,,500
++MagicalShield,Magical Shield,Shields followers from direct spells and boosts them in battle.,Ground,30,30,500,0.5,3.0,0,0,30,1.0,0,false,false,false,false,MagicalShield,Locked,,FriendlyOnly,false,3,false,,500
++LandBridge,Land Bridge,Raises a land bridge from the Shaman to the target point.,Ground,30,50,300,0.8,3.0,0,0,0,1.0,0,false,false,false,false,LandBridge,Locked,LandBridge,AllUnits,false,3,false,,600
++Lightning,Lightning,"Powerful strike that kills unshielded followers, flings nearby ones, and ignites buildings.",Ground,30,60,250,0.5,2.0,100,0.6,0,1.5,0,false,true,false,false,Lightning,Locked,,AllUnits,true,3,false,,600
++Hypnotize,Hypnotize,Enemy followers in the radius fight for you for about 15 seconds.,Ground,35,30,500,0.6,4.0,0,0,15,1.0,0,false,false,false,false,Hypnotize,Locked,,EnemiesOnly,false,2,false,,700
++Tornado,Tornado,"Roams randomly, hurling followers and sucking up buildings.",Ground,35,30,300,0.8,5.0,0,0,30,1.0,0,false,false,false,false,Tornado,Locked,,AllUnits,true,2,false,,800
++Swamp,Swamp,Followers entering it die. Disappears after 10 kills.,Ground,50,30,400,0.8,5.0,0,0,0,1.0,0,false,false,false,false,Swamp,Locked,Swamp,AllUnits,true,2,false,,900
++Flatten,Flatten,Levels the land around the target to the target height.,Ground,60,30,800,1.0,6.0,0,0,0,1.0,0,false,false,false,false,Flatten,Locked,Flatten,AllUnits,false,2,false,,1000
++Earthquake,Earthquake,Splits the ground with lava; low shoreline land sinks briefly.,Ground,60,30,700,1.2,8.0,0,0,5,1.5,0,false,false,false,false,Earthquake,Locked,Earthquake,AllUnits,true,1,false,,1750
++Erode,Erode,Quickly sinks the land; low land floods with buildings and people on it.,Ground,80,30,800,1.2,10.0,0,0,8,1.5,0,false,false,false,false,Erode,Locked,Erode,AllUnits,true,1,false,,1750
++Firestorm,Firestorm,Flaming meteors ignite everyone (not your Shaman) and wreck buildings in a large radius.,Ground,85,30,1200,1.5,12.0,80,1.0,10,3.0,0,false,true,false,false,Firestorm,Locked,,AllUnits,true,1,false,,2500
++AngelOfDeath,Angel of Death,"Summons a flyer that seizes and kills enemy followers, shielded or not. Lives about 5 minutes.",Ground,90,15,300,1.5,15.0,0,0,300,1.0,0,false,true,false,false,AngelOfDeath,Locked,,EnemiesOnly,false,1,false,,4000
++Volcano,Volcano,Raises a volcano that burns buildings and followers and spreads lava and land.,Ground,100,15,900,2.0,20.0,0,0,0,2.0,0,false,true,false,false,Volcano,Locked,Volcano,AllUnits,true,1,false,,5000
++Armageddon,Armageddon,Super spell. Raises an arena and teleports every follower in the world into one battle.,Ground,0,100,3000,3.0,0,0,0,0,1.0,0,false,false,true,true,Armageddon,StoneHead,Armageddon,AllUnits,true,0,false,,0
++Teleport,Teleport,Super spell. Instantly teleports the Shaman anywhere on the map.,Ground,0,100,0,0.5,0,0,0,0,1.0,0,false,false,true,true,Teleport,StoneHead,,FriendlyOnly,false,0,false,,0
++Bloodlust,Bloodlust,Super spell. Followers deal and take far more damage.,Ground,0,30,500,0.5,0,0,0,30,1.0,0,false,false,true,true,Bloodlust,StoneHead,,FriendlyOnly,false,0,false,,0
+diff --git a/Source/Shaman/Private/Characters/ShamanCharacter.cpp b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+index a7323f5..f2a61b2 100644
+--- a/Source/Shaman/Private/Characters/ShamanCharacter.cpp
++++ b/Source/Shaman/Private/Characters/ShamanCharacter.cpp
+@@ -67,6 +67,15 @@ void AShamanCharacter::BeginPlay()
+ 	const bool bWantCharges = Data->bPlayerUsesSpellCharges && TribeDef && TribeDef->bPlayerControlled && Spells->SpellTable;
+ 	bChargeDataMissing = bWantCharges && !USpellComponent::TableHasChargeData(Spells->SpellTable);
+ 	Spells->bUseChargeEconomy = bWantCharges && !bChargeDataMissing;
++	if (Spells->bUseChargeEconomy)
++	{
++		// Populous mana: made only by the tribe's living members (per minute, by activity); the level starts with an empty
++		// pool, so the first mana goes straight into charging Blast.
++		Spells->bTribeManaGeneration = true;
++		Spells->ManaConfig = Data->Mana;
++		Spells->MaxMana = Data->Mana.PoolCap;
++		Spells->Mana = FMath::Min(Data->Mana.StartingMana, Spells->MaxMana);
++	}
+ 	if (bChargeDataMissing)
+ 	{
+ 		UE_LOG(LogShaman, Warning, TEXT("[Spells] %s has no MaxCharges data: reimport Content/Data/Spells.csv into it. Using mana-at-cast until then."),
+@@ -424,9 +433,11 @@ void AShamanCharacter::ShamanToggleCharging(FName SpellId)
+ 
+ void AShamanCharacter::ShamanSpellDump()
+ {
+-	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, mana %.2f / %.0f, regen %.3f/s, charging draw %.3f/s, %d charging"),
+-		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen(),
+-		Spells->GetChargeDrawPerSecond(), Spells->GetActiveChargingCount());
++	const FTribeManaBreakdown Made = Spells->GetManaBreakdown();
++	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, pool %.1f / %.0f, made %.1f/min (Shaman %s, %d working, %d moving, %d idle), to spells %.1f/min (%d charging), training %.1f/min, banked %.1f/min, wasted %.1f/min"),
++		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen() * 60.f,
++		Made.bShamanAlive ? TEXT("alive") : TEXT("dead"), Made.Working, Made.Moving, Made.Idle, Spells->GetChargeDrawPerSecond() * 60.f,
++		Spells->GetActiveChargingCount(), Spells->GetTrainingPerSecond() * 60.f, Spells->GetBankedPerSecond() * 60.f, Spells->GetWastedPerSecond() * 60.f);
+ 	for (const FName& Id : Spells->KnownSpellIds)
+ 	{
+ 		UE_LOG(LogShaman, Log, TEXT("[Spells]   %s: %s, charges %d/%d (+%d temporary), progress %.0f%%, charging %s, implemented %s%s"),
+diff --git a/Source/Shaman/Private/SpellComponent.cpp b/Source/Shaman/Private/SpellComponent.cpp
+index ebbbca6..853767b 100644
+--- a/Source/Shaman/Private/SpellComponent.cpp
++++ b/Source/Shaman/Private/SpellComponent.cpp
+@@ -1,6 +1,9 @@
+ #include "SpellComponent.h"
+ #include "SpellProjectile.h"
+ #include "SpellEffectDispatcherComponent.h"
++#include "Characters/ShamanUnitBase.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
+ #include "Engine/DataTable.h"
+ #include "GameFramework/Actor.h"
+ #include "GameFramework/Pawn.h"
+@@ -17,7 +20,7 @@ int32 FSpellChargeRules::GetMaxCharges(const FSpellRow& Row)
+ 
+ bool FSpellChargeRules::IsChargeable(const FSpellRow& Row)
+ {
+-	return !Row.bSuperSpell && GetMaxCharges(Row) > 0 && Row.ManaCost > 0.f;
++	return !Row.bSuperSpell && GetMaxCharges(Row) > 0 && GetChargeCost(Row) > 0.f;
+ }
+ 
+ void FSpellChargeRules::SplitBudget(float Budget, const TArray<float>& Needs, TArray<float>& OutGiven)
+@@ -46,8 +49,32 @@ void FSpellChargeRules::SplitBudget(float Budget, const TArray<float>& Needs, TA
+ 
+ USpellComponent::USpellComponent() { PrimaryComponentTick.bCanEverTick = true; PrimaryComponentTick.TickInterval = 0.1f; }
+ 
++FTribeManaBreakdown USpellComponent::GetManaBreakdown() const
++{
++	FTribeManaBreakdown B;
++	if (!bTribeManaGeneration) return B;
++	const AShamanUnitBase* Self = Cast<AShamanUnitBase>(GetOwner());
++	B.bShamanAlive = Self && Self->IsAlive();
++	if (B.bShamanAlive) B.PerMinute += FTribeManaRules::RatePerMinute(true, EUnitRole::Shaman, EUnitSimState::Idle, true, ManaConfig);
++	const UTribeComponent* Tribe = GetOwner() ? GetOwner()->FindComponentByClass<UTribeComponent>() : nullptr;
++	if (!Tribe) return B;
++	for (const UTribeMemberComponent* M : Tribe->GetFollowers())
++	{
++		if (!M || M->GetOwner() == GetOwner()) continue; // the Shaman is counted above
++		const AShamanUnitBase* U = Cast<AShamanUnitBase>(M->GetOwner());
++		const EUnitRole Role = U ? U->GetRow().Role : EUnitRole::Brave;
++		const ETribeManaActivity Activity = FTribeManaRules::Classify(false, Role, M->GetSimState(), M->IsAlive());
++		B.PerMinute += FTribeManaRules::RateFor(Activity, ManaConfig);
++		B.Working += Activity == ETribeManaActivity::Working ? 1 : 0;
++		B.Moving += Activity == ETribeManaActivity::Moving ? 1 : 0;
++		B.Idle += Activity == ETribeManaActivity::Idle ? 1 : 0;
++	}
++	return B;
++}
++
+ float USpellComponent::GetManaRegen() const
+ {
++	if (bTribeManaGeneration) return GetManaBreakdown().PerMinute / 60.f; // Populous: only living members make mana
+ 	return BaseRegen * (1.f + RegenPerFollower * FollowerCount) * TemporaryModifier;
+ }
+ 
+@@ -66,20 +93,20 @@ void USpellComponent::AdvanceChargeEconomy(float Seconds)
+ {
+ 	if (Seconds <= 0.f) return;
+ 	const float Step = FMath::Max(0.01f, ChargeStepSeconds);
++	const float Regen = GetManaRegen(); // the tribe is read once per call (units change state far slower than a step)
+ 	ChargeTimeAccumulator += Seconds;
+ 	for (int32 Guard = 0; ChargeTimeAccumulator >= Step && Guard < 1000; ++Guard) // 1000 steps = 100 s at the default step
+ 	{
+ 		ChargeTimeAccumulator -= Step;
+-		ChargeStep(Step);
++		ChargeStep(Step, Regen);
+ 	}
+ 	if (ChargeTimeAccumulator >= Step) ChargeTimeAccumulator = 0.f; // pathological hitch: drop the backlog
+ }
+ 
+-void USpellComponent::ChargeStep(float Step)
++void USpellComponent::ChargeStep(float Step, float RegenPerSecond)
+ {
+-	// 1. The existing mana economy: follower-driven generation into the shared pool.
+-	const float Generated = FMath::Max(0.f, GetManaRegen() * Step);
+-	Mana = FMath::Min(MaxMana, Mana + Generated);
++	// 1. New mana this step (tribe members only; nothing is created anywhere else).
++	const float Generated = FMath::Max(0.f, RegenPerSecond * Step);
+ 
+ 	// 2. Spells charging this step, in spellbook order (deterministic).
+ 	struct FActive { FName Id; FSpellChargeState* State; float Cost; int32 Max; };
+@@ -94,20 +121,22 @@ void USpellComponent::ChargeStep(float Step)
+ 		const FSpellRow* Row = GetSpellRow(Id);
+ 		if (!Row || !FSpellChargeRules::IsChargeable(*Row) || !IsSpellImplemented(Id)) continue;
+ 		const int32 Max = FSpellChargeRules::GetMaxCharges(*Row);
++		const float Cost = FSpellChargeRules::GetChargeCost(*Row);
+ 		if (S->StoredCharges >= Max) { S->ProgressMana = 0.f; continue; } // full: draws nothing
+-		const float Need = (Max - S->StoredCharges) * Row->ManaCost - S->ProgressMana;
++		const float Need = (Max - S->StoredCharges) * Cost - S->ProgressMana;
+ 		if (Need <= 0.f) continue;
+-		Active.Add({ Id, S, Row->ManaCost, Max });
++		Active.Add({ Id, S, Cost, Max });
+ 		Needs.Add(Need);
+ 	}
+-	LastDrawPerSecond = 0.f;
+-	if (Active.Num() == 0) return;
+ 
+-	// 3. Charging may use this step's generation only, and only what the pool really holds.
+-	const float Budget = FMath::Min(Generated, FMath::Max(0.f, Mana));
+-	TArray<float> Given;
+-	FSpellChargeRules::SplitBudget(Budget, Needs, Given);
++	// 3. Populous split: spells / training 50-50, or 100% to the only active pipeline.
++	float SpellBudget = 0.f, TrainingBudget = 0.f;
++	FTribeManaRules::SplitPipelines(Generated, Active.Num() > 0, ActiveTrainingConsumers > 0, ManaConfig.SpellShareWhileTraining,
++		SpellBudget, TrainingBudget);
+ 
++	// 4. The spell share is divided fairly between the charging spells.
++	TArray<float> Given;
++	FSpellChargeRules::SplitBudget(SpellBudget, Needs, Given);
+ 	float Spent = 0.f;
+ 	bool bChargeGained = false;
+ 	for (int32 i = 0; i < Active.Num(); ++i)
+@@ -124,8 +153,16 @@ void USpellComponent::ChargeStep(float Step)
+ 		}
+ 		if (S.StoredCharges >= Active[i].Max) S.ProgressMana = 0.f; // never progress past the maximum
+ 	}
+-	Mana = FMath::Max(0.f, Mana - Spent);
++
++	// 5. Anything unused (nothing charging / training, or spells topping out) is banked; past the cap it is wasted.
++	const float Unused = FMath::Max(0.f, Generated - Spent - TrainingBudget);
++	const float Banked = FMath::Clamp(MaxMana - Mana, 0.f, Unused);
++	Mana += Banked;
++	LastGeneratedPerSecond = Generated / Step;
+ 	LastDrawPerSecond = Spent / Step;
++	LastTrainingPerSecond = TrainingBudget / Step; // no training consumer exists yet (ActiveTrainingConsumers stays 0)
++	LastBankedPerSecond = Banked / Step;
++	LastWastedPerSecond = (Unused - Banked) / Step;
+ 	if (bChargeGained) NotifySpellbookChanged(NAME_None);
+ }
+ 
+@@ -206,7 +243,10 @@ bool USpellComponent::TableHasChargeData(const UDataTable* Table)
+ {
+ 	if (!Table || Table->GetRowStruct() != FSpellRow::StaticStruct()) return false;
+ 	for (const TPair<FName, uint8*>& It : Table->GetRowMap())
+-		if (It.Value && reinterpret_cast<const FSpellRow*>(It.Value)->MaxCharges > 0) return true;
++	{
++		const FSpellRow* Row = reinterpret_cast<const FSpellRow*>(It.Value);
++		if (Row && Row->MaxCharges > 0 && Row->ChargeManaCost > 0.f) return true; // both charge columns imported
++	}
+ 	return false;
+ }
+ 
+@@ -250,8 +290,9 @@ float USpellComponent::GetChargeProgress01(FName SpellId) const
+ {
+ 	const FSpellChargeState* S = ChargeStates.Find(SpellId);
+ 	const FSpellRow* Row = GetSpellRow(SpellId);
+-	if (!S || !S->bPermanent || !Row || Row->ManaCost <= 0.f || S->StoredCharges >= FSpellChargeRules::GetMaxCharges(*Row)) return 0.f;
+-	return FMath::Clamp(S->ProgressMana / Row->ManaCost, 0.f, 1.f);
++	const float Cost = Row ? FSpellChargeRules::GetChargeCost(*Row) : 0.f;
++	if (!S || !S->bPermanent || Cost <= 0.f || S->StoredCharges >= FSpellChargeRules::GetMaxCharges(*Row)) return 0.f;
++	return FMath::Clamp(S->ProgressMana / Cost, 0.f, 1.f);
+ }
+ 
+ bool USpellComponent::IsCharging(FName SpellId) const
+diff --git a/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp b/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp
+index 81cafcf..5c0169c 100644
+--- a/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanSpellChargeTests.cpp
+@@ -15,6 +15,8 @@
+ #include "Engine/DataTable.h"
+ #include "GameFramework/HUD.h"
+ #include "EngineUtils.h"
++#include "TribeMemberComponent.h"
++#include "Characters/HealthComponent.h"
+ #include "ShamanTribeTestWorld.h"
+ 
+ /**
+@@ -50,7 +52,7 @@ namespace ShamanSpellChargeTestsPrivate
+ 		float Cooldown = 0.f, float RangeRaw = 100.f, bool bChargingByDefault = false)
+ 	{
+ 		FSpellRow R;
+-		R.Targeting = Targeting; R.ManaCost = Cost; R.MaxCharges = MaxCharges; R.EffectId = EffectId; R.Cooldown = Cooldown;
++		R.Targeting = Targeting; R.ManaCost = Cost; R.ChargeManaCost = Cost; R.MaxCharges = MaxCharges; R.EffectId = EffectId; R.Cooldown = Cooldown;
+ 		R.RangeRaw = RangeRaw; R.Radius = 300.f; R.bChargingByDefault = bChargingByDefault;
+ 		return R;
+ 	}
+@@ -116,7 +118,7 @@ namespace ShamanSpellChargeTestsPrivate
+ 		float Sum = 0.f;
+ 		for (const FName& Id : S->KnownSpellIds)
+ 			if (const FSpellRow* Row = S->GetSpellRow(Id))
+-				Sum += S->GetStoredCharges(Id) * Row->ManaCost + FMath::Max(0.f, ProgressMana(S, Id));
++				Sum += S->GetStoredCharges(Id) * Row->ChargeManaCost + FMath::Max(0.f, ProgressMana(S, Id));
+ 		return Sum;
+ 	}
+ 
+@@ -481,6 +483,9 @@ bool FShamanChargeInitialStateTest::RunTest(const FString& Parameters)
+ 	TestTrue(TEXT("Only Blast is learned"), S->KnownSpellIds.Num() == 1 && S->KnownSpellIds[0] == Blast && S->IsPermanentSpell(Blast));
+ 	TestTrue(TEXT("Blast is charging, with no stored charge yet"), S->IsCharging(Blast) && S->GetStoredCharges(Blast) == 0);
+ 	TestEqual(TEXT("Blast holds 4 charges"), S->GetMaxCharges(Blast), 4);
++	TestTrue(TEXT("Populous tribe mana: generation from tribe members, empty pool at level start"),
++		S->bTribeManaGeneration && S->Mana == W.Data->Mana.StartingMana && S->Mana == 0.f && S->MaxMana == W.Data->Mana.PoolCap);
++	TestEqual(TEXT("Blast charge costs 100 (Populous scale)"), S->GetSpellRow(Blast)->ChargeManaCost, 100.f);
+ 	TestEqual(TEXT("Exactly one spell draws mana"), S->GetActiveChargingCount(), 1);
+ 	bool bOthersIdle = true;
+ 	for (const FName& Id : S->SpellTable->GetRowNames())
+@@ -652,4 +657,116 @@ bool FShamanChargeModeSwitchTest::RunTest(const FString& Parameters)
+ 	return true;
+ }
+ 
++// ---- Populous mana economy -------------------------------------------------------------------------------------------
++
++// Rates per member and activity; the 50/50 spells / training split and its overrides.
++SHAMAN_CHARGE_TEST(FShamanManaRulesTest, "Shaman.Spells.Mana.Rules")
++bool FShamanManaRulesTest::RunTest(const FString& Parameters)
++{
++	const FTribeManaConfig C;
++	auto Rate = [&C](bool bShaman, EUnitRole Role, EUnitSimState State, bool bAlive)
++		{ return FTribeManaRules::RatePerMinute(bShaman, Role, State, bAlive, C); };
++	TestEqual(TEXT("Shaman alive: 66.6 / min"), Rate(true, EUnitRole::Shaman, EUnitSimState::Idle, true), 66.6f, 1e-3f);
++	TestEqual(TEXT("Shaman dead: nothing"), Rate(true, EUnitRole::Shaman, EUnitSimState::Idle, false), 0.f);
++	TestEqual(TEXT("Brave working: 34.6"), Rate(false, EUnitRole::Brave, EUnitSimState::Working, true), 34.6f, 1e-3f);
++	TestEqual(TEXT("Brave resting in a hut: 34.6"), Rate(false, EUnitRole::Brave, EUnitSimState::Sleeping, true), 34.6f, 1e-3f);
++	TestEqual(TEXT("Brave following: 11.3"), Rate(false, EUnitRole::Brave, EUnitSimState::Following, true), 11.3f, 1e-3f);
++	TestEqual(TEXT("Warrior guarding / patrolling: 11.3"), Rate(false, EUnitRole::Warrior, EUnitSimState::Guarding, true), 11.3f, 1e-3f);
++	TestEqual(TEXT("Warrior 'working' counts as moving, never the Brave rate"), Rate(false, EUnitRole::Warrior, EUnitSimState::Working, true), 11.3f, 1e-3f);
++	TestEqual(TEXT("Idle follower: 9.1"), Rate(false, EUnitRole::Brave, EUnitSimState::Idle, true), 9.1f, 1e-3f);
++	TestEqual(TEXT("Dead follower: nothing"), Rate(false, EUnitRole::Brave, EUnitSimState::Dead, false), 0.f);
++	TestEqual(TEXT("Unavailable follower: nothing"), Rate(false, EUnitRole::Brave, EUnitSimState::Unavailable, true), 0.f);
++	TestEqual(TEXT("No passive generation: starting pool 0"), C.StartingMana, 0.f);
++
++	float Sp = 0.f, Tr = 0.f;
++	FTribeManaRules::SplitPipelines(10.f, true, true, C.SpellShareWhileTraining, Sp, Tr);
++	TestTrue(TEXT("Spells and training: 50 / 50"), FMath::IsNearlyEqual(Sp, 5.f) && FMath::IsNearlyEqual(Tr, 5.f));
++	FTribeManaRules::SplitPipelines(10.f, true, false, C.SpellShareWhileTraining, Sp, Tr);
++	TestTrue(TEXT("No training: 100% to spells"), Sp == 10.f && Tr == 0.f);
++	FTribeManaRules::SplitPipelines(10.f, false, true, C.SpellShareWhileTraining, Sp, Tr);
++	TestTrue(TEXT("No spells charging: 100% to training"), Sp == 0.f && Tr == 10.f);
++	FTribeManaRules::SplitPipelines(10.f, false, false, C.SpellShareWhileTraining, Sp, Tr);
++	TestTrue(TEXT("Neither: nothing allocated (banked or wasted)"), Sp == 0.f && Tr == 0.f);
++	return true;
++}
++
++// The real tribe makes the mana: Shaman + Braves by activity; it all goes into Blast from an empty pool; unused mana
++// is banked, and wasted once the pool is full.
++SHAMAN_CHARGE_TEST(FShamanManaTribeTest, "Shaman.Spells.Mana.TribeGeneration")
++bool FShamanManaTribeTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	using namespace ShamanTribeTestsPrivate;
++	FTribeTestWorld W;
++	if (!TestTrue(TEXT("Production spell table has the charge columns (reimport Content/Data/Spells.csv)"),
++		USpellComponent::TableHasChargeData(W.Data->SpellTable))) return false;
++	AShamanCharacter* S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++	TArray<AShamanUnitBase*> Braves;
++	for (int32 i = 0; i < 3; ++i) Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
++	USpellComponent* S = S0->Spells;
++	if (!TestTrue(TEXT("Player Shaman uses tribe mana"), S->bTribeManaGeneration)) return false;
++	const FTribeManaConfig& C = S->ManaConfig;
++
++	// No AI controller in this test world: the Braves stand idle.
++	FTribeManaBreakdown B = S->GetManaBreakdown();
++	TestTrue(TEXT("Shaman + 3 idle Braves"), B.bShamanAlive && B.Idle == 3 && B.Working == 0 && B.Moving == 0);
++	TestEqual(TEXT("66.6 + 3 x 9.1 = 93.9 / min"), S->GetManaRegen() * 60.f, C.ShamanPerMinute + 3.f * C.IdlePerMinute, 1e-2f);
++	Braves[0]->TribeMember->SetActivity(EUnitSimState::Working);
++	Braves[1]->TribeMember->SetActivity(EUnitSimState::Following);
++	B = S->GetManaBreakdown();
++	TestTrue(TEXT("1 working, 1 moving, 1 idle"), B.Working == 1 && B.Moving == 1 && B.Idle == 1);
++	const float Expected = C.ShamanPerMinute + C.BraveWorkingPerMinute + C.MovingPerMinute + C.IdlePerMinute;
++	TestEqual(TEXT("66.6 + 34.6 + 11.3 + 9.1 = 121.6 / min"), S->GetManaRegen() * 60.f, Expected, 1e-2f);
++	Braves[2]->Health->Kill(nullptr);
++	TestEqual(TEXT("A dead Brave makes nothing"), S->GetManaRegen() * 60.f, Expected - C.IdlePerMinute, 1e-2f);
++	const float PerMinute = S->GetManaRegen() * 60.f; // 112.5
++
++	// Level start: empty pool, everything made goes into Blast (the only charging spell).
++	TestEqual(TEXT("Pool starts empty"), S->Mana, 0.f);
++	S->AdvanceChargeEconomy(30.f);
++	TestEqual(TEXT("30 s: half a minute of mana is in Blast's progress"), S->GetChargeState(Blast)->ProgressMana, PerMinute * 0.5f, 0.1f);
++	TestEqual(TEXT("... nothing banked while Blast charges"), S->Mana, 0.f, 1e-3f);
++	TestEqual(TEXT("... all of it reported as going to spells"), S->GetChargeDrawPerSecond() * 60.f, PerMinute, 0.1f);
++	S->AdvanceChargeEconomy(30.f);
++	TestEqual(TEXT("60 s at 112.5 / min: first Blast charge (cost 100)"), S->GetStoredCharges(Blast), 1);
++
++	// Nothing charging: mana is banked in the pool, then wasted once the pool is full.
++	S->SetSpellCharging(Blast, false);
++	S->AdvanceChargeEconomy(10.f);
++	TestEqual(TEXT("Charging off: the mana is banked"), S->Mana, PerMinute / 6.f, 0.1f);
++	TestEqual(TEXT("... none wasted yet"), S->GetWastedPerSecond(), 0.f);
++	S->Mana = S->MaxMana;
++	S->AdvanceChargeEconomy(1.f);
++	TestTrue(TEXT("Pool full and nothing charging: mana is wasted (HUD flashes red)"), S->Mana == S->MaxMana && S->GetWastedPerSecond() > 0.f);
++	S->SetSpellCharging(Blast, true);
++	S->AdvanceChargeEconomy(1.f);
++	TestEqual(TEXT("Charging again: no waste"), S->GetWastedPerSecond(), 0.f);
++	TestEqual(TEXT("Banked mana is not drawn back into charging (only new mana charges spells)"), S->Mana, S->MaxMana);
++	return true;
++}
++
++// Spells share new mana 50/50 with training while units train; training alone takes it all.
++SHAMAN_CHARGE_TEST(FShamanManaTrainingSplitTest, "Shaman.Spells.Mana.TrainingSplit")
++bool FShamanManaTrainingSplitTest::RunTest(const FString& Parameters)
++{
++	using namespace ShamanSpellChargeTestsPrivate;
++	FChargeTestWorld TW;
++	FChargeCaster C = SpawnChargeCaster(TW.World, MakeChargeTable()); // 1 mana per 0.25 s step
++	USpellComponent* S = C.Spells;
++	S->LearnSpell(Blast);
++	S->ActiveTrainingConsumers = 1; // a training hut at work (training itself is not implemented yet)
++	S->AdvanceChargeEconomy(1.25f);
++	TestEqual(TEXT("With training on, Blast gets half: 2.5 of 5 after 1.25 s"), ProgressMana(S, Blast), 2.5f, 1e-3f);
++	TestEqual(TEXT("... and training the other half (2 / s)"), S->GetTrainingPerSecond(), 2.f, 1e-3f);
++	TestEqual(TEXT("... nothing banked"), S->Mana, 0.f, 1e-3f);
++	S->SetSpellCharging(Blast, false);
++	S->AdvanceChargeEconomy(1.f);
++	TestTrue(TEXT("No spell charging: training gets 100%"), FMath::IsNearlyEqual(S->GetTrainingPerSecond(), 4.f, 1e-3f) && FMath::IsNearlyZero(S->Mana, 1e-3f));
++	S->ActiveTrainingConsumers = 0;
++	S->SetSpellCharging(Blast, true);
++	S->AdvanceChargeEconomy(0.25f);
++	TestEqual(TEXT("No training: spells get 100% again"), S->GetChargeDrawPerSecond(), 4.f, 1e-3f);
++	return true;
++}
++
+ #endif
+diff --git a/Source/Shaman/Private/Tribes/TribeMana.cpp b/Source/Shaman/Private/Tribes/TribeMana.cpp
+new file mode 100644
+index 0000000..b25f839
+--- /dev/null
++++ b/Source/Shaman/Private/Tribes/TribeMana.cpp
+@@ -0,0 +1,53 @@
++#include "Tribes/TribeMana.h"
++
++ETribeManaActivity FTribeManaRules::Classify(bool bIsTribeShaman, EUnitRole Role, EUnitSimState State, bool bAlive)
++{
++	if (!bAlive || State == EUnitSimState::Dead || State == EUnitSimState::Unavailable) return ETribeManaActivity::None;
++	if (bIsTribeShaman) return ETribeManaActivity::Shaman;
++	switch (State)
++	{
++	case EUnitSimState::Working:
++	case EUnitSimState::Building:
++	case EUnitSimState::Gathering:
++	case EUnitSimState::Sleeping: // resting in a hut
++		return Role == EUnitRole::Brave ? ETribeManaActivity::Working : ETribeManaActivity::Moving;
++	case EUnitSimState::Moving:
++	case EUnitSimState::Following:
++	case EUnitSimState::Guarding:
++	case EUnitSimState::Combat:
++		return ETribeManaActivity::Moving;
++	default: // Idle, Eating, Drinking
++		return ETribeManaActivity::Idle;
++	}
++}
++
++float FTribeManaRules::RateFor(ETribeManaActivity Activity, const FTribeManaConfig& Config)
++{
++	switch (Activity)
++	{
++	case ETribeManaActivity::Shaman:  return Config.ShamanPerMinute;
++	case ETribeManaActivity::Working: return Config.BraveWorkingPerMinute;
++	case ETribeManaActivity::Moving:  return Config.MovingPerMinute;
++	case ETribeManaActivity::Idle:    return Config.IdlePerMinute;
++	default:                          return 0.f;
++	}
++}
++
++float FTribeManaRules::RatePerMinute(bool bIsTribeShaman, EUnitRole Role, EUnitSimState State, bool bAlive, const FTribeManaConfig& Config)
++{
++	return RateFor(Classify(bIsTribeShaman, Role, State, bAlive), Config);
++}
++
++void FTribeManaRules::SplitPipelines(float Generated, bool bSpellsCharging, bool bTraining, float SpellShareWhileTraining,
++	float& OutSpells, float& OutTraining)
++{
++	OutSpells = OutTraining = 0.f;
++	if (Generated <= 0.f) return;
++	if (bSpellsCharging && bTraining)
++	{
++		OutSpells = Generated * FMath::Clamp(SpellShareWhileTraining, 0.f, 1.f);
++		OutTraining = Generated - OutSpells;
++	}
++	else if (bSpellsCharging) OutSpells = Generated;
++	else if (bTraining) OutTraining = Generated;
++}
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index fa73096..4512cc1 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -74,18 +74,42 @@ void AShamanHUD::DrawHUD()
+ 	const int32 Followers = MyTribeComp ? MyTribeComp->GetPopulationUsed() : 0; // same units as the capacity check
+ 	const int32 Cap = Tribes ? Tribes->GetPopulationCapacity(MyTribe) : 0;
+ 
+-	// Bars (bottom-left).
++	// Bars (bottom-left). Tribe mana adds two flow lines, so the block starts higher.
++	const bool bTribeMana = S->Spells->bTribeManaGeneration;
+ 	const float BX = 30.f * UI, BW = 320.f * UI, BH = 22.f * UI;
+-	float BY = SH - 110.f * UI;
++	float BY = SH - (bTribeMana ? 150.f : 110.f) * UI;
+ 	DrawBar(BX, BY, BW, BH, S->Health->GetHealthFraction(), FLinearColor(0.75f, 0.1f, 0.1f),
+ 		FString::Printf(TEXT("Health %.0f / %.0f"), S->Health->Health, S->Health->MaxHealth));
+ 	BY += BH + 10.f * UI;
+-	DrawBar(BX, BY, BW, BH, S->Spells->Mana / FMath::Max(1.f, S->Spells->MaxMana), FLinearColor(0.15f, 0.35f, 0.95f),
+-		S->Spells->bUseChargeEconomy // charge economy: generation feeds charging spells first, the rest is stored
+-		? FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s   (-%.2f/s to %d charging)"), S->Spells->Mana, S->Spells->MaxMana,
+-			S->Spells->GetManaRegen(), S->Spells->GetChargeDrawPerSecond(), S->Spells->GetActiveChargingCount())
+-		: FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
+-	BY += BH + 10.f * UI;
++	if (!bTribeMana)
++	{
++		DrawBar(BX, BY, BW, BH, S->Spells->Mana / FMath::Max(1.f, S->Spells->MaxMana), FLinearColor(0.15f, 0.35f, 0.95f),
++			FString::Printf(TEXT("Mana %.0f / %.0f   +%.2f/s"), S->Spells->Mana, S->Spells->MaxMana, S->Spells->GetManaRegen()));
++		BY += BH + 10.f * UI;
++	}
++	else
++	{
++		// Populous mana: who makes it, where it goes this moment, and a red flash when the full pool throws it away.
++		const USpellComponent* Sp = S->Spells;
++		const FTribeManaBreakdown Made = Sp->GetManaBreakdown();
++		const bool bWasting = Sp->GetWastedPerSecond() > 0.f;
++		const bool bFlash = bWasting && FMath::Fmod((float)GetWorld()->GetRealTimeSeconds(), 0.8f) < 0.4f;
++		DrawBar(BX, BY, BW, BH, Sp->Mana / FMath::Max(1.f, Sp->MaxMana), bFlash ? FLinearColor(0.9f, 0.1f, 0.08f) : FLinearColor(0.15f, 0.35f, 0.95f),
++			FString::Printf(TEXT("Mana pool %.0f / %.0f      +%.1f / min"), Sp->Mana, Sp->MaxMana, Made.PerMinute));
++		BY += BH + 6.f * UI;
++		const float ToSpells = Sp->GetChargeDrawPerSecond() * 60.f, ToTraining = Sp->GetTrainingPerSecond() * 60.f;
++		const FString Flow = bWasting
++			? FString::Printf(TEXT("POOL FULL: %.1f / min wasted - right-click a spell to charge it"), Sp->GetWastedPerSecond() * 60.f)
++			: FString::Printf(TEXT("-> Spells %.1f / min (%d charging)   Training %.1f / min   Pool +%.1f / min"),
++				ToSpells, Sp->GetActiveChargingCount(), ToTraining, Sp->GetBankedPerSecond() * 60.f);
++		DrawLine(Flow, BX, BY, bWasting ? FLinearColor(1.f, 0.3f, 0.25f) : FLinearColor(0.75f, 0.85f, 1.f), 0.75f * UI);
++		BY += 18.f * UI;
++		const FTribeManaConfig& C = Sp->ManaConfig;
++		DrawLine(FString::Printf(TEXT("Made by: Shaman %.1f   %d working x%.1f   %d moving x%.1f   %d idle x%.1f"),
++			Made.bShamanAlive ? C.ShamanPerMinute : 0.f, Made.Working, C.BraveWorkingPerMinute, Made.Moving, C.MovingPerMinute,
++			Made.Idle, C.IdlePerMinute), BX, BY, FLinearColor(1.f, 1.f, 1.f, 0.6f), 0.7f * UI);
++		BY += 22.f * UI;
++	}
+ 	DrawLine(FString::Printf(TEXT("Followers %d / %d   (more followers = faster mana & rebirth)"), Followers, Cap), BX, BY, FLinearColor::White, 0.85f * UI);
+ 
+ 	if (!S->Spells->SpellTable)
+@@ -456,12 +480,12 @@ void AShamanHUD::DrawSpellTooltip(const FShamanSpellSlot& Slot, const FBox2D& Ti
+ 		{
+ 			Lines.Add(FString::Printf(TEXT("Charges %d / %d%s"), Slot.StoredCharges, Slot.MaxCharges,
+ 				Slot.TemporaryCharges > 0 ? *FString::Printf(TEXT("   +%d temporary"), Slot.TemporaryCharges) : TEXT("")));
+-			Lines.Add(FString::Printf(TEXT("%.0f mana per charge"), Slot.ManaCost));
++			Lines.Add(FString::Printf(TEXT("%.0f mana per charge"), Slot.ChargeCost));
+ 			if (Slot.bFull) Lines.Add(TEXT("Full: not drawing mana"));
+ 			else if (!Slot.bCharging) Lines.Add(FString::Printf(TEXT("Charging OFF (%.0f%% kept)%s"), Slot.Progress01 * 100.f, bRTS ? TEXT(" - right-click to charge") : TEXT("")));
+ 			else if (Slot.ManaPerSecond > 0.f)
+-				Lines.Add(FString::Printf(TEXT("Charging: %.2f mana/s, next charge in %.1fs"), Slot.ManaPerSecond,
+-					FMath::Max(0.f, Slot.ManaCost - Slot.ProgressMana) / Slot.ManaPerSecond));
++				Lines.Add(FString::Printf(TEXT("Charging: %.1f mana / min, next charge in %.0fs"), Slot.ManaPerSecond * 60.f,
++					FMath::Max(0.f, Slot.ChargeCost - Slot.ProgressMana) / Slot.ManaPerSecond));
+ 			else Lines.Add(TEXT("Charging: waiting for mana"));
+ 		}
+ 		else if (Slot.TemporaryCharges > 0)
+@@ -508,8 +532,10 @@ void AShamanHUD::DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, f
+ 	const float FX = PanelRect.Min.X + 7.f * UI, FW = PanelRect.GetSize().X - 14.f * UI;
+ 	if (PanelModel.bChargeEconomy)
+ 	{
+-		DrawLine(FString::Printf(TEXT("Mana +%.2f/s   %d charging"), PanelModel.ManaRegen, PanelModel.ActiveCharging),
+-			PanelRect.GetCenter().X, FootY, FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
++		const bool bWasting = PanelModel.WastedPerSecond > 0.f;
++		DrawLine(bWasting ? FString::Printf(TEXT("Pool full: %.0f / min wasted"), PanelModel.WastedPerSecond * 60.f)
++			: FString::Printf(TEXT("+%.1f / min -> %d charging"), PanelModel.ManaRegen * 60.f, PanelModel.ActiveCharging),
++			PanelRect.GetCenter().X, FootY, bWasting ? FLinearColor(1.f, 0.3f, 0.25f) : FLinearColor(0.75f, 0.85f, 1.f), 0.58f * UI, true);
+ 		// Share of this second's generation going into charges.
+ 		const float Frac = PanelModel.ManaRegen > 0.f ? FMath::Clamp(PanelModel.ChargeDrawPerSecond / PanelModel.ManaRegen, 0.f, 1.f) : 0.f;
+ 		const float BarY = FootY + 15.f * UI;
+diff --git a/Source/Shaman/Private/UI/ShamanSpellPanel.cpp b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+index d9cdd57..03d997d 100644
+--- a/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
++++ b/Source/Shaman/Private/UI/ShamanSpellPanel.cpp
+@@ -30,6 +30,8 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
+ 	M.bChargeEconomy = Spells->bUseChargeEconomy;
+ 	M.ManaRegen = Spells->GetManaRegen();
+ 	M.ChargeDrawPerSecond = Spells->GetChargeDrawPerSecond();
++	M.WastedPerSecond = Spells->GetWastedPerSecond();
++	M.bTribeMana = Spells->bTribeManaGeneration;
+ 	M.ActiveCharging = Spells->GetActiveChargingCount();
+ 	M.Mana = Spells->Mana;
+ 	M.MaxMana = Spells->MaxMana;
+@@ -47,6 +49,7 @@ FShamanSpellPanelModel FShamanSpellPanelModel::Build(const USpellComponent* Spel
+ 		{
+ 			S.bSuperSpell = Row->bSuperSpell;
+ 			S.ManaCost = (Row->bSuperSpell && !M.bChargeEconomy) ? 0.f : Row->ManaCost;
++			S.ChargeCost = FSpellChargeRules::GetChargeCost(*Row);
+ 			S.CooldownTotal = Row->Cooldown;
+ 			S.bImplemented = IsSpellImplemented(*Row, Spells, Effects);
+ 			if (bReveal && !Row->Icon.IsNull()) S.Icon = Row->Icon.LoadSynchronous();
+diff --git a/Source/Shaman/Public/Game/ShamanGameData.h b/Source/Shaman/Public/Game/ShamanGameData.h
+index 3a105f5..8f50758 100644
+--- a/Source/Shaman/Public/Game/ShamanGameData.h
++++ b/Source/Shaman/Public/Game/ShamanGameData.h
+@@ -4,6 +4,7 @@
+ #include "World/WorldGenTypes.h"
+ #include "Tribes/TribeDefinitions.h"
+ #include "Tribes/TribeTaskExecution.h"
++#include "Tribes/TribeMana.h"
+ #include "ShamanGameData.generated.h"
+ 
+ class UDataTable;
+@@ -61,6 +62,8 @@ public:
+ 	 *  instead of paying mana at cast time. AI Shamans keep the Phase 1 mana-at-cast rule. Falls back to mana-at-cast
+ 	 *  (with a HUD warning) when the spell table has no charge columns yet. */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") bool bPlayerUsesSpellCharges = true;
++	/** Populous tribe mana for the player tribe (per-member rates per minute, starting pool, cap, spells/training split). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") FTribeManaConfig Mana;
+ 	/** Projectile class per spell EffectId. Defaults FireBlast -> ADefaultSpellProjectile (placeholder visual). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TMap<FName, TSubclassOf<ASpellProjectile>> ProjectileClasses;
+ 
+diff --git a/Source/Shaman/Public/SpellComponent.h b/Source/Shaman/Public/SpellComponent.h
+index 9231caa..6381d24 100644
+--- a/Source/Shaman/Public/SpellComponent.h
++++ b/Source/Shaman/Public/SpellComponent.h
+@@ -2,6 +2,7 @@
+ #include "CoreMinimal.h"
+ #include "Components/ActorComponent.h"
+ #include "SpellRow.h"
++#include "Tribes/TribeMana.h"
+ #include "SpellComponent.generated.h"
+ 
+ class UDataTable;
+@@ -31,6 +32,8 @@ struct SHAMAN_API FSpellChargeRules
+ 	static constexpr int32 MaxChargesLimit = 4;
+ 	/** Row MaxCharges clamped to 0..4 (0 = cannot hold permanent charges). */
+ 	static int32 GetMaxCharges(const FSpellRow& Row);
++	/** Mana to fill one charge (FSpellRow::ChargeManaCost). */
++	static float GetChargeCost(const FSpellRow& Row) { return Row.ChargeManaCost; }
+ 	/** A permanently known spell can charge when the row defines charges and a positive mana cost per charge. */
+ 	static bool IsChargeable(const FSpellRow& Row);
+ 	/**
+@@ -49,10 +52,11 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnSpellbookChanged, FName /*SpellId (None =
+  *  Projectile spells spawn a projectile; every other spell fires OnSpellCast for an effect handler to implement.
+  *
+  *  Spell charges (bUseChargeEconomy, on for the player tribe's Shaman): the single source of truth for the spell panel.
+- *   - Permanent spells hold up to FSpellRow::MaxCharges (1-4) charges. Charging spells are paid from the shared mana
+- *     economy in fixed steps (ChargeStepSeconds): each step the tribe's mana generation (GetManaRegen * step) is added
+- *     to Mana as before, and that same step's generation - never more, and never more than Mana holds - is split
+- *     between the charging spells (FSpellChargeRules::SplitBudget). No generation, no progress; nothing is created.
++ *   - Permanent spells hold up to FSpellRow::MaxCharges (1-4) charges; one charge costs FSpellRow::ChargeManaCost.
++ *   - Each fixed step (ChargeStepSeconds) the step's new mana (GetManaRegen * step) is split between the spell and
++ *     training pipelines (FTribeManaRules::SplitPipelines: 50/50, or 100% to the only active one). The spell share is
++ *     divided fairly between the charging spells (FSpellChargeRules::SplitBudget). Whatever nothing uses is banked in
++ *     Mana up to MaxMana and wasted past that. Banked mana is not drawn back by charging: only new mana charges spells.
+  *   - Casting then needs a charge instead of mana: a successful cast uses one temporary charge if there is one,
+  *     otherwise one permanent charge. Failed casts use nothing. Mana is not spent at cast time.
+  *   - Temporary charges (AddCharges: Stone Heads, test fixtures) never recharge and never draw mana. A spell known only
+@@ -80,6 +84,14 @@ public:
+ 
+ 	/** Spell charges instead of mana-at-cast (see class comment). Set by AShamanCharacter for the player tribe. */
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") bool bUseChargeEconomy = false;
++	/** Populous tribe mana: generation comes only from the owner's living tribe members by activity
++	 *  (FTribeManaRules); GetManaRegen() then ignores BaseRegen / RegenPerFollower. Set with the charge economy for the
++	 *  player tribe. */
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") bool bTribeManaGeneration = false;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges") FTribeManaConfig ManaConfig;
++	/** Training huts currently training (0 until training exists). While > 0, new mana is split between spells and
++	 *  training (FTribeManaConfig::SpellShareWhileTraining). */
++	UPROPERTY(BlueprintReadWrite, Category="Charges") int32 ActiveTrainingConsumers = 0;
+ 	/** Fixed economy step: results depend only on elapsed game time, never on frame rate. */
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Charges", meta=(ClampMin="0.01")) float ChargeStepSeconds = 0.1f;
+ 
+@@ -88,7 +100,10 @@ public:
+ 	FOnSpellbookChanged OnSpellbookChanged;
+ 
+ 	UFUNCTION(BlueprintCallable) bool CastSpell(FName SpellId, FVector AimTarget);
++	/** Mana per second (tribe mana: sum of member rates / 60; otherwise the Phase 1 formula). */
+ 	UFUNCTION(BlueprintCallable) float GetManaRegen() const;
++	/** Who makes the tribe's mana now (tribe mana only; empty otherwise). */
++	FTribeManaBreakdown GetManaBreakdown() const;
+ 	/** Permanent learn. New entries start with 0 stored charges and charging = row bChargingByDefault. Learning a spell
+ 	 *  that is already permanent changes nothing; other spells are never touched. */
+ 	UFUNCTION(BlueprintCallable) void LearnSpell(FName SpellId);
+@@ -140,6 +155,11 @@ public:
+ 	UFUNCTION(BlueprintCallable, Category="Charges") int32 GetActiveChargingCount() const;
+ 	/** Mana per second spent on charges in the last step (HUD). */
+ 	UFUNCTION(BlueprintCallable, Category="Charges") float GetChargeDrawPerSecond() const { return LastDrawPerSecond; }
++	/** Last step's flow, per second: generated, to training, banked in the pool, wasted (pool full). */
++	float GetGeneratedPerSecond() const { return LastGeneratedPerSecond; }
++	float GetTrainingPerSecond() const { return LastTrainingPerSecond; }
++	float GetBankedPerSecond() const { return LastBankedPerSecond; }
++	float GetWastedPerSecond() const { return LastWastedPerSecond; }
+ 	/** Test / cheat: set permanent stored charges directly (clamped to 0..Max). */
+ 	void SetStoredChargesForTest(FName SpellId, int32 Charges);
+ 
+@@ -156,7 +176,7 @@ public:
+ 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+ 
+ private:
+-	void ChargeStep(float Step);
++	void ChargeStep(float Step, float RegenPerSecond);
+ 	void ConsumeCharge(FName SpellId);
+ 	void NotifySpellbookChanged(FName SpellId) { OnSpellbookChanged.Broadcast(SpellId); }
+ 
+@@ -166,4 +186,5 @@ private:
+ 	TArray<FName> MapSpellIds;
+ 	float ChargeTimeAccumulator = 0.f;
+ 	float LastDrawPerSecond = 0.f;
++	float LastGeneratedPerSecond = 0.f, LastTrainingPerSecond = 0.f, LastBankedPerSecond = 0.f, LastWastedPerSecond = 0.f;
+ };
+diff --git a/Source/Shaman/Public/SpellRow.h b/Source/Shaman/Public/SpellRow.h
+index fd7c012..52b3666 100644
+--- a/Source/Shaman/Public/SpellRow.h
++++ b/Source/Shaman/Public/SpellRow.h
+@@ -43,12 +43,15 @@ struct SHAMAN_API FSpellRow : public FTableRowBase
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<USoundBase> ImpactSound;
+ 
+ 	// ---- Spell charges (spell panel slice) -------------------------------------------------------------------------
+-	// Used when the caster's USpellComponent runs the charge economy (player tribe). ManaCost above is then the mana
+-	// needed to fill ONE charge (paid while charging, not at cast time). Values are explicit per spell; nothing is
+-	// inferred from rarity, icons or other columns.
++	// Used when the caster's USpellComponent runs the charge economy (player tribe): mana is paid while charging
++	// (ChargeManaCost per charge), not at cast time. Values are explicit per spell; nothing is inferred from rarity,
++	// icons or other columns.
+ 	/** Stored charges a permanently learned spell can hold (1-4). 0 = cannot be learned permanently / never charges
+ 	 *  (super spells that only come as temporary charges from monuments). Values above 4 are clamped to 4. */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0", ClampMax="4")) int32 MaxCharges = 0;
++	/** Mana to fill ONE charge under the charge economy, in the tribe-mana units of FTribeManaConfig (Populous scale:
++	 *  Blast 100). ManaCost above stays the Phase 1 per-cast price used by AI Shamans (mana-at-cast). 0 = cannot charge. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) float ChargeManaCost = 0.f;
+ 	/** Charging is switched on when the spell is learned (level start for starting spells). Off for everything but
+ 	 *  Blast in Spells.csv; the player toggles charging with right-click on the panel. */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bChargingByDefault = false;
+diff --git a/Source/Shaman/Public/Tribes/TribeMana.h b/Source/Shaman/Public/Tribes/TribeMana.h
+new file mode 100644
+index 0000000..fa5b67a
+--- /dev/null
++++ b/Source/Shaman/Public/Tribes/TribeMana.h
+@@ -0,0 +1,58 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "ShamanTypes.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "TribeMana.generated.h"
++
++/**
++ * Populous-style tribe mana (spell panel slice, mana pass). Mana is made only by the tribe's living members, per minute,
++ * by what they are doing; there is no passive background regeneration. Rates follow Populous: The Beginning
++ * (community "scaled" units: Blast costs 100). Tune in DA_ShamanGameData > Mana.
++ */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FTribeManaConfig
++{
++	GENERATED_BODY()
++	/** The tribe's Shaman while alive. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana") float ShamanPerMinute = 66.6f;
++	/** A Brave that is working (task, building, gathering) or resting in a hut. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana") float BraveWorkingPerMinute = 34.6f;
++	/** Any follower that is moving, following, patrolling / guarding or fighting. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana") float MovingPerMinute = 11.3f;
++	/** Any follower standing idle. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana") float IdlePerMinute = 9.1f;
++	/** Mana in the pool at level start. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana", meta=(ClampMin="0")) float StartingMana = 0.f;
++	/** Pool size. Mana nothing uses is banked here; once it is full, further unused mana is wasted (HUD flashes red). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana", meta=(ClampMin="1")) float PoolCap = 1000.f;
++	/** Share of new mana that goes to spells while units are also training (Populous: 50/50). With only one of the two
++	 *  active, it gets 100%. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mana", meta=(ClampMin="0", ClampMax="1")) float SpellShareWhileTraining = 0.5f;
++};
++
++/** Who is making the tribe's mana right now (HUD breakdown and logs). */
++struct SHAMAN_API FTribeManaBreakdown
++{
++	bool bShamanAlive = false;
++	int32 Working = 0;   // Braves working / resting
++	int32 Moving = 0;    // moving, following, guarding, fighting
++	int32 Idle = 0;
++	float PerMinute = 0.f;
++};
++
++/** What a member counts as for mana. */
++enum class ETribeManaActivity : uint8 { None, Shaman, Working, Moving, Idle };
++
++struct SHAMAN_API FTribeManaRules
++{
++	/** Dead / unavailable: None. The tribe's Shaman: Shaman. A Brave working, building, gathering or resting: Working.
++	 *  Moving, following, guarding or fighting (any role; other roles' "work" counts as moving): Moving. Else Idle. */
++	static ETribeManaActivity Classify(bool bIsTribeShaman, EUnitRole Role, EUnitSimState State, bool bAlive);
++	static float RateFor(ETribeManaActivity Activity, const FTribeManaConfig& Config);
++	/** Mana per minute of one tribe member. bIsTribeShaman: the tribe's own Shaman. Dead / unavailable members make none. */
++	static float RatePerMinute(bool bIsTribeShaman, EUnitRole Role, EUnitSimState State, bool bAlive, const FTribeManaConfig& Config);
++	/** Split one step's mana between the spell and training pipelines (Populous 50/50; 100% to whichever is the only
++	 *  one active; nothing to either when neither is). */
++	static void SplitPipelines(float Generated, bool bSpellsCharging, bool bTraining, float SpellShareWhileTraining,
++		float& OutSpells, float& OutTraining);
++};
+diff --git a/Source/Shaman/Public/UI/ShamanSpellPanel.h b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+index 2a74450..fe8ee14 100644
+--- a/Source/Shaman/Public/UI/ShamanSpellPanel.h
++++ b/Source/Shaman/Public/UI/ShamanSpellPanel.h
+@@ -20,7 +20,8 @@ struct SHAMAN_API FShamanSpellSlot
+ 	FName SpellId;
+ 	FText DisplayName;           // empty for Discoverable / Locked (not revealed)
+ 	EShamanSpellSlotState State = EShamanSpellSlotState::Unimplemented;
+-	float ManaCost = 0.f;        // mana per charge (charge economy) / per cast (mana-at-cast)
++	float ManaCost = 0.f;        // row ManaCost: per-cast price under mana-at-cast
++	float ChargeCost = 0.f;      // mana to fill one charge (charge economy)
+ 	bool bSelected = false;
+ 	bool bAffordable = true;     // castable now: a charge is ready (charge economy) / enough mana (mana-at-cast)
+ 	float CooldownRemaining = 0.f;
+@@ -65,6 +66,8 @@ struct SHAMAN_API FShamanSpellPanelModel
+ 	bool bChargeEconomy = false;
+ 	float ManaRegen = 0.f;          // tribe mana generation per second
+ 	float ChargeDrawPerSecond = 0.f;
++	float WastedPerSecond = 0.f;    // pool full and nothing using the mana
++	bool bTribeMana = false;        // Populous per-member generation (rates shown per minute)
+ 	int32 ActiveCharging = 0;
+ 	float Mana = 0.f, MaxMana = 0.f;
+ 
+diff --git a/claude/SHAMAN_Mana_Economy.md b/claude/SHAMAN_Mana_Economy.md
+new file mode 100644
+index 0000000..cb854ed
+--- /dev/null
++++ b/claude/SHAMAN_Mana_Economy.md
+@@ -0,0 +1,101 @@
++# SHAMAN: Populous mana economy
++
++This changes the code that charges spells from mana, on top of `feature/rts-stage-a` (`7b2a938`). UE 4.27.2. Nothing is committed or pushed.
++
++| Item | Status |
++|---|---|
++| Build | **NOT VERIFIED** |
++| Tests | **NOT VERIFIED.** Expect **65**: your 62 plus 3 new ones. |
++| PIE | **NOT VERIFIED** |
++
++## What changed
++
++### Mana comes only from your tribe
++
++There is no background regeneration any more. Each living member makes mana every minute, depending on what it is doing. The rates are in `DA_ShamanGameData > Mana`, and the defaults come from Populous:
++
++| Member | Mana / min |
++|---|---|
++| Shaman (alive) | 66.6 |
++| Brave working, or resting in a hut | 34.6 |
++| Any follower moving, following, guarding or fighting | 11.3 |
++| Idle follower | 9.1 |
++| Dead or unavailable | 0 |
++
++### The level starts with an empty pool
++
++The pool starts at 0 mana (`StartingMana`). From the first second, everything the tribe makes goes into charging Blast.
++
++### Where new mana goes
++
++- **Spells and training split it 50/50.** If only one of them is active, it gets 100%.
++- **Training doesn't exist yet**, so in practice spells get everything. There is a hook ready for training huts (`ActiveTrainingConsumers`).
++- **The spell share is split evenly** between every spell that is charging.
++- **Unused mana is banked** in the pool, up to `PoolCap` (1000). This happens when nothing is charging or a spell tops out.
++- **Once the pool is full, unused mana is wasted.** The mana bar flashes red and the HUD says "POOL FULL … wasted".
++- **Banked mana is never used for charging.** Only newly made mana charges spells.
++
++### Charge costs come from Populous
++
++There is a new column, `ChargeManaCost`, giving the mana needed for one charge. The old `ManaCost` column is still used by AI Shamans, which keep paying mana when they cast.
++
++| Spell | Cost per charge | Source |
++|---|---|---|
++| Blast | 100 | Populous |
++| Convert | 100 | Populous |
++| Swarm | 400 | Populous |
++| Invisibility | 500 | Populous |
++| Earthquake | 1750 | Populous |
++| Magical Shield | 500 | estimate |
++| Land Bridge | 600 | estimate |
++| Lightning | 600 | estimate |
++| Hypnotize | 700 | estimate |
++| Tornado | 800 | estimate |
++| Swamp | 900 | estimate |
++| Flatten | 1000 | estimate |
++| Erode | 1750 | estimate |
++| Firestorm | 2500 | estimate |
++| Angel of Death | 4000 | estimate |
++| Volcano | 5000 | estimate |
++| Super spells | 0 | (they never charge) |
++
++**What that means for Blast:**
++
++- A Shaman with 3 Braves following him makes about 100 mana/min, so one Blast charge takes about 60 s.
++- With the Braves working it is about 170/min, so about 35 s.
++- With 3 idle Braves it is about 94/min, so about 64 s.
++
++### HUD
++
++- **Mana bar:** shows `Mana pool X / 1000 +N / min`.
++- **Flow line under it:** shows where the mana goes right now, e.g. `-> Spells 100.5/min (1 charging) Training 0 Pool +0`. In red: `POOL FULL: … wasted`.
++- **Made-by line:** shows who makes it, e.g. `Made by: Shaman 66.6 · 0 working x34.6 · 3 moving x11.3 · 0 idle x9.1`.
++- **Spell panel footer and tooltips:** shown per minute, including the time to the next charge.
++- **`ShamanSpellDump`:** logs the whole flow.
++
++## Tests (+3)
++
++- `Shaman.Spells.Mana.Rules`: every rate, plus the 50/50 split and its overrides.
++- `Shaman.Spells.Mana.TribeGeneration`: uses a real Shaman and Braves.
++  - Checks idle, working, following and dead rates.
++  - Checks the pool starts at 0 and everything goes into Blast.
++  - Checks the first Blast charge arrives at 60 s for 112.5 mana/min.
++  - Checks mana is banked when nothing charges, and wasted when the pool is full.
++- `Shaman.Spells.Mana.TrainingSplit`: with a training consumer active, spells get half; with no spell charging, training gets all of it.
++- `InitialLevelState` also checks the empty starting pool and Blast's cost of 100.
++
++## Steps
++
++1. **Rebuild without Visual Studio.** Close the editor, delete `Binaries\Win64\UE4Editor-Shaman.dll`, double-click `Shaman.uproject` and click Yes to rebuild.
++2. **Reimport the Spells DataTable** (right-click > Reimport, then Save All). This adds the `ChargeManaCost` column.
++   - **Until you reimport, the player stays on the old mana-at-cast rule**, with the "reimport" warning on the HUD.
++   - 4 tests will fail until then: the ones that use the production spell table (`InitialLevelState`, `MonumentRewards`, `ModeSwitchKeepsSpellbook` and `TribeGeneration`).
++3. **Run the Automation tests.** Expect 65.
++4. **Play.** Watch the flow line. Right-click Blast off and the pool fills. Fill it and it flashes red.
++
++## Limitations
++
++- **No training huts yet.** The 50/50 split is coded and tested, but in the game spells always get 100%.
++- **Brave activity comes from the AI.** Braves following you count as "moving" (11.3). Working (34.6) happens only while they hold a task, because huts, gathering and resting don't exist yet.
++- **AI Shamans unchanged.** They still regenerate mana the Phase 1 way and pay it when they cast.
++- **Estimated costs.** Costs marked "estimate" aren't confirmed Populous values; tune them in `Spells.csv`.

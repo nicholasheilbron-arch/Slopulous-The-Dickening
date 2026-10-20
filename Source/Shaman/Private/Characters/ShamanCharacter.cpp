@@ -67,6 +67,15 @@ void AShamanCharacter::BeginPlay()
 	const bool bWantCharges = Data->bPlayerUsesSpellCharges && TribeDef && TribeDef->bPlayerControlled && Spells->SpellTable;
 	bChargeDataMissing = bWantCharges && !USpellComponent::TableHasChargeData(Spells->SpellTable);
 	Spells->bUseChargeEconomy = bWantCharges && !bChargeDataMissing;
+	if (Spells->bUseChargeEconomy)
+	{
+		// Populous mana: made only by the tribe's living members (per minute, by activity); the level starts with an empty
+		// pool, so the first mana goes straight into charging Blast.
+		Spells->bTribeManaGeneration = true;
+		Spells->ManaConfig = Data->Mana;
+		Spells->MaxMana = Data->Mana.PoolCap;
+		Spells->Mana = FMath::Min(Data->Mana.StartingMana, Spells->MaxMana);
+	}
 	if (bChargeDataMissing)
 	{
 		UE_LOG(LogShaman, Warning, TEXT("[Spells] %s has no MaxCharges data: reimport Content/Data/Spells.csv into it. Using mana-at-cast until then."),
@@ -424,9 +433,11 @@ void AShamanCharacter::ShamanToggleCharging(FName SpellId)
 
 void AShamanCharacter::ShamanSpellDump()
 {
-	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, mana %.2f / %.0f, regen %.3f/s, charging draw %.3f/s, %d charging"),
-		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen(),
-		Spells->GetChargeDrawPerSecond(), Spells->GetActiveChargingCount());
+	const FTribeManaBreakdown Made = Spells->GetManaBreakdown();
+	UE_LOG(LogShaman, Log, TEXT("[Spells] %s: charge economy %s, pool %.1f / %.0f, made %.1f/min (Shaman %s, %d working, %d moving, %d idle), to spells %.1f/min (%d charging), training %.1f/min, banked %.1f/min, wasted %.1f/min"),
+		*GetName(), Spells->bUseChargeEconomy ? TEXT("ON") : TEXT("OFF"), Spells->Mana, Spells->MaxMana, Spells->GetManaRegen() * 60.f,
+		Made.bShamanAlive ? TEXT("alive") : TEXT("dead"), Made.Working, Made.Moving, Made.Idle, Spells->GetChargeDrawPerSecond() * 60.f,
+		Spells->GetActiveChargingCount(), Spells->GetTrainingPerSecond() * 60.f, Spells->GetBankedPerSecond() * 60.f, Spells->GetWastedPerSecond() * 60.f);
 	for (const FName& Id : Spells->KnownSpellIds)
 	{
 		UE_LOG(LogShaman, Log, TEXT("[Spells]   %s: %s, charges %d/%d (+%d temporary), progress %.0f%%, charging %s, implemented %s%s"),

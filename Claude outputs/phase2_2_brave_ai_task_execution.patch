@@ -1,0 +1,1700 @@
+diff --git a/Config/DefaultGameplayTags.ini b/Config/DefaultGameplayTags.ini
+index fe86148..d5b9ac5 100644
+--- a/Config/DefaultGameplayTags.ini
++++ b/Config/DefaultGameplayTags.ini
+@@ -30,8 +30,8 @@ ImportTagsFromConfig=True
+ +GameplayTagList=(Tag="State.Ragdoll",DevComment="")
+ +GameplayTagList=(Tag="State.OnFire",DevComment="")
+ +GameplayTagList=(Tag="State.InWater",DevComment="")
+-; Tribe simulation (Phase 2.1): task types for UTribeComponent's task book. Only Task.Debug is used so far; the rest are
+-; reserved for later Phase 2 milestones (Brave AI, gathering, construction, food, water, commands).
++; Tribe simulation: task types for UTribeComponent's task book. Task.Debug is bookkeeping-only (2.1); Task.MoveTo,
++; Task.MoveToActor and Task.Guard are executed by Braves (2.2); the rest are reserved for later Phase 2 milestones.
+ +GameplayTagList=(Tag="Task.Debug",DevComment="Test/console task with no behaviour")
+ +GameplayTagList=(Tag="Task.Gather.Wood",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.Gather.Food",DevComment="Reserved")
+@@ -42,7 +42,9 @@ ImportTagsFromConfig=True
+ +GameplayTagList=(Tag="Task.CarryResource",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.FetchFood",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.DrinkWater",DevComment="Reserved")
+-+GameplayTagList=(Tag="Task.Guard",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Guard",DevComment="Phase 2.2: go to TargetLocation and hold it until cancelled")
+++GameplayTagList=(Tag="Task.MoveTo",DevComment="Phase 2.2: go to TargetLocation, complete on arrival")
+++GameplayTagList=(Tag="Task.MoveToActor",DevComment="Phase 2.2: go to TargetActor, complete within reach, fail if it disappears")
+ +GameplayTagList=(Tag="Task.FollowShaman",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.Patrol",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.Attack",DevComment="Reserved")
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+index eff985f..bfacb62 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+@@ -11,12 +11,14 @@
+ #include "Navigation/ShamanSurfaceNavigation.h"
+ #include "Navigation/PathFollowingComponent.h"
+ #include "TribeMemberComponent.h"
++#include "NavigationSystem.h"
+ #include "Engine/World.h"
+ 
+ AShamanUnitAIController::AShamanUnitAIController()
+ {
+ 	PrimaryActorTick.bCanEverTick = true;
+ 	PrimaryActorTick.TickInterval = 0.25f; // decisions 4x per second; movement itself is per-frame
++	TaskMover.Owner = this;
+ }
+ 
+ float AShamanUnitAIController::RandFloat()
+@@ -37,6 +39,23 @@ void AShamanUnitAIController::OnPossess(APawn* InPawn)
+ 	const float A = RandFloat() * 2.f * PI;
+ 	FormationOffset = FVector(FMath::Cos(A), FMath::Sin(A), 0.f);
+ 	NextWanderTime = 0.0;
++	// Phase 2.2: this controller executes the pawn's tasks (event-driven through its tribe member).
++	if (const AShamanUnitBase* U = Cast<AShamanUnitBase>(InPawn))
++		if (U->TribeMember) TaskExecutor.Bind(U->TribeMember, &TaskMover);
++}
++
++void AShamanUnitAIController::OnUnPossess()
++{
++	TaskExecutor.Unbind(TEXT("ControllerLost")); // a task nobody executes any more must not keep the unit busy
++	Super::OnUnPossess();
++}
++
++void AShamanUnitAIController::EndPlay(const EEndPlayReason::Type Reason)
++{
++	// Editor stop / quit: no task-book calls during teardown. Otherwise a unit outliving its controller must not stay busy.
++	const bool bTeardown = Reason == EEndPlayReason::EndPlayInEditor || Reason == EEndPlayReason::Quit;
++	TaskExecutor.Unbind(bTeardown ? NAME_None : FName(TEXT("ControllerLost")));
++	Super::EndPlay(Reason);
+ }
+ 
+ void AShamanUnitAIController::Tick(float DeltaSeconds)
+@@ -47,6 +66,8 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
+ 	{
+ 		Target = nullptr;
+ 		bHasSurfaceGoal = false;
++		// Knocked down: the task waits (death ends it through the tribe roster, not here).
++		if (U && U->IsAlive()) TaskExecutor.PauseWatchdog(GetWorld()->GetTimeSeconds());
+ 		return;
+ 	}
+ 	FPlanetFrame Planet;
+@@ -69,10 +90,23 @@ void AShamanUnitAIController::Tick(float DeltaSeconds)
+ 
+ void AShamanUnitAIController::Think(AShamanUnitBase* U)
+ {
++	// Phase 2.2: an executing task outranks autonomous behaviour (combat, follow, guard-home, wander).
++	if (TaskExecutor.HasControl())
++	{
++		Target = nullptr;
++		TaskExecutor.Update(GetWorld()->GetTimeSeconds());
++		if (TaskExecutor.HasControl())
++		{
++			// A guard at its post defends itself (melee in reach, in front) but never leaves the post to chase.
++			if (TaskExecutor.GetKind() == ETaskExecKind::Guard && TaskExecutor.IsOnStation()) U->TryMeleeAttack(nullptr);
++			return;
++		}
++		// The task just ended: fall through to autonomous behaviour this same decision.
++	}
+ 	UpdateTarget(U);
+ 	if (AActor* T = Target.Get()) Engage(U, T);
+ 	else FollowOrders(U);
+-	// Mirror what this AI is doing into the tribe simulation state (debug/inspection only; tasks are not executed yet).
++	// Mirror what this AI is doing into the tribe simulation state (shown while the unit holds no executing task).
+ 	if (U->TribeMember)
+ 	{
+ 		EUnitSimState Activity = EUnitSimState::Idle;
+@@ -250,3 +284,66 @@ void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
+ 	if (R == EPathFollowingRequestResult::Failed) // no navmesh here (or none at all): walk straight
+ 		MoveToLocation(Dest, Acceptance, true, false, false, false, nullptr, true);
+ }
++
++// ---- Task execution movement (Phase 2.2) ------------------------------------------------------------------------------
++
++ETaskMoveRequest AShamanUnitAIController::RequestTaskMove(const FVector& Goal, AActor* GoalActor, float Acceptance)
++{
++	const APawn* P = GetPawn();
++	if (!P || Goal.ContainsNaN()) return ETaskMoveRequest::Failed;
++
++	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
++		if (Terrain->IsPlanetActive())
++		{
++			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, P->GetActorLocation(), Goal);
++			bHasSurfaceGoal = false;
++			if (!Path.bValid || Path.Points.Num() == 0) return ETaskMoveRequest::Failed;
++			// Tight tolerance: steering itself stops up to Acceptance short of the path end.
++			if (Path.bPartial && FShamanSpace::HorizontalDistance(this, Path.Points.Last(), Goal) > Acceptance * 0.25f) return ETaskMoveRequest::Unreachable;
++			SurfaceGoal = Path.Points.Last();
++			SurfaceAcceptance = Acceptance;
++			bHasSurfaceGoal = true;
++			LastMoveGoal = Goal;
++			return ETaskMoveRequest::Accepted;
++		}
++
++	LastMoveGoal = Goal;
++	EPathFollowingRequestResult::Type R;
++	if (GoalActor)
++	{
++		// To the actor itself: path following tracks it as it moves, and a partial path reaches the edge of actors
++		// whose centre is off the navmesh (buildings). bStopOnOverlap: stop on touching it.
++		R = MoveToActor(GoalActor, Acceptance, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ true);
++	}
++	else
++	{
++		// Full path only (a location the navmesh cannot reach is reported, not approached forever). bStopOnOverlap =
++		// false keeps the agent radius out of the reach test, so the move ends inside the executor's arrival radius.
++		R = MoveToLocation(Goal, Acceptance, /*bStopOnOverlap*/ false, /*bUsePathfinding*/ true,
++			/*bProjectDestinationToNavigation*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ false);
++	}
++	if (R != EPathFollowingRequestResult::Failed) return ETaskMoveRequest::Accepted;
++
++	UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
++	const bool bNavmeshUsable = Nav && Nav->GetNavigationBounds().Num() > 0 && !Nav->IsNavigationBuildInProgress();
++	if (bNavmeshUsable) return ETaskMoveRequest::Unreachable;
++
++	// No navmesh in this level (or still building): straight-line move, as the Phase 1 AI does. The executor's stuck
++	// watchdog fails the task if something blocks the way.
++	R = GoalActor ? MoveToActor(GoalActor, Acceptance, true, false, false, nullptr, true)
++		: MoveToLocation(Goal, Acceptance, false, false, false, false, nullptr, true);
++	return R == EPathFollowingRequestResult::Failed ? ETaskMoveRequest::Failed : ETaskMoveRequest::Accepted;
++}
++
++void AShamanUnitAIController::StopTaskMove()
++{
++	StopMovement();
++	LastMoveGoal = FVector(FLT_MAX);
++}
++
++bool AShamanUnitAIController::IsTaskMoveInProgress() const
++{
++	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
++		if (Terrain->IsPlanetActive()) return bHasSurfaceGoal;
++	return GetMoveStatus() == EPathFollowingStatus::Moving;
++}
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index 28fa340..1908673 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -7,8 +7,11 @@
+ #include "Buildings/BuildingActor.h"
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/ShamanCharacter.h"
++#include "Characters/ShamanUnitAIController.h"
+ #include "Tribes/TribeSubsystem.h"
+ #include "Tribes/TribeTaskTypes.h"
++#include "Tribes/TribeTaskExecution.h"
++#include "World/SurfaceProbeActor.h"
+ #include "TribeComponent.h"
+ #include "TribeMemberComponent.h"
+ #include "Terrain/ShamanSpace.h"
+@@ -369,6 +372,14 @@ void AShamanGameMode::DrawTribeSimDebug() const
+ 				else if (T->bHasTargetLocation) Txt += FString::Printf(TEXT(" -> %.0f uu away"), FVector::Dist(A->GetActorLocation(), T->TargetLocation));
+ 			}
+ 			const FVector Loc = A->GetActorLocation();
++			// Phase 2.2: what the unit's executor is doing (movement result / last failure reason).
++			const APawn* Pawn = Cast<APawn>(A);
++			if (const AShamanUnitAIController* AI = Pawn ? Cast<AShamanUnitAIController>(Pawn->GetController()) : nullptr)
++			{
++				const FUnitTaskExecutor& TaskExec = AI->GetTaskExecutor();
++				Txt += TEXT("\n") + TaskExec.Describe();
++				if (TaskExec.HasControl()) DrawDebugLine(W, Loc, TaskExec.GetGoal(), Color, false, -1.f, 0, 2.f);
++			}
+ 			DrawDebugString(W, Loc + FShamanSpace::GetUp(this, Loc) * 160.f, Txt, nullptr, Color, 0.f, true);
+ 		}
+ 	}
+@@ -413,6 +424,24 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
+ 		return Best;
+ 	};
+ 
++	// Phase 2.2 targets: where the player aims (on the ground), and a debug marker actor for move-to-actor.
++	const AShamanCharacter* PlayerShaman = Cast<AShamanCharacter>(Player);
++	const FVector Aim = PlayerShaman ? PlayerShaman->GetAimPoint() : (Player ? Player->GetActorLocation() : FVector::ZeroVector);
++	auto CreateTyped = [&](const TCHAR* Tag, AActor* TargetActor, const FVector& Where, bool bHasWhere)
++	{
++		DebugTaskId = TC->CreateTask(FGameplayTag::RequestGameplayTag(Tag), ETribeTaskPriority::High, TargetActor, Where, bHasWhere, TEXT("Console"));
++		return DebugTaskId != INDEX_NONE;
++	};
++	auto SpawnMarker = [&]() -> AActor*
++	{
++		if (AActor* Old = DebugTargetActor.Get()) Old->Destroy();
++		FActorSpawnParameters P;
++		P.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
++		AActor* Marker = GetWorld()->SpawnActor<ASurfaceProbeActor>(ASurfaceProbeActor::StaticClass(), FTransform(Aim), P);
++		DebugTargetActor = Marker;
++		return Marker;
++	};
++
+ 	bool bOk = false;
+ 	const FString A = Action.ToLower();
+ 	if (A == TEXT("create"))
+@@ -421,12 +450,40 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
+ 			Player ? Player->GetActorLocation() : FVector::ZeroVector, Player != nullptr, TEXT("Console"));
+ 		bOk = DebugTaskId != INDEX_NONE;
+ 	}
++	else if (A == TEXT("move"))       bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, Aim, true);
++	else if (A == TEXT("guard"))      bOk = CreateTyped(TEXT("Task.Guard"), nullptr, Aim, true);
++	else if (A == TEXT("moveinvalid")) bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, FVector::ZeroVector, false); // no location: fails on start
++	else if (A == TEXT("moveunreachable"))
++	{
++		// Far outside the generated world (flat map): no navmesh path -> Unreachable on start.
++		const FVector From = Player ? Player->GetActorLocation() : FVector::ZeroVector;
++		const FVector Dir = Player ? FShamanSpace::HorizontalNormal(this, From, Player->GetActorForwardVector()) : FVector::ForwardVector;
++		bOk = CreateTyped(TEXT("Task.MoveTo"), nullptr, From + Dir * FMath::Max(50000.f, Layout.HalfSize * 4.f), true);
++	}
++	else if (A == TEXT("marker"))      bOk = SpawnMarker() != nullptr;
++	else if (A == TEXT("moveactor"))
++	{
++		AActor* Target = DebugTargetActor.IsValid() ? DebugTargetActor.Get() : SpawnMarker();
++		bOk = Target && CreateTyped(TEXT("Task.MoveToActor"), Target, FVector::ZeroVector, false);
++	}
++	else if (A == TEXT("destroytarget"))
++	{
++		if (AActor* T = DebugTargetActor.Get()) { T->Destroy(); bOk = true; }
++		DebugTargetActor = nullptr;
++	}
+ 	else if (A == TEXT("assign"))
+ 	{
+ 		UTribeMemberComponent* M = NearestAvailable();
+ 		bOk = M && TC->AssignTask(DebugTaskId, M);
+ 		if (bOk) DebugMember = M;
+ 	}
++	else if (A == TEXT("go"))
++	{
++		UTribeMemberComponent* M = NearestAvailable();
++		bOk = M && TC->AssignTask(DebugTaskId, M);
++		if (bOk) { DebugMember = M; bOk = TC->StartTask(DebugTaskId); }
++	}
++	else if (A == TEXT("info"))     bOk = true;
+ 	else if (A == TEXT("start"))    bOk = TC->StartTask(DebugTaskId);
+ 	else if (A == TEXT("complete")) bOk = TC->CompleteTask(DebugTaskId);
+ 	else if (A == TEXT("fail"))     bOk = TC->FailTask(DebugTaskId, TEXT("Console"));
+@@ -444,9 +501,15 @@ void AShamanGameMode::ShamanTaskTest(const FString& Action)
+ 	FTribeTask T;
+ 	const bool bHasTask = TC->GetTask(DebugTaskId, T);
+ 	const UTribeMemberComponent* Who = bHasTask ? T.Assignee.Get() : nullptr;
+-	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s | unit %s %s | available workers %d"),
+-		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"),
+-		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""),
++	FString ExecInfo;
++	if (const APawn* WhoPawn = Who ? Cast<APawn>(Who->GetOwner()) : nullptr)
++		if (const AShamanUnitAIController* AI = Cast<AShamanUnitAIController>(WhoPawn->GetController()))
++			ExecInfo = FString::Printf(TEXT(" | %s"), *AI->GetTaskExecutor().Describe());
++	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s %s%s%s | unit %s %s%s | available workers %d"),
++		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? *T.Type.ToString() : TEXT(""),
++		bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"), (bHasTask && !T.EndReason.IsNone()) ? TEXT(" reason ") : TEXT(""),
++		(bHasTask && !T.EndReason.IsNone()) ? *T.EndReason.ToString() : TEXT(""),
++		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""), *ExecInfo,
+ 		TC->GetAvailableWorkerCount());
+ 	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
+ 	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, bOk ? FColor::Green : FColor::Red, Msg);
+diff --git a/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp b/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp
+new file mode 100644
+index 0000000..dbe8868
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp
+@@ -0,0 +1,450 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "GameplayTagContainer.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "Tribes/TribeTaskExecution.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Characters/ShamanCharacter.h"
++#include "Characters/ShamanUnitAIController.h"
++#include "Characters/HealthComponent.h"
++#include "World/SurfaceProbeActor.h"
++#include "ShamanTribeTestWorld.h"
++#include <limits>
++
++/**
++ * Phase 2.2 task execution.
++ *  - ExecutionRules: the pure decision rules (no world).
++ *  - MoveToLocation / MoveToActor / MoveFailures / Guard / EndingAndEligibility: FUnitTaskExecutor on real tribes, task
++ *    books and production unit rows, driven through a recording fake movement layer (IUnitTaskMover). Arrival is
++ *    produced by teleporting the unit; time is passed explicitly. Real UE4 path following is NOT exercised here.
++ *  - AutonomyYields: the real AShamanUnitAIController possessing a Brave (decision step only, no movement simulation).
++ * Flat test world throughout.
++ */
++namespace ShamanTaskExecTestsPrivate
++{
++	using namespace ShamanTribeTestsPrivate;
++
++	/** Records what the executor asked for; answers with Answer. */
++	struct FFakeMover : public IUnitTaskMover
++	{
++		int32 Requests = 0;
++		int32 Stops = 0;
++		FVector LastGoal = FVector::ZeroVector;
++		AActor* LastGoalActor = nullptr;
++		ETaskMoveRequest Answer = ETaskMoveRequest::Accepted;
++		bool bInProgress = true;
++		virtual ETaskMoveRequest RequestTaskMove(const FVector& Goal, AActor* GoalActor, float) override { ++Requests; LastGoal = Goal; LastGoalActor = GoalActor; return Answer; }
++		virtual void StopTaskMove() override { ++Stops; }
++		virtual bool IsTaskMoveInProgress() const override { return bInProgress; }
++	};
++
++	/** Player Shaman (tribe 0) + enemy Shaman (tribe 1) + NumBraves player Braves; Exec drives Braves[0]. */
++	struct FExecFixture
++	{
++		FTribeTestWorld W;
++		AShamanCharacter* S0 = nullptr;
++		AShamanCharacter* S1 = nullptr;
++		TArray<AShamanUnitBase*> Braves;
++		UTribeComponent* T0 = nullptr;
++		UTribeComponent* T1 = nullptr;
++		FTribeTaskExecutionConfig Cfg;
++		double T = 0.0;
++		FFakeMover Mover;
++		FUnitTaskExecutor Exec; // declared after W: unbinds before the world goes away
++
++		explicit FExecFixture(int32 NumBraves, bool bBindExecutor = true)
++		{
++			S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++			S1 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 0.f, 100.f));
++			for (int32 i = 0; i < NumBraves; ++i)
++				Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
++			T0 = W.Tribes->GetTribeComponent(0);
++			T1 = W.Tribes->GetTribeComponent(1);
++			Cfg = W.Data->TaskExecution;
++			T = W.World->GetTimeSeconds();
++			if (bBindExecutor && Braves.Num() > 0) Exec.Bind(Braves[0]->TribeMember, &Mover);
++		}
++		static FGameplayTag Tag(const TCHAR* Name) { return FGameplayTag::RequestGameplayTag(Name, false); }
++		int32 NewTask(UTribeComponent* Tribe, const TCHAR* TagName, AActor* Actor, const FVector& Where, bool bHasWhere)
++		{
++			return Tribe->CreateTask(Tag(TagName), ETribeTaskPriority::Normal, Actor, Where, bHasWhere, TEXT("Test"));
++		}
++		/** Create + assign + start a MoveTo for Braves[0]. */
++		int32 StartMove(const FVector& Where, UTribeComponent* Tribe = nullptr, AShamanUnitBase* Unit = nullptr)
++		{
++			Tribe = Tribe ? Tribe : T0;
++			Unit = Unit ? Unit : Braves[0];
++			const int32 Id = NewTask(Tribe, TEXT("Task.MoveTo"), nullptr, Where, true);
++			Tribe->AssignTask(Id, Unit->TribeMember);
++			Tribe->StartTask(Id);
++			return Id;
++		}
++		static ETribeTaskState StateOf(const UTribeComponent* Tribe, int32 Id)
++		{
++			const FTribeTask* Task = Tribe->FindTask(Id);
++			return Task ? Task->State : ETribeTaskState::Unassigned;
++		}
++		static FName ReasonOf(const UTribeComponent* Tribe, int32 Id)
++		{
++			const FTribeTask* Task = Tribe->FindTask(Id);
++			return Task ? Task->EndReason : NAME_None;
++		}
++		static void Teleport(AActor* A, const FVector& Where) { A->SetActorLocation(Where, false, nullptr, ETeleportType::TeleportPhysics); }
++		FVector Ahead(const AActor* A, float Dist) const { return A->GetActorLocation() + FVector(Dist, 0.f, 0.f); }
++	};
++
++	bool IsReleased(const UTribeMemberComponent* M) { return M && !M->HasTask() && M->IsAvailableWorker(); }
++}
++using namespace ShamanTaskExecTestsPrivate;
++
++#define SHAMAN_TASK_TEST(Class, Name) IMPLEMENT_SIMPLE_AUTOMATION_TEST(Class, Name, EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++
++SHAMAN_TASK_TEST(FShamanTaskExecRulesTest, "Shaman.Tasks.ExecutionRules")
++bool FShamanTaskExecRulesTest::RunTest(const FString& Parameters)
++{
++	using R = FTribeTaskExecutionRules;
++	const FGameplayTag MoveTo = FExecFixture::Tag(TEXT("Task.MoveTo"));
++	const FGameplayTag MoveToActor = FExecFixture::Tag(TEXT("Task.MoveToActor"));
++	const FGameplayTag Guard = FExecFixture::Tag(TEXT("Task.Guard"));
++	if (!TestTrue(TEXT("Task.MoveTo / MoveToActor / Guard tags registered"), MoveTo.IsValid() && MoveToActor.IsValid() && Guard.IsValid())) return false;
++	TestTrue(TEXT("Executable kinds"), R::KindOf(MoveTo) == ETaskExecKind::MoveToLocation && R::KindOf(MoveToActor) == ETaskExecKind::MoveToActor
++		&& R::KindOf(Guard) == ETaskExecKind::Guard);
++	TestTrue(TEXT("Task.Debug stays bookkeeping-only"), R::KindOf(FExecFixture::Tag(TEXT("Task.Debug"))) == ETaskExecKind::None);
++	TestTrue(TEXT("Reserved tags are not executed"), R::KindOf(FExecFixture::Tag(TEXT("Task.Gather.Wood"))) == ETaskExecKind::None
++		&& R::KindOf(FExecFixture::Tag(TEXT("Task.Build"))) == ETaskExecKind::None && R::KindOf(FGameplayTag()) == ETaskExecKind::None);
++
++	FTribeTaskExecutionConfig C;
++	FTribeTask Task;
++	Task.Type = MoveTo;
++	TestFalse(TEXT("MoveTo without a location is invalid"), R::HasValidTarget(Task, ETaskExecKind::MoveToLocation));
++	Task.bHasTargetLocation = true;
++	Task.TargetLocation = FVector(1.f, 2.f, 3.f);
++	TestTrue(TEXT("MoveTo with a location is valid"), R::HasValidTarget(Task, ETaskExecKind::MoveToLocation));
++	Task.TargetLocation = FVector(std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f);
++	TestFalse(TEXT("NaN location is invalid"), R::HasValidTarget(Task, ETaskExecKind::MoveToLocation));
++	TestFalse(TEXT("MoveToActor without an actor is invalid"), R::HasValidTarget(Task, ETaskExecKind::MoveToActor));
++	TestEqual(TEXT("Default arrival radius from config"), R::AcceptanceFor(Task, ETaskExecKind::MoveToLocation, C), C.ArrivalRadius);
++	TestEqual(TEXT("Guard radius from config"), R::AcceptanceFor(Task, ETaskExecKind::Guard, C), C.GuardRadius);
++	Task.AcceptanceRadius = 42.f;
++	TestEqual(TEXT("Per-task override"), R::AcceptanceFor(Task, ETaskExecKind::MoveToActor, C), 42.f);
++
++	// Move: moving, then complete on arrival.
++	FTaskProgress P; P.Reset(0.0);
++	TestTrue(TEXT("Far: keep moving"), R::Step(ETaskExecKind::MoveToLocation, P, 1000.f, 150.f, true, 0.0, C).Action == ETaskStepAction::Move);
++	const FTaskStepResult Arr = R::Step(ETaskExecKind::MoveToLocation, P, 100.f, 150.f, true, 1.0, C);
++	TestTrue(TEXT("Within radius: complete (Arrived)"), Arr.Action == ETaskStepAction::Complete && Arr.Result == ETaskMoveResult::Arrived);
++
++	// Watchdog: progress resets it, no progress trips it.
++	P.Reset(0.0);
++	R::Step(ETaskExecKind::MoveToLocation, P, 1000.f, 150.f, true, 0.0, C);
++	TestTrue(TEXT("Progress keeps it alive"), R::Step(ETaskExecKind::MoveToLocation, P, 900.f, 150.f, true, C.StuckTimeout - 1.0, C).Action == ETaskStepAction::Move);
++	TestTrue(TEXT("Still inside the window"), R::Step(ETaskExecKind::MoveToLocation, P, 895.f, 150.f, true, 2.0 * C.StuckTimeout - 2.0, C).Action == ETaskStepAction::Move);
++	const FTaskStepResult Stuck = R::Step(ETaskExecKind::MoveToLocation, P, 890.f, 150.f, true, 2.0 * C.StuckTimeout, C);
++	TestTrue(TEXT("No progress for StuckTimeout: Failed(Stuck)"), Stuck.Action == ETaskStepAction::Fail && Stuck.Result == ETaskMoveResult::Stuck && Stuck.Reason == FName(TEXT("Stuck")));
++
++	FTribeTaskExecutionConfig NoStuck = C;
++	NoStuck.StuckTimeout = 0.f;
++	NoStuck.MaxMoveDuration = 10.f;
++	P.Reset(0.0);
++	const FTaskStepResult Late = R::Step(ETaskExecKind::MoveToLocation, P, 1000.f, 150.f, true, 11.0, NoStuck);
++	TestTrue(TEXT("Move over MaxMoveDuration: Failed(TimedOut)"), Late.Action == ETaskStepAction::Fail && Late.Result == ETaskMoveResult::TimedOut);
++
++	// Guard: approach, hold (never stuck / timed out while holding), tolerate drift inside the leash, return beyond it.
++	P.Reset(0.0);
++	TestTrue(TEXT("Guard far: move"), R::Step(ETaskExecKind::Guard, P, 1000.f, C.GuardRadius, true, 0.0, NoStuck).Action == ETaskStepAction::Move);
++	const FTaskStepResult Hold = R::Step(ETaskExecKind::Guard, P, 100.f, C.GuardRadius, true, 1.0, NoStuck);
++	TestTrue(TEXT("Guard at post: hold, on station"), Hold.Action == ETaskStepAction::Hold && Hold.Result == ETaskMoveResult::OnStation && P.bOnStation);
++	TestTrue(TEXT("Guard holds indefinitely (no timeout)"), R::Step(ETaskExecKind::Guard, P, 100.f, C.GuardRadius, true, 10000.0, C).Action == ETaskStepAction::Hold);
++	TestTrue(TEXT("Small drift inside the leash: hold"), R::Step(ETaskExecKind::Guard, P, C.GuardLeashRadius - 10.f, C.GuardRadius, true, 10001.0, C).Action == ETaskStepAction::Hold);
++	const FTaskStepResult Back = R::Step(ETaskExecKind::Guard, P, C.GuardLeashRadius + 500.f, C.GuardRadius, true, 10002.0, C);
++	TestTrue(TEXT("Pushed beyond the leash: walk back"), Back.Action == ETaskStepAction::Move && !P.bOnStation);
++
++	const FTaskStepResult Lost = R::Step(ETaskExecKind::MoveToActor, P, 10.f, 200.f, false, 0.0, C);
++	TestTrue(TEXT("Target gone: Failed(TargetLost)"), Lost.Action == ETaskStepAction::Fail && Lost.Result == ETaskMoveResult::TargetLost);
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskMoveToLocationTest, "Shaman.Tasks.MoveToLocation")
++bool FShamanTaskMoveToLocationTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanUnitBase* B = F.Braves[0];
++	UTribeMemberComponent* M = B->TribeMember;
++	const FVector Goal = F.Ahead(B, 2000.f);
++	int32 Completions = 0;
++	const FDelegateHandle H = M->OnTaskStateChanged.AddLambda([&Completions](UTribeMemberComponent*, int32, ETribeTaskState St)
++	{
++		if (St == ETribeTaskState::Completed) ++Completions;
++	});
++
++	const int32 Id = F.NewTask(F.T0, TEXT("Task.MoveTo"), nullptr, Goal, true);
++	TestTrue(TEXT("Eligible Brave is assigned"), F.T0->AssignTask(Id, M));
++	TestTrue(TEXT("Assignment makes the unit aware (pending), nothing moves yet"),
++		F.Exec.GetPendingTaskId() == Id && !F.Exec.HasControl() && F.Mover.Requests == 0);
++	TestEqual(TEXT("Assigned worker left the pool"), F.T0->GetAvailableWorkerCount(), 2);
++
++	TestTrue(TEXT("Start"), F.T0->StartTask(Id));
++	TestTrue(TEXT("Start triggers execution: executor in control, one move request to the goal"),
++		F.Exec.HasControl() && F.Exec.GetTaskId() == Id && F.Mover.Requests == 1 && F.Mover.LastGoal.Equals(Goal));
++	TestTrue(TEXT("Unit shows Moving"), M->GetSimState() == EUnitSimState::Moving && F.StateOf(F.T0, Id) == S::Active);
++	F.Exec.Update(F.T + 1.0);
++	TestEqual(TEXT("No repeated move requests while under way"), F.Mover.Requests, 1);
++
++	// Wrong unit: a task started for another Brave is not executed by this executor.
++	const int32 Other = F.NewTask(F.T0, TEXT("Task.MoveTo"), nullptr, Goal, true);
++	F.T0->AssignTask(Other, F.Braves[1]->TribeMember);
++	F.T0->StartTask(Other);
++	TestTrue(TEXT("Another unit's task does not take over this executor"), F.Exec.GetTaskId() == Id && F.Mover.Requests == 1);
++	F.T0->CancelTask(Other, TEXT("Test"));
++
++	FExecFixture::Teleport(B, Goal + FVector(50.f, 0.f, 0.f));
++	F.Exec.Update(F.T + 2.0);
++	TestTrue(TEXT("Arrival completes the task"), F.StateOf(F.T0, Id) == S::Completed && F.Exec.GetLastResult() == ETaskMoveResult::Arrived);
++	TestTrue(TEXT("Completion releases the executor and stops task movement"), !F.Exec.HasControl() && F.Mover.Stops >= 1);
++	TestTrue(TEXT("Completion releases the worker"), IsReleased(M) && F.T0->GetAvailableWorkerCount() == 3);
++	F.Exec.Update(F.T + 3.0);
++	TestFalse(TEXT("Completed is final"), F.T0->CompleteTask(Id));
++	TestEqual(TEXT("Completed exactly once"), Completions, 1);
++	M->OnTaskStateChanged.Remove(H);
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskMoveToActorTest, "Shaman.Tasks.MoveToActor")
++bool FShamanTaskMoveToActorTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(2);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanUnitBase* B = F.Braves[0];
++	UTribeMemberComponent* M = B->TribeMember;
++	ASurfaceProbeActor* Marker = F.W.World->SpawnActor<ASurfaceProbeActor>(ASurfaceProbeActor::StaticClass(), FTransform(F.Ahead(B, 3000.f)));
++	if (!TestNotNull(TEXT("Target actor"), Marker)) return false;
++
++	const int32 Id = F.NewTask(F.T0, TEXT("Task.MoveToActor"), Marker, FVector::ZeroVector, false);
++	F.T0->AssignTask(Id, M);
++	F.T0->StartTask(Id);
++	TestTrue(TEXT("Moves toward the target actor (the actor itself is handed to the movement layer)"), F.Exec.HasControl() && F.Mover.Requests == 1
++		&& F.Mover.LastGoal.Equals(Marker->GetActorLocation()) && F.Mover.LastGoalActor == Marker);
++	FExecFixture::Teleport(Marker, Marker->GetActorLocation() + FVector(0.f, 1000.f, 0.f));
++	F.Exec.Update(F.T + 1.0);
++	TestTrue(TEXT("Target moved far: move re-issued to its new position"), F.Mover.Requests == 2 && F.Mover.LastGoal.Equals(Marker->GetActorLocation()));
++	FExecFixture::Teleport(Marker, Marker->GetActorLocation() + FVector(0.f, 50.f, 0.f));
++	F.Exec.Update(F.T + 1.5);
++	TestEqual(TEXT("Small target drift: no new request"), F.Mover.Requests, 2);
++	FExecFixture::Teleport(B, Marker->GetActorLocation() + FVector(100.f, 0.f, 0.f));
++	F.Exec.Update(F.T + 2.0);
++	TestTrue(TEXT("Within reach of the target: Completed, worker released"), F.StateOf(F.T0, Id) == S::Completed && IsReleased(M));
++
++	// Target destroyed while approaching.
++	FExecFixture::Teleport(B, Marker->GetActorLocation() + FVector(-2000.f, 0.f, 0.f));
++	const int32 Id2 = F.NewTask(F.T0, TEXT("Task.MoveToActor"), Marker, FVector::ZeroVector, false);
++	F.T0->AssignTask(Id2, M);
++	F.T0->StartTask(Id2);
++	TestTrue(TEXT("Second approach under way"), F.Exec.HasControl() && F.StateOf(F.T0, Id2) == S::Active);
++	const int32 StopsBefore = F.Mover.Stops;
++	Marker->Destroy();
++	F.Exec.Update(F.T + 3.0);
++	TestTrue(TEXT("Destroyed target: Failed(TargetLost)"), F.StateOf(F.T0, Id2) == S::Failed && F.ReasonOf(F.T0, Id2) == FName(TEXT("TargetLost"))
++		&& F.Exec.GetLastResult() == ETaskMoveResult::TargetLost);
++	TestTrue(TEXT("...movement stopped, worker released"), F.Mover.Stops > StopsBefore && !F.Exec.HasControl() && IsReleased(M));
++
++	// No target at all.
++	const int32 Id3 = F.NewTask(F.T0, TEXT("Task.MoveToActor"), nullptr, FVector::ZeroVector, false);
++	F.T0->AssignTask(Id3, M);
++	F.T0->StartTask(Id3);
++	TestTrue(TEXT("Missing target: Failed(InvalidTarget) on start, worker released"),
++		F.StateOf(F.T0, Id3) == S::Failed && F.ReasonOf(F.T0, Id3) == FName(TEXT("InvalidTarget")) && IsReleased(M) && !F.Exec.HasControl());
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskMoveFailuresTest, "Shaman.Tasks.MoveFailures")
++bool FShamanTaskMoveFailuresTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(2);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanUnitBase* B = F.Braves[0];
++	UTribeMemberComponent* M = B->TribeMember;
++	const FVector Far = F.Ahead(B, 5000.f);
++
++	F.Mover.Answer = ETaskMoveRequest::Failed;
++	const int32 A = F.StartMove(Far);
++	TestTrue(TEXT("Movement layer cannot move: Failed(NoPath)"), F.StateOf(F.T0, A) == S::Failed && F.ReasonOf(F.T0, A) == FName(TEXT("NoPath"))
++		&& F.Exec.GetLastResult() == ETaskMoveResult::RequestFailed);
++	TestTrue(TEXT("...worker released"), IsReleased(M) && !F.Exec.HasControl());
++
++	F.Mover.Answer = ETaskMoveRequest::Unreachable;
++	const int32 U = F.StartMove(Far);
++	TestTrue(TEXT("Unreachable goal: Failed(Unreachable), worker released"), F.StateOf(F.T0, U) == S::Failed
++		&& F.ReasonOf(F.T0, U) == FName(TEXT("Unreachable")) && IsReleased(M));
++
++	F.Mover.Answer = ETaskMoveRequest::Accepted;
++	const int32 St = F.StartMove(Far);
++	F.Exec.Update(F.T + 1.0);
++	TestTrue(TEXT("Accepted move, no progress yet: still active"), F.StateOf(F.T0, St) == S::Active);
++	F.Exec.Update(F.T + F.Cfg.StuckTimeout + 1.0);
++	TestTrue(TEXT("Never gets closer: Failed(Stuck), not busy forever"), F.StateOf(F.T0, St) == S::Failed && F.ReasonOf(F.T0, St) == FName(TEXT("Stuck"))
++		&& IsReleased(M) && F.T0->GetAvailableWorkerCount() == 2);
++
++	const int32 Inv = F.NewTask(F.T0, TEXT("Task.MoveTo"), nullptr, FVector::ZeroVector, false);
++	F.T0->AssignTask(Inv, M);
++	F.T0->StartTask(Inv);
++	TestTrue(TEXT("No destination: Failed(InvalidTarget) on start"), F.StateOf(F.T0, Inv) == S::Failed && F.ReasonOf(F.T0, Inv) == FName(TEXT("InvalidTarget")) && IsReleased(M));
++
++	const int32 Off = F.StartMove(Far);
++	M->SetUnavailable(true);
++	F.Exec.Update(F.T + 2.0);
++	TestTrue(TEXT("Unit becomes unavailable mid-task: Failed(UnitUnavailable)"), F.StateOf(F.T0, Off) == S::Failed
++		&& F.ReasonOf(F.T0, Off) == FName(TEXT("UnitUnavailable")) && !M->HasTask() && !F.Exec.HasControl());
++	M->SetUnavailable(false);
++	TestTrue(TEXT("...and is a worker again once available"), IsReleased(M));
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskGuardTest, "Shaman.Tasks.Guard")
++bool FShamanTaskGuardTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(2);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanUnitBase* B = F.Braves[0];
++	UTribeMemberComponent* M = B->TribeMember;
++	const FVector Post = F.Ahead(B, 1500.f);
++
++	const int32 Id = F.NewTask(F.T0, TEXT("Task.Guard"), nullptr, Post, true);
++	F.T0->AssignTask(Id, M);
++	F.T0->StartTask(Id);
++	TestTrue(TEXT("Guard: moves to the post"), F.Exec.HasControl() && F.Mover.Requests == 1 && F.Mover.LastGoal.Equals(Post) && M->GetSimState() == EUnitSimState::Moving);
++
++	FExecFixture::Teleport(B, Post + FVector(50.f, 0.f, 0.f));
++	F.Exec.Update(F.T + 1.0);
++	TestTrue(TEXT("At the post: on station, still Active, movement stopped"), F.Exec.IsOnStation() && F.StateOf(F.T0, Id) == S::Active
++		&& F.Mover.Stops >= 1 && M->GetSimState() == EUnitSimState::Guarding);
++	F.Exec.Update(F.T + 1000.0);
++	TestTrue(TEXT("Stays there indefinitely (no stuck / timeout while guarding)"), F.StateOf(F.T0, Id) == S::Active && F.Mover.Requests == 1);
++	TestFalse(TEXT("Guarding Brave is not an available worker"), M->IsAvailableWorker());
++
++	FExecFixture::Teleport(B, Post + FVector(F.Cfg.GuardLeashRadius - 50.f, 0.f, 0.f));
++	F.Exec.Update(F.T + 1001.0);
++	TestTrue(TEXT("Nudged inside the leash: holds"), F.Exec.IsOnStation() && F.Mover.Requests == 1);
++	FExecFixture::Teleport(B, Post + FVector(F.Cfg.GuardLeashRadius + 800.f, 0.f, 0.f));
++	F.Exec.Update(F.T + 1002.0);
++	TestTrue(TEXT("Pushed off the post: walks back"), !F.Exec.IsOnStation() && F.Mover.Requests == 2 && F.StateOf(F.T0, Id) == S::Active);
++
++	const int32 StopsBefore = F.Mover.Stops;
++	TestTrue(TEXT("Cancel"), F.T0->CancelTask(Id, TEXT("Test")));
++	TestTrue(TEXT("Cancellation stops guarding and task movement"), !F.Exec.HasControl() && F.Mover.Stops > StopsBefore
++		&& F.Exec.GetLastResult() == ETaskMoveResult::Interrupted);
++	TestTrue(TEXT("Cancellation releases the worker"), IsReleased(M) && F.T0->GetAvailableWorkerCount() == 2);
++	F.Exec.Update(F.T + 1003.0);
++	TestEqual(TEXT("No movement after cancellation"), F.Mover.Requests, 2);
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskEndingTest, "Shaman.Tasks.EndingAndEligibility")
++bool FShamanTaskEndingTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0) || !TestNotNull(TEXT("Tribe 1"), F.T1)) return false;
++	UTribeMemberComponent* M0 = F.Braves[0]->TribeMember;
++	const FVector Far = F.Ahead(F.Braves[0], 4000.f);
++
++	// Ended from the task book while executing.
++	const int32 Fa = F.StartMove(Far);
++	int32 Stops = F.Mover.Stops;
++	F.T0->FailTask(Fa, TEXT("Console"));
++	TestTrue(TEXT("Failure (external) stops execution and releases the worker"), !F.Exec.HasControl() && F.Mover.Stops > Stops
++		&& F.Exec.GetLastReason() == FName(TEXT("Console")) && IsReleased(M0));
++	const int32 Co = F.StartMove(Far);
++	Stops = F.Mover.Stops;
++	F.T0->CompleteTask(Co);
++	TestTrue(TEXT("Completion (external) stops execution and releases the worker"), !F.Exec.HasControl() && F.Mover.Stops > Stops && IsReleased(M0));
++	const int32 Ca = F.StartMove(Far);
++	F.T0->CancelTask(Ca, TEXT("Console"));
++	TestTrue(TEXT("Cancellation releases the worker"), !F.Exec.HasControl() && IsReleased(M0) && F.T0->GetAvailableWorkerCount() == 3);
++	TestEqual(TEXT("No open tasks left"), F.T0->GetOpenTaskCount(), 0);
++
++	// Death while executing.
++	const int32 D = F.StartMove(Far);
++	Stops = F.Mover.Stops;
++	F.Braves[0]->Health->Kill(nullptr);
++	TestTrue(TEXT("Death fails the task and stops execution"), F.StateOf(F.T0, D) == S::Failed && !F.Exec.HasControl() && F.Mover.Stops > Stops && !M0->HasTask());
++	TestTrue(TEXT("Death updates followers and the worker pool"), F.T0->GetFollowerCount() == 2 && F.T0->GetAvailableWorkerCount() == 2);
++	F.Exec.Update(F.T + 5.0);
++	TestFalse(TEXT("Dead unit is not driven again"), F.Exec.HasControl());
++
++	// Tribe transfer while executing (a second executor drives Braves[1]).
++	FFakeMover Mover1;
++	FUnitTaskExecutor Exec1;
++	AShamanUnitBase* B1 = F.Braves[1];
++	UTribeMemberComponent* M1 = B1->TribeMember;
++	Exec1.Bind(M1, &Mover1);
++	const int32 Tr = F.StartMove(Far, F.T0, B1);
++	TestTrue(TEXT("Second Brave executing"), Exec1.HasControl() && F.T0->GetAvailableWorkerCount() == 1);
++	const int32 T1Followers = F.T1->GetFollowerCount(), T1Workers = F.T1->GetAvailableWorkerCount();
++	B1->ChangeTribe(1);
++	TestTrue(TEXT("Transfer fails the old tribe's task and stops execution"), F.StateOf(F.T0, Tr) == S::Failed && !Exec1.HasControl() && Mover1.Stops >= 1);
++	TestTrue(TEXT("Old tribe: one follower and one worker left"), F.T0->GetFollowerCount() == 1 && F.T0->GetAvailableWorkerCount() == 1);
++	TestTrue(TEXT("New tribe gains the unit as a free worker"), F.T1->GetFollowerCount() == T1Followers + 1 && F.T1->GetAvailableWorkerCount() == T1Workers + 1);
++	const int32 New = F.StartMove(F.Ahead(B1, 3000.f), F.T1, B1);
++	TestTrue(TEXT("The new tribe's tasks are executed"), Exec1.HasControl() && Exec1.GetTaskId() == New && Mover1.Requests == 2);
++	F.T1->CancelTask(New, TEXT("Test"));
++	Exec1.Unbind(NAME_None);
++
++	// The Shaman is never a worker.
++	const int32 Sh = F.NewTask(F.T0, TEXT("Task.MoveTo"), nullptr, Far, true);
++	TestFalse(TEXT("The Shaman cannot be assigned a task"), F.T0->AssignTask(Sh, F.S0->TribeMember));
++	TestFalse(TEXT("The Shaman is not in the worker pool"), F.T0->GetAvailableWorkers().Contains(F.S0->TribeMember));
++	return true;
++}
++
++SHAMAN_TASK_TEST(FShamanTaskAutonomyTest, "Shaman.Tasks.AutonomyYields")
++bool FShamanTaskAutonomyTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FExecFixture F(1, /*bBindExecutor*/ false);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanUnitBase* B = F.Braves[0];
++	UTribeMemberComponent* M = B->TribeMember;
++	FExecFixture::Teleport(F.S0, FVector(-3000.f, 0.f, 100.f)); // Shaman far away: a follower wants to walk to it
++	AShamanUnitAIController* Ctrl = F.W.World->SpawnActor<AShamanUnitAIController>();
++	if (!TestNotNull(TEXT("AI controller"), Ctrl)) return false;
++	Ctrl->Possess(B);
++	if (!TestTrue(TEXT("Controller possesses the Brave"), Ctrl->GetPawn() == B)) return false;
++	TestTrue(TEXT("Brave follows its Shaman by default"), B->GetOrder() == EFollowerOrder::FollowShaman);
++
++	Ctrl->Tick(0.3f);
++	TestTrue(TEXT("Without a task, follow behaviour issues a move"), Ctrl->GetLastMoveGoal() != FVector(FLT_MAX));
++
++	// Guard task at the Brave's own position: on station at once, no move needed.
++	const int32 Id = F.NewTask(F.T0, TEXT("Task.Guard"), nullptr, B->GetActorLocation(), true);
++	F.T0->AssignTask(Id, M);
++	F.T0->StartTask(Id);
++	TestTrue(TEXT("The controller's executor runs the task"), Ctrl->GetTaskExecutor().HasControl() && Ctrl->GetTaskExecutor().IsOnStation());
++	TestTrue(TEXT("Starting the task stopped the follow move already under way"), Ctrl->GetLastMoveGoal() == FVector(FLT_MAX));
++	Ctrl->Tick(0.3f);
++	Ctrl->Tick(0.3f);
++	TestTrue(TEXT("Active task: follow behaviour does not override it (no autonomous move)"), Ctrl->GetLastMoveGoal() == FVector(FLT_MAX)
++		&& F.StateOf(F.T0, Id) == S::Active && M->GetSimState() == EUnitSimState::Guarding);
++
++	F.T0->CancelTask(Id, TEXT("Test"));
++	TestFalse(TEXT("Cancelled: executor released"), Ctrl->GetTaskExecutor().HasControl());
++	Ctrl->Tick(0.3f);
++	TestTrue(TEXT("Autonomous follow resumes once the task ends"), Ctrl->GetLastMoveGoal() != FVector(FLT_MAX) && M->GetSimState() == EUnitSimState::Following);
++	TestTrue(TEXT("Worker released"), IsReleased(M));
++
++	Ctrl->UnPossess();
++	Ctrl->Destroy();
++	return true;
++}
++
++#undef SHAMAN_TASK_TEST
++
++#endif
+diff --git a/Source/Shaman/Private/TribeComponent.cpp b/Source/Shaman/Private/TribeComponent.cpp
+index ccd14d8..af2eb76 100644
+--- a/Source/Shaman/Private/TribeComponent.cpp
++++ b/Source/Shaman/Private/TribeComponent.cpp
+@@ -178,8 +178,9 @@ bool UTribeComponent::AssignTask(int32 TaskId, UTribeMemberComponent* Member)
+ 	T->Assignee = Member;
+ 	T->AssignedTime = Now();
+ 	Member->SetCurrentTaskId(TaskId);
+-	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
++	OnTaskChanged.Broadcast(TribeId, TaskId, ETribeTaskState::Assigned);
+ 	NotifyWorkerAvailabilityChanged();
++	Member->NotifyTaskState(TaskId, ETribeTaskState::Assigned); // last: listeners may act on the task book
+ 	return true;
+ }
+ 
+@@ -187,8 +188,22 @@ bool UTribeComponent::StartTask(int32 TaskId)
+ {
+ 	FTribeTask* T = Tasks.Find(TaskId);
+ 	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Active)) return false;
++	// Only the unit this tribe assigned may execute it, and only while it is still a living follower holding it.
++	UTribeMemberComponent* Assignee = T->Assignee.Get();
++	if (!Assignee || Assignee->GetCurrentTaskId() != TaskId || Assignee->TribeId != TribeId || !IsFollower(Assignee) || !Assignee->IsAlive())
++		return false;
+ 	T->State = ETribeTaskState::Active;
+-	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
++	OnTaskChanged.Broadcast(TribeId, TaskId, ETribeTaskState::Active);
++	// Last, and T is not used afterwards: the unit's executor starts here and may complete / fail the task at once.
++	Assignee->NotifyTaskState(TaskId, ETribeTaskState::Active);
++	return true;
++}
++
++bool UTribeComponent::SetTaskAcceptanceRadius(int32 TaskId, float Radius)
++{
++	FTribeTask* T = Tasks.Find(TaskId);
++	if (!T || T->State != ETribeTaskState::Unassigned) return false;
++	T->AcceptanceRadius = FMath::Max(0.f, Radius);
+ 	return true;
+ }
+ 
+@@ -204,11 +219,18 @@ bool UTribeComponent::EndTask(int32 TaskId, ETribeTaskState Final, FName Reason)
+ 	T->EndReason = Reason;
+ 	T->EndedTime = Now();
+ 	UTribeMemberComponent* Freed = T->Assignee.Get();
+-	if (Freed && Freed->GetCurrentTaskId() == TaskId) Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
++	const bool bWasHeld = Freed && Freed->GetCurrentTaskId() == TaskId;
++	if (bWasHeld)
++	{
++		Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
++		Freed->SetTaskActivity(EUnitSimState::Working);
++	}
+ 	EndedTaskOrder.Add(TaskId);
+ 	OnTaskChanged.Broadcast(TribeId, TaskId, Final);
+ 	if (Freed) NotifyWorkerAvailabilityChanged();
+ 	ForgetOldEndedTasks();
++	// Last (T may be gone): the unit's executor stops its task-driven behaviour.
++	if (bWasHeld) Freed->NotifyTaskState(TaskId, Final);
+ 	return true;
+ }
+ 
+diff --git a/Source/Shaman/Private/TribeMemberComponent.cpp b/Source/Shaman/Private/TribeMemberComponent.cpp
+index 155bd40..2354ebf 100644
+--- a/Source/Shaman/Private/TribeMemberComponent.cpp
++++ b/Source/Shaman/Private/TribeMemberComponent.cpp
+@@ -163,7 +163,7 @@ EUnitSimState UTribeMemberComponent::GetSimState() const
+ {
+ 	if (!IsAlive()) return EUnitSimState::Dead;
+ 	if (bUnavailable) return EUnitSimState::Unavailable;
+-	if (CurrentTaskId != INDEX_NONE) return EUnitSimState::Working;
++	if (CurrentTaskId != INDEX_NONE) return TaskActivity;
+ 	return Activity;
+ }
+ 
+diff --git a/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+new file mode 100644
+index 0000000..3db6d7c
+--- /dev/null
++++ b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+@@ -0,0 +1,438 @@
++#include "Tribes/TribeTaskExecution.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "TribeRegistrySubsystem.h"
++#include "Game/ShamanGameData.h"
++#include "Terrain/ShamanSpace.h"
++#include "Core/ShamanLog.h"
++#include "GameFramework/Actor.h"
++#include "Engine/World.h"
++
++// ---- Rules -----------------------------------------------------------------------------------------------------------
++
++ETaskExecKind FTribeTaskExecutionRules::KindOf(const FGameplayTag& Type)
++{
++	static const FGameplayTag MoveTo = FGameplayTag::RequestGameplayTag(TEXT("Task.MoveTo"), false);
++	static const FGameplayTag MoveToActor = FGameplayTag::RequestGameplayTag(TEXT("Task.MoveToActor"), false);
++	static const FGameplayTag Guard = FGameplayTag::RequestGameplayTag(TEXT("Task.Guard"), false);
++	if (!Type.IsValid()) return ETaskExecKind::None;
++	if (MoveTo.IsValid() && Type == MoveTo) return ETaskExecKind::MoveToLocation;
++	if (MoveToActor.IsValid() && Type == MoveToActor) return ETaskExecKind::MoveToActor;
++	if (Guard.IsValid() && Type == Guard) return ETaskExecKind::Guard;
++	return ETaskExecKind::None;
++}
++
++bool FTribeTaskExecutionRules::HasValidTarget(const FTribeTask& Task, ETaskExecKind Kind)
++{
++	switch (Kind)
++	{
++	case ETaskExecKind::MoveToLocation:
++	case ETaskExecKind::Guard:
++		return Task.bHasTargetLocation && !Task.TargetLocation.ContainsNaN() && Task.TargetLocation.GetAbsMax() < 1.0e7f;
++	case ETaskExecKind::MoveToActor:
++	{
++		const AActor* A = Task.TargetActor.Get();
++		return A && !A->IsPendingKillPending();
++	}
++	default:
++		return false;
++	}
++}
++
++float FTribeTaskExecutionRules::AcceptanceFor(const FTribeTask& Task, ETaskExecKind Kind, const FTribeTaskExecutionConfig& Config)
++{
++	if (Task.AcceptanceRadius > 0.f) return Task.AcceptanceRadius;
++	switch (Kind)
++	{
++	case ETaskExecKind::MoveToActor: return Config.ActorArrivalRadius;
++	case ETaskExecKind::Guard:       return Config.GuardRadius;
++	default:                         return Config.ArrivalRadius;
++	}
++}
++
++FTaskStepResult FTribeTaskExecutionRules::Step(ETaskExecKind Kind, FTaskProgress& P, float Distance, float Acceptance, bool bTargetValid,
++	double Now, const FTribeTaskExecutionConfig& C)
++{
++	FTaskStepResult R;
++	if (Kind == ETaskExecKind::None)
++	{
++		R.Action = ETaskStepAction::Fail; R.Result = ETaskMoveResult::InvalidTarget; R.Reason = TEXT("NotExecutable");
++		return R;
++	}
++	if (!bTargetValid)
++	{
++		R.Action = ETaskStepAction::Fail;
++		R.Result = Kind == ETaskExecKind::MoveToActor ? ETaskMoveResult::TargetLost : ETaskMoveResult::InvalidTarget;
++		R.Reason = Kind == ETaskExecKind::MoveToActor ? FName(TEXT("TargetLost")) : FName(TEXT("InvalidTarget"));
++		return R;
++	}
++
++	const bool bArrived = Distance <= Acceptance;
++	if (Kind == ETaskExecKind::Guard)
++	{
++		if (bArrived || (P.bOnStation && Distance <= FMath::Max(C.GuardLeashRadius, Acceptance)))
++		{
++			P.bOnStation = true;
++			P.BestDistance = Distance;
++			P.LastProgressTime = Now; // holding still is not being stuck
++			R.Action = ETaskStepAction::Hold; R.Result = ETaskMoveResult::OnStation;
++			return R;
++		}
++		if (P.bOnStation)
++		{
++			// Pushed off the post: walk back, with a fresh progress window.
++			P.bOnStation = false;
++			P.BestDistance = Distance;
++			P.LastProgressTime = Now;
++		}
++	}
++	else if (bArrived)
++	{
++		R.Action = ETaskStepAction::Complete; R.Result = ETaskMoveResult::Arrived;
++		return R;
++	}
++
++	// Moving: watchdog.
++	if (Distance < P.BestDistance - C.MinProgress)
++	{
++		P.BestDistance = Distance;
++		P.LastProgressTime = Now;
++	}
++	if (C.StuckTimeout > 0.f && Now - P.LastProgressTime > C.StuckTimeout)
++	{
++		R.Action = ETaskStepAction::Fail; R.Result = ETaskMoveResult::Stuck; R.Reason = TEXT("Stuck");
++		return R;
++	}
++	if (Kind != ETaskExecKind::Guard && C.MaxMoveDuration > 0.f && Now - P.StartTime > C.MaxMoveDuration)
++	{
++		R.Action = ETaskStepAction::Fail; R.Result = ETaskMoveResult::TimedOut; R.Reason = TEXT("TimedOut");
++		return R;
++	}
++	R.Action = ETaskStepAction::Move; R.Result = ETaskMoveResult::Requested;
++	return R;
++}
++
++const TCHAR* FTribeTaskExecutionRules::KindName(ETaskExecKind Kind)
++{
++	switch (Kind)
++	{
++	case ETaskExecKind::MoveToLocation: return TEXT("MoveTo");
++	case ETaskExecKind::MoveToActor:    return TEXT("MoveToActor");
++	case ETaskExecKind::Guard:          return TEXT("Guard");
++	default:                            return TEXT("None");
++	}
++}
++
++const TCHAR* FTribeTaskExecutionRules::MoveResultName(ETaskMoveResult Result)
++{
++	switch (Result)
++	{
++	case ETaskMoveResult::None:          return TEXT("None");
++	case ETaskMoveResult::Requested:     return TEXT("Moving");
++	case ETaskMoveResult::Arrived:       return TEXT("Arrived");
++	case ETaskMoveResult::OnStation:     return TEXT("OnStation");
++	case ETaskMoveResult::RequestFailed: return TEXT("RequestFailed");
++	case ETaskMoveResult::Unreachable:   return TEXT("Unreachable");
++	case ETaskMoveResult::Stuck:         return TEXT("Stuck");
++	case ETaskMoveResult::TimedOut:      return TEXT("TimedOut");
++	case ETaskMoveResult::TargetLost:    return TEXT("TargetLost");
++	case ETaskMoveResult::InvalidTarget: return TEXT("InvalidTarget");
++	case ETaskMoveResult::Interrupted:   return TEXT("Interrupted");
++	default:                             return TEXT("?");
++	}
++}
++
++// ---- Executor --------------------------------------------------------------------------------------------------------
++
++FUnitTaskExecutor::~FUnitTaskExecutor()
++{
++	// Owner teardown: only drop the delegate binding (no task-book calls while objects are being destroyed).
++	if (UTribeMemberComponent* M = Member.Get()) M->OnTaskStateChanged.Remove(TaskEventHandle);
++}
++
++const FTribeTaskExecutionConfig& FUnitTaskExecutor::Config() const
++{
++	return UShamanGameData::Get(Member.Get())->TaskExecution;
++}
++
++double FUnitTaskExecutor::WorldNow() const
++{
++	const UWorld* W = Member.IsValid() ? Member->GetWorld() : nullptr;
++	return W ? W->GetTimeSeconds() : 0.0;
++}
++
++void FUnitTaskExecutor::Bind(UTribeMemberComponent* InMember, IUnitTaskMover* InMover)
++{
++	if (InMember == Member.Get() && InMover == Mover && TaskEventHandle.IsValid()) return;
++	Unbind(TEXT("ExecutorRebound"));
++	if (!InMember || !InMover) return;
++	Member = InMember;
++	Mover = InMover;
++	TaskEventHandle = InMember->OnTaskStateChanged.AddRaw(this, &FUnitTaskExecutor::HandleTaskState);
++
++	// Pick up a task the unit already holds (e.g. assigned before its controller possessed it).
++	if (InMember->HasTask())
++		if (const UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(InMember))
++			if (const UTribeComponent* Tribe = R->FindTribe(InMember->TribeId))
++				if (const FTribeTask* T = Tribe->FindTask(InMember->GetCurrentTaskId()))
++				{
++					if (T->State == ETribeTaskState::Assigned) PendingTaskId = T->TaskId;
++					else if (T->State == ETribeTaskState::Active) Begin(T->TaskId);
++				}
++}
++
++void FUnitTaskExecutor::Unbind(FName Reason)
++{
++	if (HasControl())
++	{
++		if (!Reason.IsNone()) Finish(ETribeTaskState::Failed, Reason, ETaskMoveResult::Interrupted);
++		else Release(true);
++	}
++	PendingTaskId = INDEX_NONE;
++	if (UTribeMemberComponent* M = Member.Get()) M->OnTaskStateChanged.Remove(TaskEventHandle);
++	TaskEventHandle.Reset();
++	Member = nullptr;
++	Mover = nullptr;
++}
++
++const FTribeTask* FUnitTaskExecutor::FindRunningTask() const
++{
++	const UTribeComponent* Tribe = TaskTribe.Get();
++	const UTribeMemberComponent* M = Member.Get();
++	const FTribeTask* T = Tribe ? Tribe->FindTask(TaskId) : nullptr;
++	if (!T || !M || T->State != ETribeTaskState::Active || T->Assignee.Get() != M || M->GetCurrentTaskId() != TaskId) return nullptr;
++	return T;
++}
++
++bool FUnitTaskExecutor::ResolveGoal(const FTribeTask& Task, FVector& OutGoal) const
++{
++	if (Kind == ETaskExecKind::MoveToActor)
++	{
++		const AActor* A = Task.TargetActor.Get();
++		if (!A || A->IsPendingKillPending()) return false;
++		OutGoal = A->GetActorLocation();
++		return true;
++	}
++	if (!FTribeTaskExecutionRules::HasValidTarget(Task, Kind)) return false;
++	OutGoal = Task.TargetLocation;
++	return true;
++}
++
++void FUnitTaskExecutor::HandleTaskState(UTribeMemberComponent* InMember, int32 InTaskId, ETribeTaskState NewState)
++{
++	if (InMember != Member.Get()) return;
++	const FString Unit = GetNameSafe(InMember ? InMember->GetOwner() : nullptr);
++	switch (NewState)
++	{
++	case ETribeTaskState::Assigned:
++		PendingTaskId = InTaskId;
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s assigned task #%d (waiting for start)."), *Unit, InTaskId);
++		return;
++	case ETribeTaskState::Active:
++		if (PendingTaskId == InTaskId) PendingTaskId = INDEX_NONE;
++		Begin(InTaskId);
++		return;
++	case ETribeTaskState::Completed:
++	case ETribeTaskState::Failed:
++	case ETribeTaskState::Cancelled:
++	{
++		if (PendingTaskId == InTaskId) PendingTaskId = INDEX_NONE;
++		if (InTaskId != TaskId) return; // not running here (bookkeeping-only task, or this executor already finished it)
++		const FTribeTask* T = TaskTribe.IsValid() ? TaskTribe->FindTask(InTaskId) : nullptr;
++		LastResult = ETaskMoveResult::Interrupted; // ended by someone else (console, scheduler, roster change)
++		LastReason = T ? T->EndReason : NAME_None;
++		LastTaskId = InTaskId;
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s task #%d %s from outside (%s): execution stopped."), *Unit, InTaskId,
++			FTribeTaskRules::StateName(NewState), LastReason.IsNone() ? TEXT("no reason") : *LastReason.ToString());
++		Release(true);
++		return;
++	}
++	default:
++		return;
++	}
++}
++
++void FUnitTaskExecutor::Begin(int32 InTaskId)
++{
++	UTribeMemberComponent* M = Member.Get();
++	if (!M || !Mover) return;
++	const UTribeRegistrySubsystem* Registry = UTribeRegistrySubsystem::Get(M);
++	UTribeComponent* Tribe = Registry ? Registry->FindTribe(M->TribeId) : nullptr;
++	const FTribeTask* T = Tribe ? Tribe->FindTask(InTaskId) : nullptr;
++	const FString Unit = GetNameSafe(M->GetOwner());
++	if (!T || T->State != ETribeTaskState::Active || T->Assignee.Get() != M || M->GetCurrentTaskId() != InTaskId || T->TribeId != M->TribeId)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s ignored start of task #%d: not this unit's active task in tribe %d."), *Unit, InTaskId, M->TribeId);
++		return;
++	}
++	const ETaskExecKind NewKind = FTribeTaskExecutionRules::KindOf(T->Type);
++	if (NewKind == ETaskExecKind::None)
++	{
++		UE_LOG(LogShaman, Verbose, TEXT("[Task] %s task #%d (%s) is bookkeeping-only: not executed."), *Unit, InTaskId, *T->Type.ToString());
++		return;
++	}
++	if (HasControl()) Release(true); // cannot happen with the one-task rule; never run two
++
++	TaskId = InTaskId;
++	TaskTribe = Tribe;
++	Kind = NewKind;
++	LastTaskId = InTaskId;
++	LastResult = ETaskMoveResult::None;
++	LastReason = NAME_None;
++	bMoveIssued = false;
++	LastRequestedGoal = FVector(FLT_MAX);
++	LastRequestTime = -1000.0;
++	Progress.Reset(WorldNow());
++	PausedSince = -1.0;
++	Acceptance = FTribeTaskExecutionRules::AcceptanceFor(*T, Kind, Config());
++	if (Kind == ETaskExecKind::MoveToActor && T->AcceptanceRadius <= 0.f)
++		if (const AActor* Target = T->TargetActor.Get())
++			Acceptance += FMath::Clamp(Target->GetSimpleCollisionRadius(), 0.f, 2000.f); // reach the edge of big targets, not their centre
++
++	if (!ResolveGoal(*T, Goal))
++	{
++		Finish(ETribeTaskState::Failed, TEXT("InvalidTarget"), ETaskMoveResult::InvalidTarget);
++		return;
++	}
++	UE_LOG(LogShaman, Log, TEXT("[Task] %s started task #%d %s (%s) -> %s, arrival radius %.0f."), *Unit, InTaskId,
++		FTribeTaskExecutionRules::KindName(Kind), FTribeTaskRules::PriorityName(T->Priority),
++		T->TargetActor.IsValid() ? *T->TargetActor->GetName() : *Goal.ToCompactString(), Acceptance);
++	Mover->StopTaskMove(); // drop whatever the unit was doing before (follow / wander path); the task owns movement now
++	Update(Progress.StartTime); // starting the task issues the first move right away
++}
++
++void FUnitTaskExecutor::Update(double Now)
++{
++	if (!HasControl()) return;
++	UTribeMemberComponent* M = Member.Get();
++	const FTribeTask* T = FindRunningTask();
++	if (!M || !T || !Mover)
++	{
++		// The task book no longer has this unit's active task (should have arrived as an event): drop it quietly.
++		LastResult = ETaskMoveResult::Interrupted;
++		LastReason = TEXT("TaskLost");
++		Release(true);
++		return;
++	}
++	if (!M->IsAlive()) { Finish(ETribeTaskState::Failed, TEXT("UnitDead"), ETaskMoveResult::Interrupted); return; }
++	if (M->IsUnavailable()) { Finish(ETribeTaskState::Failed, TEXT("UnitUnavailable"), ETaskMoveResult::Interrupted); return; }
++	if (PausedSince >= 0.0)
++	{
++		// Time spent knocked down counts neither as "stuck" nor toward MaxMoveDuration.
++		const double Paused = FMath::Max(0.0, Now - PausedSince);
++		Progress.StartTime += Paused;
++		Progress.LastProgressTime += Paused;
++		PausedSince = -1.0;
++		LastRequestTime = -1000.0; // the movement layer may have dropped the move meanwhile: allow an immediate re-issue
++	}
++
++	FVector NewGoal;
++	const bool bTargetValid = ResolveGoal(*T, NewGoal);
++	if (bTargetValid) Goal = NewGoal;
++	const AActor* Owner = M->GetOwner();
++	const float Dist = FShamanSpace::HorizontalDistance(M, Owner->GetActorLocation(), Goal);
++	const FTaskStepResult S = FTribeTaskExecutionRules::Step(Kind, Progress, Dist, Acceptance, bTargetValid, Now, Config());
++	switch (S.Action)
++	{
++	case ETaskStepAction::Complete:
++		Finish(ETribeTaskState::Completed, NAME_None, S.Result);
++		return;
++	case ETaskStepAction::Fail:
++		Finish(ETribeTaskState::Failed, S.Reason, S.Result);
++		return;
++	case ETaskStepAction::Hold:
++		if (bMoveIssued)
++		{
++			bMoveIssued = false;
++			LastRequestedGoal = FVector(FLT_MAX);
++			Mover->StopTaskMove();
++		}
++		if (LastResult != ETaskMoveResult::OnStation)
++			UE_LOG(LogShaman, Log, TEXT("[Task] %s task #%d on station (%.0f uu from post)."), *GetNameSafe(Owner), TaskId, Dist);
++		LastResult = ETaskMoveResult::OnStation;
++		M->SetTaskActivity(EUnitSimState::Guarding);
++		return;
++	case ETaskStepAction::Move:
++	default:
++		M->SetTaskActivity(EUnitSimState::Moving);
++		IssueMove(Now);
++		return;
++	}
++}
++
++bool FUnitTaskExecutor::IssueMove(double Now)
++{
++	const FTribeTaskExecutionConfig& C = Config();
++	const bool bGoalMoved = FVector::DistSquared(Goal, LastRequestedGoal) > FMath::Square(C.RepathDistance);
++	const bool bDropped = bMoveIssued && !Mover->IsTaskMoveInProgress() && (Now - LastRequestTime) >= C.RetryInterval;
++	if (bMoveIssued && !bGoalMoved && !bDropped) return true;
++
++	LastRequestTime = Now;
++	// Ask the movement layer to stop a little inside the arrival radius so arrival is detected reliably.
++	const FTribeTask* T = FindRunningTask();
++	AActor* GoalActor = (Kind == ETaskExecKind::MoveToActor && T) ? T->TargetActor.Get() : nullptr;
++	const ETaskMoveRequest Answer = Mover->RequestTaskMove(Goal, GoalActor, Acceptance * 0.75f);
++	if (Answer == ETaskMoveRequest::Failed) { Finish(ETribeTaskState::Failed, TEXT("NoPath"), ETaskMoveResult::RequestFailed); return false; }
++	if (Answer == ETaskMoveRequest::Unreachable) { Finish(ETribeTaskState::Failed, TEXT("Unreachable"), ETaskMoveResult::Unreachable); return false; }
++	bMoveIssued = true;
++	LastRequestedGoal = Goal;
++	LastResult = ETaskMoveResult::Requested;
++	return true;
++}
++
++void FUnitTaskExecutor::PauseWatchdog(double Now)
++{
++	if (HasControl() && PausedSince < 0.0) PausedSince = Now;
++}
++
++void FUnitTaskExecutor::Finish(ETribeTaskState Final, FName Reason, ETaskMoveResult Result)
++{
++	const int32 Id = TaskId;
++	UTribeComponent* Tribe = TaskTribe.Get();
++	const FString Unit = GetNameSafe(Member.IsValid() ? Member->GetOwner() : nullptr);
++	const ETaskExecKind WasKind = Kind;
++	LastResult = Result;
++	LastReason = Reason;
++	LastTaskId = Id;
++	Release(true); // local state first: the task-book call below re-enters HandleTaskState
++	// UE4's UE_LOG expands to a { } block, so "if (...) UE_LOG(...); else" does not compile (C2181): braces required.
++	if (Final == ETribeTaskState::Completed)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s completed task #%d %s (%s)."), *Unit, Id, FTribeTaskExecutionRules::KindName(WasKind),
++			FTribeTaskExecutionRules::MoveResultName(Result));
++	}
++	else // expected gameplay outcome, not an engine problem: Log, not Warning (automation treats warnings as errors)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s %s task #%d %s: %s (%s)."), *Unit, FTribeTaskRules::StateName(Final), Id,
++			FTribeTaskExecutionRules::KindName(WasKind), Reason.IsNone() ? TEXT("no reason") : *Reason.ToString(),
++			FTribeTaskExecutionRules::MoveResultName(Result));
++	}
++	if (!Tribe || Id == INDEX_NONE) return;
++	if (Final == ETribeTaskState::Completed) Tribe->CompleteTask(Id);
++	else if (Final == ETribeTaskState::Cancelled) Tribe->CancelTask(Id, Reason);
++	else Tribe->FailTask(Id, Reason);
++}
++
++void FUnitTaskExecutor::Release(bool bStopMovement)
++{
++	const bool bWasRunning = TaskId != INDEX_NONE;
++	TaskId = INDEX_NONE;
++	TaskTribe = nullptr;
++	Kind = ETaskExecKind::None;
++	bMoveIssued = false;
++	LastRequestedGoal = FVector(FLT_MAX);
++	Progress.bOnStation = false;
++	if (UTribeMemberComponent* M = Member.Get()) M->SetTaskActivity(EUnitSimState::Working);
++	if (bWasRunning && bStopMovement && Mover) Mover->StopTaskMove();
++}
++
++FString FUnitTaskExecutor::Describe() const
++{
++	if (HasControl())
++		return FString::Printf(TEXT("exec %s #%d: %s"), FTribeTaskExecutionRules::KindName(Kind), TaskId, FTribeTaskExecutionRules::MoveResultName(LastResult));
++	if (PendingTaskId != INDEX_NONE) return FString::Printf(TEXT("exec: #%d assigned, waiting for start"), PendingTaskId);
++	if (LastTaskId != INDEX_NONE)
++		return FString::Printf(TEXT("exec last #%d: %s%s%s"), LastTaskId, FTribeTaskExecutionRules::MoveResultName(LastResult),
++			LastReason.IsNone() ? TEXT("") : TEXT(" "), LastReason.IsNone() ? TEXT("") : *LastReason.ToString());
++	return TEXT("exec: idle");
++}
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitAIController.h b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+index 78a918f..be25d9c 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitAIController.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include "CoreMinimal.h"
+ #include "AIController.h"
++#include "Tribes/TribeTaskExecution.h"
+ #include "ShamanUnitAIController.generated.h"
+ 
+ class AShamanUnitBase;
+@@ -12,7 +13,12 @@ class AShamanUnitBase;
+  * Uses the navmesh when present and falls back to straight-line moves when it is not.
+  * On planets (no navmesh possible) it asks FShamanSurfaceNavigation for a path and steers along the surface
+  * every frame; decisions still run 4x per second.
+- * Phase 2 replaces step 2 with work orders (gather, build) without changing step 1.
++ *
++ * Phase 2.2: an Active executable task (Task.MoveTo / MoveToActor / Guard) on the pawn's tribe member comes first.
++ * While FUnitTaskExecutor has control, steps 1 and 2 are skipped, so autonomous combat / follow / wander never
++ * overwrite task movement (a guard on station still melees enemies in reach without moving). The controller is the
++ * executor's movement layer (IUnitTaskMover, via TaskMover): tasks move through the same navmesh / planet-surface
++ * movement as everything else.
+  */
+ UCLASS()
+ class SHAMAN_API AShamanUnitAIController : public AAIController
+@@ -25,9 +31,22 @@ public:
+ 	/** Planet steering goal (debug/tests). */
+ 	bool HasSurfaceGoal() const { return bHasSurfaceGoal; }
+ 	AActor* GetCurrentTarget() const { return Target.Get(); }
++	/** Last goal handed to the movement layer (FVector(FLT_MAX) = none). Debug/tests. */
++	FVector GetLastMoveGoal() const { return LastMoveGoal; }
++	const FUnitTaskExecutor& GetTaskExecutor() const { return TaskExecutor; }
++
++	/** Movement layer for task execution (see IUnitTaskMover). Flat worlds: navmesh path (to GoalActor itself when given,
++	 *  partial paths allowed so big actors are reached at their edge), or a straight-line move when there is no usable
++	 *  navmesh (the Phase 1 convention); a usable navmesh with no path -> Unreachable.
++	 *  Planets: FShamanSurfaceNavigation; a partial path that ends short of the goal -> Unreachable. */
++	ETaskMoveRequest RequestTaskMove(const FVector& Goal, AActor* GoalActor, float Acceptance);
++	void StopTaskMove();
++	bool IsTaskMoveInProgress() const;
+ 
+ protected:
+ 	virtual void OnPossess(APawn* InPawn) override;
++	virtual void OnUnPossess() override;
++	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+ 
+ 	void UpdateTarget(AShamanUnitBase* U);
+ 	void Engage(AShamanUnitBase* U, AActor* T);
+@@ -49,4 +68,15 @@ protected:
+ 	float SurfaceAcceptance = 100.f;
+ 	float DecisionTimer = 0.f;
+ 	float RandFloat();
++
++	/** Executes the pawn's Active task (Phase 2.2). */
++	FUnitTaskExecutor TaskExecutor;
++	/** Adapter handing this controller's movement to TaskExecutor. */
++	struct FControllerTaskMover : public IUnitTaskMover
++	{
++		AShamanUnitAIController* Owner = nullptr;
++		virtual ETaskMoveRequest RequestTaskMove(const FVector& Goal, AActor* GoalActor, float Acceptance) override { return Owner->RequestTaskMove(Goal, GoalActor, Acceptance); }
++		virtual void StopTaskMove() override { Owner->StopTaskMove(); }
++		virtual bool IsTaskMoveInProgress() const override { return Owner->IsTaskMoveInProgress(); }
++	} TaskMover;
+ };
+diff --git a/Source/Shaman/Public/Game/ShamanGameData.h b/Source/Shaman/Public/Game/ShamanGameData.h
+index 3c6d562..a03e262 100644
+--- a/Source/Shaman/Public/Game/ShamanGameData.h
++++ b/Source/Shaman/Public/Game/ShamanGameData.h
+@@ -3,6 +3,7 @@
+ #include "Engine/DataAsset.h"
+ #include "World/WorldGenTypes.h"
+ #include "Tribes/TribeDefinitions.h"
++#include "Tribes/TribeTaskExecution.h"
+ #include "ShamanGameData.generated.h"
+ 
+ class UDataTable;
+@@ -51,6 +52,8 @@ public:
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") TArray<FTribeDefinition> Tribes;  // index = tribe id
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") FReincarnationConfig Reincarnation;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") FLinearColor WildmenColor = FLinearColor(0.55f, 0.42f, 0.28f, 1.f);
++	/** Phase 2.2: arrival radii and failure timeouts for executed tasks (move / move to actor / guard). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes|Tasks") FTribeTaskExecutionConfig TaskExecution;
+ 
+ 	/** Spells every Shaman starts with (spec: TAKA / Blast only). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TArray<FName> StartingSpells;
+diff --git a/Source/Shaman/Public/Game/ShamanGameMode.h b/Source/Shaman/Public/Game/ShamanGameMode.h
+index 1b33b54..dbf5632 100644
+--- a/Source/Shaman/Public/Game/ShamanGameMode.h
++++ b/Source/Shaman/Public/Game/ShamanGameMode.h
+@@ -46,9 +46,16 @@ public:
+ 	/** Tribe simulation (Phase 2.1) report: members, living/available counts, open tasks, settlement anchor. */
+ 	UFUNCTION(Exec) void ShamanTribeReport();
+ 	/**
+-	 * Developer test of the task foundation on the player's tribe (Task.Debug, no behaviour):
+-	 * ShamanTaskTest Create | Assign | Start | Complete | Fail | Cancel | Unavailable | Available
+-	 * Assign picks the available Brave nearest to the player; Unavailable/Available toggle that Brave.
++	 * Developer test of tasks on the player's tribe.
++	 *   Create                          Task.Debug at the player (bookkeeping only, no behaviour; Phase 2.1)
++	 *   Move | Guard                    Task.MoveTo / Task.Guard at the aim point (Phase 2.2, executed)
++	 *   Marker | MoveActor              spawn a debug marker at the aim point / Task.MoveToActor to it (spawns one if none)
++	 *   DestroyTarget                   destroy the marker (a running MoveToActor then fails with TargetLost)
++	 *   MoveInvalid | MoveUnreachable   MoveTo without a location / far outside the world (both fail on start)
++	 *   Assign | Start | Go             assign to the available Brave nearest the player / start / assign + start
++	 *   Complete | Fail | Cancel | Info end the task from the console / print task, unit and executor state
++	 *   Unavailable | Available         take that Brave out of / back into the worker pool
++	 * The last created task is the one Assign/Start/Go/Complete/Fail/Cancel/Info act on.
+ 	 */
+ 	UFUNCTION(Exec) void ShamanTaskTest(const FString& Action);
+ 	/** Developer test: moves the player's Brave nearest to the player into tribe NewTribeId (membership transfer). */
+@@ -82,6 +89,7 @@ protected:
+ 	bool bWorldGenerated = false;
+ 	int32 DebugTaskId = INDEX_NONE;                       // ShamanTaskTest's current task
+ 	TWeakObjectPtr<class UTribeMemberComponent> DebugMember; // ShamanTaskTest Unavailable/Available target
++	TWeakObjectPtr<AActor> DebugTargetActor;                 // ShamanTaskTest Marker / MoveActor / DestroyTarget
+ 	int32 SeedOverride = 0;
+ 	bool bHasSeedOverride = false;
+ };
+diff --git a/Source/Shaman/Public/TribeComponent.h b/Source/Shaman/Public/TribeComponent.h
+index e3d1382..a1674bf 100644
+--- a/Source/Shaman/Public/TribeComponent.h
++++ b/Source/Shaman/Public/TribeComponent.h
+@@ -17,7 +17,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeWorkersChanged, int32, Tribe
+  * so the population cannot drift or double count.
+  *
+  * Phase 2.1 (tribe simulation foundation): the tribe also owns its task book (create / assign / start / complete /
+- * fail / cancel) and answers worker-pool queries. Leaving the roster (death, conversion, tribe change, destruction)
++ * fail / cancel) and answers worker-pool queries. Phase 2.2: every state change of a held task is also relayed to the
++ * assignee (UTribeMemberComponent::OnTaskStateChanged), which is how the unit's executor learns to start or stop. Leaving the roster (death, conversion, tribe change, destruction)
+  * fails the member's task, so no task can be held by a unit that is no longer a living follower of this tribe.
+  * Food, housing, growth etc. arrive with later Phase 2 milestones.
+  */
+@@ -71,7 +72,8 @@ public:
+ 		AActor* TargetActor, FVector TargetLocation, bool bHasTargetLocation, FName Source);
+ 	/** Unassigned -> Assigned to Member. Refused if Member is not an available worker of this tribe (one primary task per unit). */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool AssignTask(int32 TaskId, UTribeMemberComponent* Member);
+-	/** Assigned -> Active (the executor started). */
++	/** Assigned -> Active. Refused unless the assignee is still a living follower of this tribe holding the task.
++	 *  The unit's executor (Phase 2.2) starts executable task types (Task.MoveTo / MoveToActor / Guard) here. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool StartTask(int32 TaskId);
+ 	/** Active -> Completed. Frees the unit. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CompleteTask(int32 TaskId);
+@@ -79,6 +81,8 @@ public:
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool FailTask(int32 TaskId, FName Reason);
+ 	/** Unassigned/Assigned/Active -> Cancelled. Frees the unit. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CancelTask(int32 TaskId, FName Reason);
++	/** Arrival radius override for an executed task (0 = config default). Only before assignment. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool SetTaskAcceptanceRadius(int32 TaskId, float Radius);
+ 	/** Copy of a task (open or recently ended). False if unknown or already forgotten. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool GetTask(int32 TaskId, FTribeTask& OutTask) const;
+ 	const FTribeTask* FindTask(int32 TaskId) const { return Tasks.Find(TaskId); }
+diff --git a/Source/Shaman/Public/TribeMemberComponent.h b/Source/Shaman/Public/TribeMemberComponent.h
+index 09029b0..66393df 100644
+--- a/Source/Shaman/Public/TribeMemberComponent.h
++++ b/Source/Shaman/Public/TribeMemberComponent.h
+@@ -9,6 +9,8 @@ class UTribeComponent;
+ class UTribeMemberComponent;
+ 
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnUnitConverted, UTribeMemberComponent*, From, UTribeMemberComponent*, To, EConversionKind, Kind);
++/** Native: the task this unit holds changed state (Assigned, Active, Completed, Failed, Cancelled). Phase 2.2. */
++DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnMemberTaskStateChanged, UTribeMemberComponent* /*Member*/, int32 /*TaskId*/, ETribeTaskState /*NewState*/);
+ 
+ /**
+  * Gameplay identity of any unit for spell targeting and conversion: which tribe owns it, what kind of unit it is,
+@@ -54,7 +56,7 @@ public:
+ 
+ 	// ---- Tribe simulation (Phase 2.1): availability and the unit's one primary task ------------------------------
+ 	// Tasks are owned and ended by the tribe (UTribeComponent::CreateTask/AssignTask/...); the member only records
+-	// which one it holds. Execution (moving, gathering...) is not part of this foundation.
++	// which one it holds and relays its state changes (OnTaskStateChanged) to the unit's executor (Phase 2.2).
+ 
+ 	/** Owner is alive (IShamanDamageReceiver), not being destroyed. Members without health count as alive. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAlive() const;
+@@ -66,13 +68,21 @@ public:
+ 	/** Id of the task this unit holds (Assigned or Active), or INDEX_NONE. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetCurrentTaskId() const { return CurrentTaskId; }
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool HasTask() const { return CurrentTaskId != INDEX_NONE; }
+-	/** Derived: Dead > Unavailable > Working (holds a task) > current activity (Idle / Following / Guarding / Combat). */
++	/** Derived: Dead > Unavailable > task activity (Working, or Moving / Guarding while a task executes) > current
++	 *  activity (Idle / Following / Guarding / Combat). */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") EUnitSimState GetSimState() const;
+ 	/** What the unit's own AI is doing when it holds no task (set by the Phase 1 AI; Idle by default). */
+ 	void SetActivity(EUnitSimState NewActivity) { Activity = NewActivity; }
+ 
++	/** What the unit's task executor is doing while it holds a task (Phase 2.2; Working = not executed / waiting). */
++	void SetTaskActivity(EUnitSimState NewActivity) { TaskActivity = NewActivity; }
++
++	/** Fired by the owning tribe for the task this unit holds; the unit's FUnitTaskExecutor listens (Phase 2.2). */
++	FOnMemberTaskStateChanged OnTaskStateChanged;
++
+ 	/** Bookkeeping hooks for UTribeComponent only. */
+ 	void SetCurrentTaskId(int32 TaskId) { CurrentTaskId = TaskId; }
++	void NotifyTaskState(int32 TaskId, ETribeTaskState NewState) { OnTaskStateChanged.Broadcast(this, TaskId, NewState); }
+ 
+ protected:
+ 	/** Applies a pending conversion identity (see UTribeRegistrySubsystem::BeginPendingConversion) before any BeginPlay runs. */
+@@ -88,4 +98,5 @@ private:
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") bool bUnavailable = false;
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") int32 CurrentTaskId = INDEX_NONE;
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState Activity = EUnitSimState::Idle;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState TaskActivity = EUnitSimState::Working;
+ };
+diff --git a/Source/Shaman/Public/Tribes/TribeTaskExecution.h b/Source/Shaman/Public/Tribes/TribeTaskExecution.h
+new file mode 100644
+index 0000000..d85bfe4
+--- /dev/null
++++ b/Source/Shaman/Public/Tribes/TribeTaskExecution.h
+@@ -0,0 +1,194 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameplayTagContainer.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "TribeTaskExecution.generated.h"
++
++class UTribeComponent;
++class UTribeMemberComponent;
++
++/**
++ * Phase 2.2: task execution. The tribe's task book (UTribeComponent) stays the single owner of task state; this file
++ * turns an Active task into unit behaviour. Split in three parts so each can be tested on its own:
++ *   - FTribeTaskExecutionRules: pure decisions (which tasks are executable, arrived / stuck / timed out / hold).
++ *   - IUnitTaskMover: the unit's movement layer (AShamanUnitAIController implements it with its existing navmesh /
++ *     planet-surface movement). No second movement system.
++ *   - FUnitTaskExecutor: per-unit glue. Listens to its member's task events, asks the mover to move, and reports the
++ *     outcome back to the task book (Complete / Fail). It never changes task state directly.
++ * Only Task.MoveTo, Task.MoveToActor and Task.Guard are executable; every other type (Task.Debug, reserved gather /
++ * build tags) remains bookkeeping-only.
++ */
++
++/** Executable task kinds (from the task's Task.* tag). */
++UENUM(BlueprintType)
++enum class ETaskExecKind : uint8
++{
++	None,            // not executable here: bookkeeping only
++	MoveToLocation,  // Task.MoveTo: go to TargetLocation, complete on arrival
++	MoveToActor,     // Task.MoveToActor: go to TargetActor, complete within reach, fail if it disappears
++	Guard            // Task.Guard: go to TargetLocation and stay there until cancelled
++};
++
++/** What the executor last saw happen to its movement (debug / inspection). */
++UENUM(BlueprintType)
++enum class ETaskMoveResult : uint8
++{
++	None,
++	Requested,      // a move is under way
++	Arrived,        // move task reached its goal
++	OnStation,      // guard is at its post
++	RequestFailed,  // the movement layer could not move at all (no navigation / no path)
++	Unreachable,    // the movement layer reported the goal cannot be reached
++	Stuck,          // no progress for StuckTimeout seconds
++	TimedOut,       // move task exceeded MaxMoveDuration
++	TargetLost,     // MoveToActor target destroyed / invalid
++	InvalidTarget,  // task data cannot be executed (no location, NaN, no actor)
++	Interrupted     // task ended from outside (cancelled, unit lost eligibility, executor removed)
++};
++
++/** Answer of the movement layer to a move request. */
++enum class ETaskMoveRequest : uint8 { Accepted, Unreachable, Failed };
++
++/** Tuning for task execution (UShamanGameData::TaskExecution). Distances are ground distances (FShamanSpace). */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FTribeTaskExecutionConfig
++{
++	GENERATED_BODY()
++	/** Task.MoveTo completes within this distance of its location (a task's AcceptanceRadius > 0 overrides). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="10")) float ArrivalRadius = 150.f;
++	/** Task.MoveToActor completes within this distance of the target actor's location, plus the target's collision
++	 *  radius (so large targets such as buildings are reached at their edge). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="10")) float ActorArrivalRadius = 220.f;
++	/** Task.Guard: the unit is on station within this distance of its post... */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="10")) float GuardRadius = 150.f;
++	/** ...and only walks back once pushed further than this. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="10")) float GuardLeashRadius = 400.f;
++	/** MoveToActor: re-issue the move when the target has moved this far from the last requested goal. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="10")) float RepathDistance = 200.f;
++	/** Fail with Stuck when the unit gets no closer by MinProgress within this many seconds (0 = never). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="0")) float StuckTimeout = 8.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="1")) float MinProgress = 50.f;
++	/** Move tasks fail with TimedOut after this many seconds (0 = no limit). Guard tasks never time out. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="0")) float MaxMoveDuration = 180.f;
++	/** Re-issue a move the movement layer dropped (e.g. after a ragdoll) at most this often. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tasks", meta=(ClampMin="0.1")) float RetryInterval = 1.f;
++};
++
++/** Per-run progress the rules update (kept by the executor). */
++struct SHAMAN_API FTaskProgress
++{
++	double StartTime = 0.0;
++	double LastProgressTime = 0.0;
++	float BestDistance = TNumericLimits<float>::Max();
++	bool bOnStation = false;
++	void Reset(double Now) { StartTime = Now; LastProgressTime = Now; BestDistance = TNumericLimits<float>::Max(); bOnStation = false; }
++};
++
++enum class ETaskStepAction : uint8 { Move, Hold, Complete, Fail };
++
++struct SHAMAN_API FTaskStepResult
++{
++	ETaskStepAction Action = ETaskStepAction::Move;
++	ETaskMoveResult Result = ETaskMoveResult::Requested;
++	FName Reason;
++};
++
++/** Pure execution rules (no world needed): deterministic and unit-tested on their own. */
++struct SHAMAN_API FTribeTaskExecutionRules
++{
++	static ETaskExecKind KindOf(const FGameplayTag& Type);
++	/** The task carries what its kind needs (finite location / live actor). */
++	static bool HasValidTarget(const FTribeTask& Task, ETaskExecKind Kind);
++	static float AcceptanceFor(const FTribeTask& Task, ETaskExecKind Kind, const FTribeTaskExecutionConfig& Config);
++	/** One decision step. Distance = ground distance to the goal; bTargetValid = false when a MoveToActor target is gone. */
++	static FTaskStepResult Step(ETaskExecKind Kind, FTaskProgress& Progress, float Distance, float Acceptance, bool bTargetValid,
++		double Now, const FTribeTaskExecutionConfig& Config);
++	static const TCHAR* KindName(ETaskExecKind Kind);
++	static const TCHAR* MoveResultName(ETaskMoveResult Result);
++};
++
++/** The unit's movement layer, as seen by task execution. */
++class SHAMAN_API IUnitTaskMover
++{
++public:
++	virtual ~IUnitTaskMover() {}
++	/** Start (or redirect) a move to Goal. GoalActor (MoveToActor tasks) lets the movement layer path to the actor
++	 *  itself (navmesh: its reachable edge) rather than to its centre. Must not block; arrival is detected by the executor. */
++	virtual ETaskMoveRequest RequestTaskMove(const FVector& Goal, AActor* GoalActor, float Acceptance) = 0;
++	/** Stop any task-driven movement (no-op when idle). */
++	virtual void StopTaskMove() = 0;
++	/** A move is still being followed (false once it finished, was dropped or never started). */
++	virtual bool IsTaskMoveInProgress() const = 0;
++};
++
++/**
++ * Executes the Active task of one unit. Owned by the unit's AI controller (or a test). Event-driven: it only reacts to
++ * its own member's task events and to Update() calls from its owner (4x per second); it never scans the world.
++ * At most one task at a time, mirroring the task book's one-primary-task rule.
++ */
++class SHAMAN_API FUnitTaskExecutor
++{
++public:
++	FUnitTaskExecutor() = default;
++	~FUnitTaskExecutor();
++	FUnitTaskExecutor(const FUnitTaskExecutor&) = delete;
++	FUnitTaskExecutor& operator=(const FUnitTaskExecutor&) = delete;
++
++	/** Start listening to Member's task events. Picks up a task Member already holds. */
++	void Bind(UTribeMemberComponent* InMember, IUnitTaskMover* InMover);
++	/** Stop listening. A task still executing is failed with Reason (the unit can no longer carry it out). */
++	void Unbind(FName Reason);
++	bool IsBound() const { return Member.IsValid() && Mover != nullptr; }
++
++	/** Decision step; Now = world time in seconds. No-op unless a task is executing. */
++	void Update(double Now);
++	/** The unit cannot move for a while (ragdoll, stagger): don't count it as stuck. */
++	void PauseWatchdog(double Now);
++
++	/** An executable task is Active and this executor drives the unit (autonomous behaviour must yield). */
++	bool HasControl() const { return TaskId != INDEX_NONE; }
++	int32 GetTaskId() const { return TaskId; }
++	/** Assigned to this unit but not started yet (the unit knows about it; autonomous behaviour continues). */
++	int32 GetPendingTaskId() const { return PendingTaskId; }
++	ETaskExecKind GetKind() const { return Kind; }
++	ETaskMoveResult GetLastResult() const { return LastResult; }
++	FName GetLastReason() const { return LastReason; }
++	int32 GetLastTaskId() const { return LastTaskId; }
++	FVector GetGoal() const { return Goal; }
++	bool IsOnStation() const { return HasControl() && Progress.bOnStation; }
++	FString Describe() const;
++
++private:
++	void HandleTaskState(UTribeMemberComponent* InMember, int32 InTaskId, ETribeTaskState NewState);
++	void Begin(int32 InTaskId);
++	/** Report the outcome to the task book. Local state is released first, so re-entrant task events are harmless. */
++	void Finish(ETribeTaskState Final, FName Reason, ETaskMoveResult Result);
++	/** Forget the running task locally (stops task-driven movement). Never touches the task book. */
++	void Release(bool bStopMovement);
++	bool ResolveGoal(const FTribeTask& Task, FVector& OutGoal) const;
++	bool IssueMove(double Now);
++	const FTribeTask* FindRunningTask() const;
++	const FTribeTaskExecutionConfig& Config() const;
++	double WorldNow() const;
++
++	TWeakObjectPtr<UTribeMemberComponent> Member;
++	IUnitTaskMover* Mover = nullptr;
++	FDelegateHandle TaskEventHandle;
++
++	int32 TaskId = INDEX_NONE;
++	int32 PendingTaskId = INDEX_NONE;
++	TWeakObjectPtr<UTribeComponent> TaskTribe;
++	ETaskExecKind Kind = ETaskExecKind::None;
++	FTaskProgress Progress;
++	double PausedSince = -1.0; // knocked down since (watchdog and duration clock paused)
++	FVector Goal = FVector::ZeroVector;
++	FVector LastRequestedGoal = FVector(FLT_MAX);
++	float Acceptance = 0.f;
++	double LastRequestTime = -1000.0;
++	bool bMoveIssued = false;
++
++	// Inspection (survives the end of a task)
++	ETaskMoveResult LastResult = ETaskMoveResult::None;
++	FName LastReason;
++	int32 LastTaskId = INDEX_NONE;
++};
+diff --git a/Source/Shaman/Public/Tribes/TribeTaskTypes.h b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+index 2264a0e..78a6e15 100644
+--- a/Source/Shaman/Public/Tribes/TribeTaskTypes.h
++++ b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+@@ -10,7 +10,8 @@ class UTribeMemberComponent;
+  *
+  * A task is what a unit has been asked to accomplish (gather wood, build, guard...). The owning tribe
+  * (UTribeComponent) creates, assigns and ends tasks; executing them (moving, gathering, building) is the job of later
+- * systems (Brave AI, Phase 2.2+). Ending a task only changes bookkeeping: it never kills, converts or moves a unit.
++ * systems (Phase 2.2: Tribes/TribeTaskExecution.h). Ending a task only changes bookkeeping: it never kills, converts or
++ * moves a unit.
+  */
+ 
+ /** Task lifecycle. Unassigned -> Assigned -> Active -> Completed | Failed | Cancelled (see FTribeTaskRules). */
+@@ -39,13 +40,14 @@ enum class ETribeTaskPriority : uint8
+ /**
+  * What a unit is doing, as seen by the tribe simulation. Only Idle, Unavailable and Dead drive behaviour in 2.1
+  * (worker availability); Working marks a unit holding a task; Following / Guarding / Combat mirror what the existing
+- * Phase 1 AI is doing (debug visibility). The rest are reserved for later milestones and are never set yet.
++ * Phase 1 AI is doing (debug visibility). Phase 2.2: a unit executing a task shows Moving or Guarding instead of
++ * Working. The rest are reserved for later milestones and are never set yet.
+  */
+ UENUM(BlueprintType)
+ enum class EUnitSimState : uint8
+ {
+ 	Idle,
+-	Moving,      // reserved
++	Moving,      // executing a move (Phase 2.2)
+ 	Working,     // holds an Assigned/Active task
+ 	Building,    // reserved
+ 	Gathering,   // reserved
+@@ -75,6 +77,8 @@ struct SHAMAN_API FTribeTask
+ 	UPROPERTY() TWeakObjectPtr<AActor> TargetActor;
+ 	UPROPERTY(BlueprintReadOnly, Category="Task") FVector TargetLocation = FVector::ZeroVector;
+ 	UPROPERTY(BlueprintReadOnly, Category="Task") bool bHasTargetLocation = false;
++	/** Arrival radius for executed move/guard tasks; 0 = UShamanGameData::TaskExecution default (Phase 2.2). */
++	UPROPERTY(BlueprintReadOnly, Category="Task") float AcceptanceRadius = 0.f;
+ 	UPROPERTY() TWeakObjectPtr<UTribeMemberComponent> Assignee;
+ 	/** Who asked for it (system or command name), for debugging. */
+ 	UPROPERTY(BlueprintReadOnly, Category="Task") FName Source;

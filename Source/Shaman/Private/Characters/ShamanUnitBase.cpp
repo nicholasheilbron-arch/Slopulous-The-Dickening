@@ -223,6 +223,69 @@ void AShamanUnitBase::SetOrder(EFollowerOrder NewOrder, FVector Location)
 {
 	Order = NewOrder;
 	OrderLocation = Location;
+	OrderTarget = nullptr;
+	PatrolPoints.Reset();
+	PatrolIndex = 0;
+	GuardSlot = 0;
+	GuardSlotCount = 1;
+}
+
+void AShamanUnitBase::SetGuardOrder(EFollowerOrder GuardKind, AActor* Target, const FVector& Centre, float RingRadius, int32 Slot, int32 SlotCount)
+{
+	if (GuardKind == EFollowerOrder::GuardTarget && !Target) GuardKind = EFollowerOrder::GuardSpot;
+	if (GuardKind != EFollowerOrder::GuardShaman && GuardKind != EFollowerOrder::GuardTarget) GuardKind = EFollowerOrder::GuardSpot;
+	SetOrder(GuardKind, Centre);
+	OrderTarget = GuardKind == EFollowerOrder::GuardTarget ? Target : nullptr;
+	GuardRadius = FMath::Max(50.f, RingRadius);
+	GuardSlotCount = FMath::Max(1, SlotCount);
+	GuardSlot = FMath::Clamp(Slot, 0, GuardSlotCount - 1);
+}
+
+void AShamanUnitBase::SetPatrolOrder(const TArray<FVector>& Points, int32 StartIndex)
+{
+	if (Points.Num() == 0) { SetOrder(EFollowerOrder::HoldPosition, GetActorLocation()); return; }
+	SetOrder(EFollowerOrder::Patrol, Points[FMath::Clamp(StartIndex, 0, Points.Num() - 1)]);
+	PatrolPoints = Points;
+	PatrolIndex = FMath::Clamp(StartIndex, 0, Points.Num() - 1);
+	GuardRadius = 180.f; // a one-point patrol circles its point
+}
+
+void AShamanUnitBase::AdvancePatrol()
+{
+	if (Order != EFollowerOrder::Patrol || PatrolPoints.Num() == 0) return;
+	PatrolIndex = (PatrolIndex + 1) % PatrolPoints.Num();
+	OrderLocation = PatrolPoints[PatrolIndex];
+}
+
+bool AShamanUnitBase::ResolveGuardCentre(FVector& OutCentre)
+{
+	switch (Order)
+	{
+	case EFollowerOrder::GuardShaman:
+	{
+		const UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
+		const AShamanUnitBase* S = Tribes ? Tribes->GetShaman(GetTribeId()) : nullptr;
+		if (!S || !S->IsAlive()) return false;
+		OrderLocation = OutCentre = S->GetActorLocation();
+		return true;
+	}
+	case EFollowerOrder::GuardTarget:
+		if (const AActor* T = OrderTarget.Get())
+		{
+			OrderLocation = OutCentre = T->GetActorLocation();
+			return true;
+		}
+		// The flag was removed / the building is gone: keep guarding where it stood.
+		Order = EFollowerOrder::GuardSpot;
+		OrderTarget = nullptr;
+		OutCentre = OrderLocation;
+		return true;
+	case EFollowerOrder::GuardSpot:
+		OutCentre = OrderLocation;
+		return true;
+	default:
+		return false;
+	}
 }
 
 void AShamanUnitBase::ChangeTribe(int32 NewTribeId)

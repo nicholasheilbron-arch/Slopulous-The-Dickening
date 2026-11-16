@@ -1,6 +1,15 @@
 #include "Characters/ShamanUnitAIController.h"
 #include "Characters/ShamanUnitBase.h"
 #include "Characters/ShamanCharacter.h"
+#include "Characters/ShamanGuardRules.h"
+
+namespace
+{
+	/** Guards and patrols defend this far from what they protect (the unit row's LeashRadius still caps it). */
+	const float GuardLeashRadius = 1000.f;
+	/** Patrol: a point counts as reached within this ground distance. */
+	const float PatrolArrival = 170.f;
+}
 #include "SpellComponent.h"
 #include "Game/ShamanGameData.h"
 #include "Tribes/TribeSubsystem.h"
@@ -112,7 +121,8 @@ void AShamanUnitAIController::Think(AShamanUnitBase* U)
 		EUnitSimState Activity = EUnitSimState::Idle;
 		if (Target.IsValid()) Activity = EUnitSimState::Combat;
 		else if (U->GetOrder() == EFollowerOrder::FollowShaman) Activity = EUnitSimState::Following;
-		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome) Activity = EUnitSimState::Guarding;
+		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome || U->IsGuardOrder()) Activity = EUnitSimState::Guarding;
+		else if (U->GetOrder() == EFollowerOrder::Patrol) Activity = EUnitSimState::Moving;
 		U->TribeMember->SetActivity(Activity);
 	}
 }
@@ -145,8 +155,24 @@ FVector AShamanUnitAIController::GetLeashAnchor(AShamanUnitBase* U) const
 				if (S->IsAlive()) return S->GetActorLocation();
 		return U->GetHomeLocation();
 	case EFollowerOrder::HoldPosition: return U->GetOrderLocation();
+	case EFollowerOrder::GuardShaman:
+	case EFollowerOrder::GuardTarget:
+	case EFollowerOrder::GuardSpot:
+	{
+		// Live centre (the Shaman / the guarded actor keep moving while a guard fights).
+		FVector Centre;
+		return U->ResolveGuardCentre(Centre) ? Centre : U->GetOrderLocation();
+	}
+	case EFollowerOrder::Patrol:
+		return U->GetOrderLocation(); // the patrol point being walked to (AdvancePatrol)
 	default: return U->GetHomeLocation();
 	}
+}
+
+float AShamanUnitAIController::GetLeashRadius(const AShamanUnitBase* U) const
+{
+	const float RowLeash = U->GetRow().LeashRadius;
+	return (U->IsGuardOrder() || U->GetOrder() == EFollowerOrder::Patrol) ? FMath::Min(RowLeash, GuardLeashRadius) : RowLeash;
 }
 
 void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
@@ -154,12 +180,13 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
 	const FUnitRow& Row = U->GetRow();
 	if (!Row.bCanFight) { Target = nullptr; return; }
 	const FVector Anchor = GetLeashAnchor(U);
+	const float Leash = GetLeashRadius(U);
 
 	// Keep the current target while it is valid and inside the leash.
 	if (AActor* T = Target.Get())
 	{
 		const bool bValid = FShamanTargetRules::CanAffect(U, T, ESpellTargetFilter::EnemiesOnly, false)
-			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Row.LeashRadius;
+			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Leash;
 		if (bValid) return;
 		Target = nullptr;
 	}
@@ -172,7 +199,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
 	{
 		AActor* A = H.GetActor();
 		if (!A || !FShamanTargetRules::CanAffect(U, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
-		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
+		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Leash) continue;
 		const float D = FVector::DistSquared(A->GetActorLocation(), U->GetActorLocation());
 		if (D < BestD) { BestD = D; Target = A; }
 	}
@@ -224,10 +251,7 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 		const AShamanUnitBase* S = Tribes ? Tribes->GetShaman(U->GetTribeId()) : nullptr;
 		if (!S || !S->IsAlive())
 		{
-			// Shaman is reincarnating: wait at the circle.
-			const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
-			const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
-			if (FShamanSpace::HorizontalDistance(this, Here, Wait) > 600.f) MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
+			WaitForShaman(U); // Shaman is reincarnating: wait at the circle.
 			return;
 		}
 		const float FollowDist = Data->FollowDistance;
@@ -247,6 +271,31 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 400.f) MoveToward(Spot, 120.f);
 		return;
 	}
+	case EFollowerOrder::GuardShaman:
+	case EFollowerOrder::GuardTarget:
+	case EFollowerOrder::GuardSpot:
+	{
+		FVector Centre;
+		if (!U->ResolveGuardCentre(Centre)) { WaitForShaman(U); return; } // only GuardShaman fails: she is dead
+		WalkGuardRing(U, Centre, U->GetGuardRadius(), U->GetGuardSlot(), U->GetGuardSlotCount());
+		return;
+	}
+	case EFollowerOrder::Patrol:
+	{
+		const TArray<FVector>& Points = U->GetPatrolPoints();
+		if (Points.Num() == 0) return;
+		if (Points.Num() == 1) // a one-point patrol guards that point
+		{
+			WalkGuardRing(U, Points[0], U->GetGuardRadius(), 0, 1);
+			return;
+		}
+		const FVector Point = Points[FMath::Clamp(U->GetPatrolIndex(), 0, Points.Num() - 1)];
+		if (FShamanSpace::HorizontalDistance(this, Here, Point) <= PatrolArrival) U->AdvancePatrol();
+		const FVector Next = U->GetOrderLocation();
+		// Small per-unit offset so a patrolling group walks side by side instead of single file on one spot.
+		MoveToward(FShamanSpace::OffsetAlongGround(this, Next, FVector2D(FormationOffset) * 60.f), 50.f);
+		return;
+	}
 	case EFollowerOrder::Wander:
 	default:
 	{
@@ -262,12 +311,41 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
 	}
 }
 
-void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
+void AShamanUnitAIController::WaitForShaman(AShamanUnitBase* U)
+{
+	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+	const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
+	const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
+	if (FShamanSpace::HorizontalDistance(this, U->GetActorLocation(), Wait) > 600.f)
+		MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
+}
+
+void AShamanUnitAIController::WalkGuardRing(AShamanUnitBase* U, const FVector& Centre, float Radius, int32 Slot, int32 Count)
+{
+	// The unit's position around the centre, in the same ground offsets OffsetAlongGround takes (flat: world X/Y; planet:
+	// the tangent basis at the centre, via the horizontal direction and distance).
+	const FVector Here = U->GetActorLocation();
+	const float Dist = FShamanSpace::HorizontalDistance(this, Centre, Here);
+	FVector2D Offset = FVector2D::ZeroVector;
+	if (Dist > KINDA_SMALL_NUMBER)
+	{
+		const FVector Dir = FShamanSpace::HorizontalDirection(this, Centre, Here);
+		const FVector Probe = FShamanSpace::OffsetAlongGround(this, Centre, FVector2D(1.f, 0.f) * 100.f);
+		const FVector XAxis = FShamanSpace::HorizontalDirection(this, Centre, Probe);
+		const FVector Up = FShamanSpace::GetUp(this, Centre);
+		const FVector YAxis = FVector::CrossProduct(Up, XAxis);
+		Offset = FVector2D(FVector::DotProduct(Dir, XAxis), FVector::DotProduct(Dir, YAxis)) * Dist;
+	}
+	const FVector2D NextOffset = FShamanGuardRules::NextRingPoint(Offset, Slot, Count, Radius);
+	MoveToward(FShamanSpace::OffsetAlongGround(this, Centre, NextOffset), 50.f, /*RepathDistance*/ 40.f);
+}
+
+void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance, float RepathDistance)
 {
 	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
 		if (Terrain->IsPlanetActive())
 		{
-			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
+			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(RepathDistance)) return;
 			LastMoveGoal = Dest;
 			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, GetPawn()->GetActorLocation(), Dest);
 			bHasSurfaceGoal = Path.bValid && Path.Points.Num() > 0;
@@ -277,7 +355,7 @@ void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
 		}
 
 	const bool bMoving = GetMoveStatus() == EPathFollowingStatus::Moving;
-	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
+	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(RepathDistance)) return;
 	LastMoveGoal = Dest;
 	EPathFollowingRequestResult::Type R = MoveToLocation(Dest, Acceptance, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true,
 		/*bProjectDestinationToNavigation*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ true);

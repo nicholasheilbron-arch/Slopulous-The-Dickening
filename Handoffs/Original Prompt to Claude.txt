@@ -1,0 +1,1890 @@
+# PROJECT: SHAMAN — SINGLE-PLAYER GOD-GAME
+
+## ROLE
+
+You are the lead gameplay programmer working under a human project manager.
+
+The goal is to create a single-player game inspired mechanically by Populous: The Beginning, but presented with a substantially more realistic, immersive, third-person fantasy aesthetic comparable to modern open-world RPGs.
+
+The human project manager will provide design decisions and priorities. Do not independently redesign core mechanics unless explicitly asked.
+
+Prioritize:
+
+1. Playability
+2. Faithful systemic gameplay
+3. Strong game feel
+4. Performance
+5. Modularity
+6. Easy iteration
+7. Visual fidelity
+
+Do NOT attempt to build the entire game simultaneously.
+
+Build the game as a series of independently testable systems.
+
+---
+
+# 1. CORE DESIGN PHILOSOPHY
+
+The player is the Shaman.
+
+The Shaman is the primary hero, combatant, spellcaster, explorer, and strategic decision-maker.
+
+The player’s tribe exists to support the Shaman.
+
+The game should feel like:
+
+> “I am personally walking through the world as the Shaman while simultaneously controlling an entire tribe.”
+
+The player should NOT feel like an RTS camera controlling an army.
+
+The player should NOT need complicated RTS-style micromanagement.
+
+The Shaman should remain the star.
+
+---
+
+# 2. CORE GAME LOOP
+
+The fundamental loop is:
+
+EXPLORE
+→ DISCOVER RESOURCES
+→ ESTABLISH SETTLEMENT
+→ GROW TRIBE
+→ LEARN SPELLS/TECHNOLOGY
+→ CONVERT/DEFEAT NEIGHBORING TRIBES
+→ EXPAND
+→ DEFEND AGAINST RAIDS
+→ EXPLORE NEW BIOMES
+→ DEFEAT STRONGER SHAMANS
+→ ABSORB THEIR POWER
+→ ADVANCE TO NEXT MAP
+→ ASCEND
+
+Every system should reinforce this loop.
+
+Avoid adding systems merely because they are realistic.
+
+---
+
+# 3. GAME START
+
+Generate a new procedurally generated map.
+
+The player starts with:
+
+### PLAYER
+
+- 1 Shaman
+- TAKA — Blast spell
+- Basic movement/combat abilities
+- Basic interaction ability
+
+### FOLLOWERS
+
+- 3 Braves
+
+### SETTLEMENT
+
+- 1 House
+- 1 Campfire
+- 1 Reincarnation Circle
+
+### STARTING ENVIRONMENT
+
+The starting region MUST contain:
+
+- Trees
+- Water
+- Food source
+- Stone
+- Basic ore/resource source
+- Nearby Wildmen
+- Nearby weak enemy tribe
+- Enemy tribe’s Shaman
+- Enemy settlement
+- Traversable terrain surrounding the settlement
+
+The starting area should be survivable but deliberately encourage expansion.
+
+---
+
+# 4. WORLD GENERATION
+
+Create a procedural world generator.
+
+World generation should be deterministic from a seed.
+
+Store:
+
+WorldSeed
+
+BiomeSeed
+
+ResourceSeed
+
+TribeSeed
+
+TerrainSeed
+
+This allows bugs and interesting worlds to be reproduced.
+
+## WORLD STRUCTURE
+
+Generate:
+
+- Continents/islands
+- Mountains
+- Hills
+- Plains
+- Forests
+- Rivers
+- Lakes
+- Coastlines
+- Resource deposits
+- Food sources
+- Tribal territories
+- Wildmen settlements
+- Ancient structures
+- Obelisks
+- Stone Heads
+- Shrines
+- Reincarnation circles
+
+Do not make every map completely random.
+
+Use controlled procedural generation.
+
+Important locations should satisfy gameplay constraints.
+
+For example:
+
+START AREA
+must have:
+
+water + food + wood + stone + nearby Wildmen + nearby enemy tribe.
+
+---
+
+# 5. TERRAIN SYSTEM
+
+Terrain is a gameplay system, not merely decoration.
+
+The Shaman can manipulate terrain using spells.
+
+Examples:
+
+- Raise land
+- Lower land
+- Flatten terrain
+- Create strategic elevation
+- Modify waterways when appropriate
+- Alter traversal routes
+- Create land bridges
+- Create temporary hazardous terrain
+- Create volcanic terrain
+- Erode or sink land
+
+The terrain manipulation system must support:
+
+- Collision updates
+- Navigation updates
+- Building placement
+- AI pathfinding
+- Visual deformation
+- Physics interaction
+- Temporary terrain states
+- Terrain restoration or fertility recovery where appropriate
+
+## EXCEPTION
+
+Reincarnation Circles cannot be modified.
+
+They are permanent world objects.
+
+---
+
+# 6. SHAMAN
+
+The Shaman is the player’s primary character.
+
+The Shaman should have:
+
+- Health
+- Mana
+- Mana regeneration
+- Movement
+- Melee attack
+- Spellcasting
+- Terrain manipulation
+- Tribe command abilities
+- Interaction
+- Reincarnation
+- Spellbook/loadout management
+
+## MANA
+
+Mana regeneration is primarily determined by follower count.
+
+More followers = faster mana regeneration.
+
+This is a fundamental Populous-inspired mechanic.
+
+Do not replace this with conventional RPG mana regeneration.
+
+Use a configurable formula:
+
+ManaRegen =
+BaseRegen
+× FollowerMultiplier
+× TemporaryModifiers
+
+Make all values data-driven.
+
+Spells with no mana cost must still have availability restrictions, cooldowns, charges, or unlock conditions.
+
+---
+
+# 7. REINCARNATION
+
+The Shaman cannot permanently die while a functioning reincarnation circle exists.
+
+When killed:
+
+1. Shaman dies.
+2. Reincarnation timer begins.
+3. Player respawns at the tribe’s reincarnation circle.
+4. Reincarnation circle remains active.
+
+Reincarnation time decreases as follower count increases.
+
+Example:
+
+RebirthTime =
+BaseTime / FollowerModifier
+
+Make the formula configurable.
+
+Enemy reincarnation circles are invulnerable while their Shaman lives.
+
+When an enemy Shaman is killed:
+
+- Their reincarnation circle becomes vulnerable.
+- Destroy/remove the circle.
+- Enemy Shaman is permanently eliminated.
+- Their mana/power becomes available to the player.
+- Trigger Shaman-kill reward.
+
+---
+
+# 8. SHAMAN KILL REWARD
+
+Killing an enemy Shaman grants:
+
+TEMPORARY MANA REGENERATION BONUS.
+
+The bonus should feel substantial.
+
+Store:
+
+Duration
+
+Multiplier
+
+SourceShaman
+
+Allow future systems to modify these values.
+
+---
+
+# 9. SPELL SYSTEM
+
+Create a modular spell system.
+
+Every spell must be data-driven.
+
+Spell definitions should include:
+
+- Spell ID
+- Name
+- Description
+- Spell category
+- Mana cost
+- Range
+- Area of effect
+- Cast time
+- Cooldown
+- Duration
+- Damage
+- Damage type
+- Knockback
+- Ragdoll force
+- Terrain effect
+- Targeting mode
+- Valid target filters
+- Friendly-fire rules
+- Building interaction
+- Unit-state interaction
+- Visual effect
+- Audio
+- Animation
+- Unlock condition
+- Charge or one-shot status
+- AI usability
+- Save-game identifier
+
+Do NOT hard-code individual spells into the Shaman.
+
+The Shaman should possess a collection of Spell objects.
+
+Use a shared spell framework for player Shamans, enemy Shamans, Stone Head rewards, and future scripted encounters.
+
+## RANGE AND MANA SCALE
+
+The original spell information uses a 0–100 scale for range and mana.
+
+For this project, preserve the relative balance while converting the values into practical world units and gameplay costs.
+
+Use the following design rules:
+
+- Range 0–15: close-range or emergency spells
+- Range 16–35: short-to-medium combat spells
+- Range 36–60: long-range tactical spells
+- Range 61–100: strategic or map-wide spells
+- Mana 0–15: early-game/basic spells
+- Mana 16–35: common tactical spells
+- Mana 36–60: powerful battlefield-control spells
+- Mana 61–85: late-game destructive spells
+- Mana 86–100: endgame spells
+
+The original values should remain stored as reference balance values, but the actual project values must be editable through Data Assets or Data Tables.
+
+---
+
+# 10. SPELL PROGRESSION AND AVAILABILITY
+
+Do not give the player every spell at the beginning.
+
+The player begins with:
+
+## TAKA — BLAST
+
+The remaining spells should be unlocked through:
+
+- Shrines
+- Stone Heads
+- Enemy Shaman defeats
+- Map progression
+- Ancient locations
+- Special narrative rewards
+- One-shot worship rewards
+
+Use controlled progression so the player learns the spell system gradually.
+
+Suggested progression:
+
+### EARLY GAME
+
+- TAKA — Blast
+- Convert
+- Land Bridge
+- Invisibility
+- Magical Shield
+
+### MID GAME
+
+- Swarm
+- Lightning
+- Hypnotize
+- Tornado
+- Flatten
+- Swamp
+
+### LATE GAME
+
+- Earthquake
+- Erode
+- Firestorm
+- Angel of Death
+- Volcano
+
+### SPECIAL ONE-SHOT SPELLS
+
+- Armageddon
+- Teleport
+- Bloodlust
+
+The project manager may change unlock order later.
+
+Do not make unlock order hard-coded into spell logic.
+
+---
+
+# 11. SPELL DEFINITIONS
+
+Implement the following spells as data-driven spell definitions.
+
+The listed costs and ranges are starting balance targets for this project. Adjust them through playtesting while preserving their intended relative power.
+
+## TAKA — BLAST
+
+Status:
+
+- Already implemented in Phase 1
+- Starting spell
+- Repeatable spell
+
+Suggested project values:
+
+- Range: 10
+- Mana cost: 5
+- Area: Small
+- Damage: Low
+- Knockback: High
+- Ragdoll force: High
+- Building damage: Low
+- Friendly fire: Yes
+- Terrain effect: None
+
+Function:
+
+Blast sends nearby followers, including friendly followers, flying into the air.
+
+It is especially useful for:
+
+- Disrupting enemy groups
+- Pushing enemies into water
+- Breaking enemy pursuit
+- Creating space around the Shaman
+- Knocking followers from boats or elevated positions
+
+Blast should remain useful throughout the game because of its low mana cost, but its damage should remain modest.
+
+---
+
+## CONVERT
+
+Suggested project values:
+
+- Range: 100
+- Mana cost: 5
+- Area: Medium-to-large
+- Damage: None
+- Duration: Instant
+- Friendly fire: No
+- Target type: Wildmen
+- Unlock tier: Early game
+
+Function:
+
+Convert is a non-offensive spell.
+
+Wildmen caught within the area become Braves belonging to the player’s tribe.
+
+The spell should:
+
+- Affect only valid Wildmen
+- Convert multiple Wildmen at once
+- Ignore enemy followers unless a later upgrade explicitly allows it
+- Provide clear visual feedback for affected targets
+- Respect population-capacity rules
+- Fail gracefully if no valid Wildmen are present
+
+Because the range is high and the mana cost is low, the area of effect should be controlled to prevent excessive early population growth.
+
+---
+
+## SWARM
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 50
+- Area: Medium
+- Duration: 12–18 seconds
+- Damage: Very low
+- Unlock tier: Mid game
+
+Function:
+
+Swarm creates an insect cloud that distracts affected followers.
+
+Affected units should:
+
+- Stop their current task
+- Enter a panic state
+- Attempt to flee from the swarm
+- Interrupt preaching, construction, gathering, and combat
+- Potentially jump from boats or elevated platforms if fleeing requires it
+- Remain vulnerable to environmental hazards
+
+Swarm should be primarily a disruption spell, not a direct damage spell.
+
+Add safeguards so affected units do not become permanently trapped or run outside the playable area.
+
+---
+
+## INVISIBILITY
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 25
+- Area: Small-to-medium
+- Duration: 20 seconds or until combat begins
+- Unlock tier: Early game
+
+Function:
+
+Invisibility makes affected friendly followers invisible.
+
+When an invisible follower:
+
+- Begins attacking
+- Takes direct combat action
+- Captures or interacts with a hostile objective
+- Is hit by a revealing effect
+
+the invisibility should end for that follower.
+
+Invisibility should support:
+
+- Raids
+- Reconnaissance
+- Ambushes
+- Escaping dangerous areas
+- Reaching enemy buildings
+
+The Shaman should not become permanently invisible through this spell unless a later upgrade explicitly allows it.
+
+---
+
+## MAGICAL SHIELD
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 30
+- Area: Small-to-medium
+- Duration: 25 seconds
+- Unlock tier: Early game
+
+Function:
+
+Magical Shield protects friendly followers from direct spell targeting and greatly reduces incoming damage.
+
+Rules:
+
+- Directly targeted offensive spells should bounce away or fail.
+- Area-of-effect spells can still affect shielded followers if the spell is cast nearby.
+- Shielded followers remain vulnerable to environmental hazards.
+- Shielded followers die when entering lethal swamp terrain.
+- Angel of Death can still kill shielded followers.
+- Shielded followers should display a clear visual effect.
+- The shield should not protect buildings unless explicitly configured.
+
+Magical Shield should be especially useful for:
+
+- Warriors
+- Fire Warriors
+- Preachers
+- Raiding parties
+- Followers defending the Shaman
+
+---
+
+## LAND BRIDGE
+
+Suggested project values:
+
+- Range: 50
+- Mana cost: 30
+- Area: Narrow path
+- Duration: Permanent or map-configurable
+- Unlock tier: Early-to-mid game
+
+Function:
+
+Land Bridge raises terrain between the Shaman and the target location.
+
+It can:
+
+- Cross water
+- Create ramps
+- Connect separated land
+- Provide access to cliffs
+- Create new attack routes
+- Enable settlement expansion
+
+The spell must update:
+
+- Collision
+- Navigation
+- Building placement
+- AI pathfinding
+- Water boundaries where appropriate
+- Visual terrain state
+
+Do not allow Land Bridge to modify Reincarnation Circles.
+
+If runtime terrain deformation is not yet available in the current build, implement a temporary bridge actor or modular terrain segment behind the same interface and replace it later.
+
+---
+
+## LIGHTNING
+
+Suggested project values:
+
+- Range: 60
+- Mana cost: 30
+- Area: Medium
+- Damage: Very high to primary target
+- Knockback: Medium
+- Unlock tier: Mid game
+
+Function:
+
+Lightning is a stronger, more precise version of Blast.
+
+It should:
+
+- Kill ordinary enemy followers on a direct hit
+- Fail to kill shielded followers on a direct hit
+- Cause nearby followers to be thrown into the air
+- Deal reduced area damage around the primary target
+- Ignite buildings
+- Force building occupants to flee
+- Damage enemy Shamans
+- Damage guard towers and their occupants
+
+Lightning should have a clear distinction between:
+
+- Direct-hit damage
+- Area damage
+- Knockback
+- Building ignition
+
+Friendly fire should remain possible so the player must aim carefully.
+
+---
+
+## HYPNOTIZE
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 35
+- Area: Medium
+- Duration: 15 seconds
+- Unlock tier: Mid game
+
+Function:
+
+Hypnotize temporarily converts affected enemy followers to the player’s side.
+
+Affected followers should:
+
+- Temporarily belong to the player’s faction
+- Fight or assist the player
+- Follow normal friendly AI rules
+- Return to their original faction when the effect ends unless permanently converted by another mechanic
+- Retain their original unit class
+
+Special interaction:
+
+If a hypnotized enemy Preacher begins preaching, followers converted by that preaching become permanent members of the player’s tribe and do not inherit the hypnotized state.
+
+Prevent hypnotized units from creating infinite conversion loops.
+
+---
+
+## TORNADO
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 35
+- Area: Medium
+- Duration: 20–30 seconds
+- Unlock tier: Mid game
+
+Function:
+
+Tornado creates a moving environmental hazard.
+
+Behavior:
+
+1. Tornado appears at the cast location.
+2. It remains briefly in place.
+3. It moves in a controlled random direction.
+4. It pulls nearby followers and loose objects toward it.
+5. It launches affected targets in random directions.
+6. It eventually dissipates.
+
+Tornado should:
+
+- Disrupt enemy formations
+- Interrupt attacks
+- Throw followers from cliffs
+- Potentially throw followers into water
+- Damage or destroy vulnerable buildings
+- Scatter building debris rather than instantly deleting all structures
+- Avoid moving outside the playable area
+- Avoid permanently trapping units
+
+Use deterministic randomness where possible so replays and debugging remain reliable.
+
+---
+
+## SWAMP
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 50
+- Area: Medium
+- Duration: Until 10 follower deaths or map-configured expiration
+- Unlock tier: Mid-to-late game
+
+Function:
+
+Swamp creates a lethal terrain hazard.
+
+Any follower entering the swamp should die immediately unless protected by a future explicitly configured exception.
+
+Rules:
+
+- The Shaman is immune.
+- Shielded followers still die.
+- Angel of Death remains unaffected by the swamp’s follower limit.
+- The swamp disappears after killing 10 followers by default.
+- The kill limit must be configurable.
+- The swamp should be clearly visible and readable.
+- Buildings placed in the swamp should be handled according to the terrain system’s building rules.
+
+Swamp should be useful for:
+
+- Defending settlements
+- Blocking narrow routes
+- Protecting strategic locations
+- Destroying large enemy groups
+- Controlling access to reincarnation circles
+
+---
+
+## FLATTEN
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 60
+- Area: Large
+- Duration: Permanent or map-configurable
+- Unlock tier: Late game
+
+Function:
+
+Flatten raises or lowers terrain within the affected area to match the height of the cast location.
+
+It should:
+
+- Create plateaus
+- Remove steep slopes
+- Create defensive cliffs
+- Open or close routes
+- Improve building placement
+- Reshape battlefields
+
+The spell must update collision, navigation, building placement, and AI pathfinding.
+
+Do not modify Reincarnation Circles.
+
+If the current build does not support runtime terrain deformation, implement a temporary modular terrain solution and preserve the same spell interface for later replacement.
+
+---
+
+## EARTHQUAKE
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 60
+- Area: Large
+- Cast delay: 2–4 seconds
+- Unlock tier: Late game
+
+Function:
+
+Earthquake creates a delayed terrain and structural disruption event.
+
+Effects may include:
+
+- Screen shake
+- Deep rumbling audio
+- Ground cracking
+- Small lava emissions
+- Building damage
+- Follower knockdown
+- Temporary sinking of low land near water
+- Destruction or displacement of structures
+
+Earthquake should be more disruptive than directly lethal.
+
+Use terrain height and proximity to water to determine whether land sinks temporarily.
+
+Buildings and followers on sinking terrain should:
+
+- Receive warning feedback
+- Be displaced, damaged, or submerged according to the event
+- Avoid becoming permanently stuck
+
+---
+
+## ERODE
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 80
+- Area: Large
+- Duration: 5–8 seconds
+- Unlock tier: Late game
+
+Function:
+
+Erode rapidly lowers terrain within the affected area.
+
+It is especially effective against:
+
+- Elevated enemy bases
+- Cliff settlements
+- Defensive plateaus
+- Low land near water
+
+Effects should include:
+
+- Rapid terrain sinking
+- Building instability
+- Follower displacement
+- Potential submersion
+- Navigation updates
+- Visual erosion feedback
+
+Erode should be more focused and controlled than Earthquake, but more expensive.
+
+---
+
+## FIRESTORM
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 85
+- Area: Very large
+- Duration: 8–12 seconds
+- Unlock tier: Late game
+
+Function:
+
+Firestorm summons flaming meteors over the target area.
+
+It should:
+
+- Ignite followers
+- Ignite buildings
+- Deal major building damage
+- Usually kill ordinary followers
+- Damage enemy Shamans
+- Affect friendly followers
+- Avoid damaging the casting Shaman directly unless explicitly configured
+- Create persistent fire hazards for a short period
+
+Firestorm must have strong warning feedback so the player understands the danger to friendly units.
+
+It should be one of the most powerful area-damage spells in the standard spellbook.
+
+---
+
+## ANGEL OF DEATH
+
+Suggested project values:
+
+- Range: 15
+- Mana cost: 90
+- Area: Target settlement or strategic zone
+- Duration: Approximately 5 minutes or until destroyed
+- Unlock tier: Late game
+
+Function:
+
+Angel of Death summons a powerful flying creature that hunts enemy followers.
+
+Behavior:
+
+- Emerges from the ground
+- Travels toward enemy settlements
+- Selects valid enemy follower targets
+- Locks onto a target
+- Grabs the target
+- Ignites the target
+- Throws or spits the target from a great height
+- Continues hunting until destroyed or expired
+
+Angel of Death should be able to kill ordinary followers regardless of health or Magical Shield.
+
+It can be destroyed by:
+
+- Another Angel of Death
+- Concentrated Fire Warrior attacks
+- Expiration from old age
+
+The creature should have:
+
+- Health
+- Target-selection rules
+- Faction rules
+- Anti-stuck behavior
+- Clear audio and visual warnings
+- A configurable maximum number of active Angels
+
+Do not allow it to attack the player’s Shaman unless explicitly configured for a later difficulty mode.
+
+---
+
+## VOLCANO
+
+Suggested project values:
+
+- Range: 15
+- Mana cost: 100
+- Area: Very large
+- Duration: 20–40 seconds
+- Unlock tier: Endgame
+
+Function:
+
+Volcano raises land in a circular pattern and creates an erupting volcanic hazard.
+
+Effects include:
+
+- Land rising from ground or water
+- Lava emission
+- Fire damage
+- Building ignition
+- Follower ignition
+- Terrain creation where lava reaches water
+- Persistent damaged terrain
+- Temporary building restrictions
+
+The casting Shaman should be immune to the volcano’s direct damage unless explicitly configured otherwise.
+
+Lava should:
+
+- Follow terrain rules
+- Avoid creating impossible navigation states
+- Update collision and pathfinding
+- Mark touched land as damaged
+- Prevent building placement until fertility recovers
+- Support visual cooling and recovery states
+
+Volcano should be a defining endgame terrain spell.
+
+---
+
+# 12. SUPER SPELLS
+
+Super spells require no mana, but they are not part of the normal repeatable spellbook.
+
+They are obtained as one-shot charges from worshipping Stone Heads in specific maps or special locations.
+
+Each super spell should have:
+
+- One-shot charge count
+- Map or Stone Head unlock condition
+- Unique visual presentation
+- Save-game persistence
+- Clear confirmation before casting
+- A powerful but understandable effect
+
+## ARMAGEDDON
+
+Suggested project values:
+
+- Range: 100
+- Mana cost: None
+- Charges: One-shot
+- Availability: Special Middle Ground and Head Hunter-style maps or equivalent late-campaign locations
+
+Function:
+
+Armageddon creates a massive arena at the target location.
+
+All followers in the world are teleported to the arena and forced into a large battle.
+
+Rules:
+
+- Shamans are placed on elevated sections.
+- Shamans receive permanent protective shields.
+- Shamans cannot directly damage one another during the battle.
+- Followers fight until only one tribe’s followers remain.
+- When a Shaman has no followers left, that Shaman’s shield disappears.
+- Another Shaman executes the defeated Shaman with lightning.
+- The last surviving tribe wins the level.
+
+Implementation requirements:
+
+- Pause or safely suspend ordinary world simulation during the transition.
+- Preserve follower ownership.
+- Prevent followers from being permanently lost if the event is interrupted.
+- Provide a clear pre-cast warning.
+- Support deterministic resolution where practical.
+- Make the event compatible with victory and defeat states.
+
+---
+
+## TELEPORT
+
+Suggested project values:
+
+- Range: Infinite
+- Mana cost: None
+- Charges: One-shot
+- Availability: Special Unlikely Allies-style map or equivalent narrative location
+
+Function:
+
+Teleport instantly moves the Shaman to any valid location on the map.
+
+It can be used for:
+
+- Emergency escape
+- Rapid assault
+- Crossing dangerous terrain
+- Reaching isolated objectives
+- Repositioning during a raid
+
+Rules:
+
+- The target location must be valid and navigable.
+- Do not allow teleportation inside blocked geometry.
+- Do not allow teleportation into lethal terrain unless explicitly intended.
+- Provide a target preview and confirmation.
+- Preserve follower commands and tribe simulation after teleportation.
+
+---
+
+## BLOODLUST
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: None
+- Area: Medium
+- Duration: 30 seconds
+- Charges: One-shot
+- Availability: Special Stone Head or late-campaign reward
+
+Function:
+
+Bloodlust greatly increases the combat effectiveness of affected friendly followers.
+
+Effects may include:
+
+- Increased outgoing damage
+- Increased damage resistance
+- Increased attack speed
+- Increased stagger resistance
+- Increased morale
+- Reduced retreat behavior
+
+Bloodlust should be powerful enough to reverse an unfavorable battle, but it should not make followers permanently invulnerable.
+
+The effect should be especially useful for:
+
+- Raids
+- Defensive battles
+- Shaman protection
+- Fighting stronger unit compositions
+- Breaking enemy settlements
+
+---
+
+# 13. ADDITIONAL PROJECT-SPECIFIC SPELLS
+
+Add the following original spells only if they improve the narrative and gameplay loop. They must use the same data-driven spell framework and should not overshadow the core spell list.
+
+## SPIRIT SIGHT
+
+Suggested project values:
+
+- Range: Self
+- Mana cost: 15
+- Duration: 20 seconds
+- Unlock tier: Early game
+
+Function:
+
+Reveals nearby hidden resources, Wildmen, enemy units, magical locations, and temporary hazards.
+
+It should support exploration without replacing scouting or tribe expansion.
+
+---
+
+## RALLYING CALL
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 20
+- Area: Medium
+- Duration: 20 seconds
+- Unlock tier: Early-to-mid game
+
+Function:
+
+Temporarily improves nearby friendly follower morale and causes them to prioritize following and protecting the Shaman.
+
+Effects may include:
+
+- Faster response to commands
+- Reduced panic
+- Increased movement speed toward the Shaman
+- Improved resistance to fear and distraction
+- Temporary retreat suppression
+
+This spell supports the third-person Shaman fantasy without becoming a complex RTS command tool.
+
+---
+
+## PURIFY LAND
+
+Suggested project values:
+
+- Range: 30
+- Mana cost: 45
+- Area: Medium
+- Unlock tier: Mid-to-late game
+
+Function:
+
+Removes temporary magical hazards and damaged terrain from a target area.
+
+It may:
+
+- Remove Swamp
+- Extinguish magical fire
+- Reduce volcanic damage
+- Restore fertility over time
+- Reopen building placement
+- Clear temporary enemy terrain effects
+
+Purify Land should not undo permanent world geometry or destroy Reincarnation Circles.
+
+---
+
+## WARDING CIRCLE
+
+Suggested project values:
+
+- Range: 20
+- Mana cost: 40
+- Area: Medium
+- Duration: 45 seconds
+- Unlock tier: Mid game
+
+Function:
+
+Creates a temporary protective zone around the target location.
+
+Effects may include:
+
+- Reduced incoming spell damage
+- Reduced raid damage
+- Increased follower morale
+- Faster Shaman mana regeneration while inside
+- Protection for buildings and resource storage
+
+Warding Circle should be weaker than Magical Shield against direct attacks but useful for defending settlements.
+
+---
+
+## SPIRIT WALK
+
+Suggested project values:
+
+- Range: Self
+- Mana cost: 55
+- Duration: 8 seconds
+- Unlock tier: Late game
+
+Function:
+
+Temporarily allows the Shaman to move through selected obstacles and hazardous terrain while remaining unable to attack.
+
+Possible restrictions:
+
+- Cannot pass through Reincarnation Circles
+- Cannot pass through sealed objectives
+- Cannot cast offensive spells during the effect
+- Ends early if the Shaman attacks
+- Does not make the Shaman invulnerable
+
+This spell supports exploration and emergency repositioning while preserving combat counterplay.
+
+---
+
+# 14. SPELL INTERACTION RULES
+
+Create a centralized interaction system rather than implementing special cases inside individual spells.
+
+The system must support:
+
+- Friendly fire
+- Direct-hit versus area-of-effect damage
+- Shield blocking
+- Ragdoll and knockback
+- Water hazards
+- Swamp deaths
+- Fire ignition
+- Building destruction
+- Terrain deformation
+- Faction conversion
+- Temporary faction ownership
+- Invisibility reveal conditions
+- Spell interruption
+- Spell immunity
+- Shaman immunity
+- Reincarnation-circle protection
+
+Use Gameplay Tags or equivalent data-driven filters for:
+
+- Spell.Damage
+- Spell.Control
+- Spell.Terrain
+- Spell.Conversion
+- Spell.Defensive
+- Spell.Super
+- Target.Follower
+- Target.Shaman
+- Target.Building
+- Target.Terrain
+- State.Shielded
+- State.Invisible
+- State.Hypnotized
+- State.Swarming
+- State.Bloodlusted
+- State.Ragdoll
+- State.OnFire
+
+---
+
+# 15. SPELL UI AND PLAYER EXPERIENCE
+
+Add a spellbook or spell-selection interface that supports:
+
+- Current spell
+- Available spells
+- Locked spells
+- Mana cost
+- Range
+- Area of effect
+- Cooldown
+- Charges
+- Unlock source
+- Targeting mode
+- Friendly-fire warning
+- One-shot warning
+- Active effects
+- Temporary spell duration
+
+The UI should remain readable in third-person gameplay.
+
+Do not create a complex MMO-style ability bar.
+
+Use contextual warnings for dangerous spells such as:
+
+- Firestorm
+- Volcano
+- Swamp
+- Earthquake
+- Armageddon
+
+---
+
+# 16. SPELL BALANCE PRINCIPLES
+
+Balance spells around meaningful choices rather than raw damage.
+
+Every spell should have:
+
+- A clear purpose
+- A clear counterplay option
+- A meaningful cost or restriction
+- A readable visual effect
+- A reason to use it instead of another spell
+
+Avoid making high-cost spells universally superior.
+
+Examples:
+
+- Blast is cheap and disruptive.
+- Lightning is precise and lethal.
+- Swarm is disruptive but not destructive.
+- Magical Shield protects against direct spells but not area effects.
+- Land Bridge changes access rather than dealing damage.
+- Swamp controls routes but has limited kills.
+- Firestorm destroys groups and buildings but risks friendly casualties.
+- Volcano permanently changes the battlefield but is expensive.
+- Super spells are powerful because they are rare, not because they are repeatable.
+
+---
+
+# 17. SPELL AI
+
+Enemy Shamans must use the same spell definitions as the player wherever practical.
+
+Enemy AI should evaluate spells based on:
+
+- Range
+- Mana cost
+- Target value
+- Friendly-fire risk
+- Current threat
+- Settlement defense
+- Available escape routes
+- Terrain
+- Follower density
+- Spell cooldown
+- Strategic personality
+
+Do not give enemy Shamans perfect information.
+
+Enemy Shamans should have configurable spell preferences.
+
+Examples:
+
+Aggressive Shaman:
+
+- Lightning
+- Firestorm
+- Volcano
+- Bloodlust
+
+Defensive Shaman:
+
+- Magical Shield
+- Swamp
+- Land Bridge
+- Warding Circle
+
+Conversion-focused Shaman:
+
+- Convert
+- Hypnotize
+- Invisibility
+- Swarm
+
+---
+
+# 18. SAVE SYSTEM ADDITIONS
+
+Save:
+
+- Known spells
+- Spell unlock sources
+- Current spell selection
+- Spell charges
+- Used Stone Heads
+- Active temporary spell effects
+- Spell cooldowns where appropriate
+- Terrain changes caused by spells
+- Damaged or fertile terrain states
+- Destroyed buildings
+- Converted followers
+- Hypnotized followers and remaining duration
+- Invisible followers and remaining duration
+- Shielded followers and remaining duration
+- Bloodlust charges and remaining duration
+- Active Angels of Death
+- One-shot super-spell availability
+
+Do not save transient visual effects unless required to restore gameplay state.
+
+---
+
+# 19. DEVELOPMENT ORDER
+
+DO NOT attempt to build the complete game immediately.
+
+Build vertical slices.
+
+## PHASE 1 — PLAYABLE PROTOTYPE
+
+Implement:
+
+- Third-person Shaman
+- Procedural terrain
+- Water
+- Trees
+- Basic resources
+- 3 Braves
+- House
+- Campfire
+- Reincarnation circle
+- TAKA — Blast
+- Basic enemy
+- Basic enemy Shaman
+- Basic combat
+- Basic ragdoll
+
+Goal:
+
+The player can spawn, walk around, cast Blast, interact with followers, and fight an enemy.
+
+### PHASE 1 TECHNOLOGY STACK
+
+Build Phase 1 in Unreal Engine 5.4 or later, using the following stack:
+
+- Engine: Unreal Engine 5
+- Primary language: C++
+- Visual scripting: Blueprints only for composition, tuning, UI flow, and rapid prototyping; do not place core simulation logic exclusively in Blueprints
+- Build system: Unreal Build Tool
+- IDE: Visual Studio 2022 on Windows, with Rider as an optional alternative
+- Source control: Git with Git LFS for large binary assets
+- Input: Enhanced Input
+- Gameplay framework: Actor Components, Data Assets, Gameplay Tags, Interfaces, and Subsystems
+- Data configuration: Primary Data Assets and Data Tables where appropriate
+- AI navigation: Unreal Navigation System with NavMesh; use StateTree or Behavior Trees only where they simplify the prototype
+- Physics and ragdoll: Chaos Physics and Physical Animation/Ragdoll systems
+- Terrain: Landscape for the Phase 1 world; do not implement runtime terrain deformation yet
+- Procedural generation: C++ world-generation subsystem using deterministic seeded noise and controlled placement rules
+- Rendering: Nanite and Lumen only where they provide clear value; maintain a scalable fallback for prototype performance
+- UI: UMG
+- Audio: MetaSounds or standard Unreal audio assets, whichever is faster to iterate
+- Testing: Unreal Automation Tests for deterministic generation and core gameplay rules, plus repeatable in-editor playtests
+- Profiling: Unreal Insights, stat commands, and built-in profiling tools
+
+### PHASE 1 SCOPE RESTRICTIONS
+
+Phase 1 is a playable vertical slice, not the final technology solution.
+
+Do not implement the following in Phase 1 unless required to make the vertical slice playable:
+
+- Runtime terrain deformation
+- Hundreds of simulated followers
+- Full tribe economy
+- Complex population growth
+- Multiple biomes
+- Full campaign progression
+- Advanced diplomacy
+- Multiplayer
+- Dedicated servers
+- Large-scale ECS or Mass Entity conversion
+- Final-quality assets
+- Complete save-game coverage
+- The full spellbook
+
+Use clean interfaces so these systems can be added later.
+
+### PHASE 1 ARCHITECTURE
+
+Create the following initial modules or systems:
+
+- ShamanCore: shared gameplay types, interfaces, tags, and utility functions
+- ShamanWorld: deterministic map generation, terrain markers, resource placement, and spawn validation
+- ShamanCharacters: Shaman, Brave, enemy unit, health, damage, movement, and ragdoll behavior
+- ShamanSpells: spell definitions, casting, projectile behavior, impact effects, and TAKA
+- ShamanTribes: minimal tribe ownership and follower registration
+- ShamanBuildings: House, Campfire, and Reincarnation Circle
+- ShamanUI: minimal HUD, spell display, health, mana, and interaction prompts
+
+Keep these modules lightweight. If separate Unreal modules would create unnecessary setup overhead, preserve the same boundaries as folders, namespaces, and clearly separated classes.
+
+### PHASE 1 IMPLEMENTATION RULES
+
+- Use C++ for authoritative gameplay rules and reusable systems.
+- Use Blueprint child classes for asset assignment, animation setup, VFX, sound, and designer-facing tuning.
+- Represent TAKA as a data-driven spell asset rather than a special-case method on the Shaman.
+- Represent House, Campfire, and Reincarnation Circle as data-driven building definitions using the same building framework.
+- Use interfaces for damage receivers, interactables, spell targets, and tribe-owned entities.
+- Use Gameplay Tags for factions, damage types, unit states, and interaction categories.
+- Use deterministic seeds for terrain, resource placement, and enemy placement.
+- Keep the initial world small enough to profile easily.
+- Use simple capsule or character collision for ordinary movement and Chaos ragdolls only during knockdown or launch states.
+- Use object pooling only where profiling shows repeated allocation is a problem.
+- Do not introduce Mass Entity, World Partition, or a custom ECS during Phase 1 unless profiling proves the simpler Actor-based approach inadequate.
+- Keep all balance values editable through Data Assets or Data Tables.
+- Add debug visualization for spawn points, resource locations, navigation, spell traces, damage impulses, and reincarnation state.
+- Preserve the existing TAKA implementation and data asset unless a compatibility change is required.
+- Do not rebalance TAKA without reporting the change first.
+- Add automated tests for spell range, mana cost, target filtering, and friendly-fire behavior.
+
+### PHASE 1 ACCEPTANCE TEST
+
+The Phase 1 stack is successful when a packaged or editor-playable build can:
+
+1. Generate the same starting world from the same seed.
+2. Spawn the Shaman, 3 Braves, House, Campfire, and Reincarnation Circle.
+3. Place trees, water, food, stone, and a basic ore/resource source.
+4. Place a nearby enemy settlement and enemy Shaman.
+5. Allow third-person movement and basic interaction.
+6. Allow the Shaman to cast TAKA — Blast.
+7. Apply damage, knockback, and ragdoll behavior.
+8. Allow basic combat between the Shaman, Braves, and enemy units.
+9. Kill the Shaman and respawn at the player’s Reincarnation Circle.
+10. Report implementation status, known bugs, performance observations, architecture decisions, and the recommended next milestone.
+
+---
+
+## PHASE 2 — TRIBE SIMULATION
+
+Implement:
+
+- Brave AI
+- Gathering
+- Construction
+- Food
+- Shelter
+- Water
+- Population growth
+- Basic resource storage
+- Unit commands
+
+Goal:
+
+The player can establish a functioning settlement.
+
+---
+
+## PHASE 3 — PROGRESSION AND CORE SPELLBOOK
+
+Implement:
+
+- Shrines
+- Obelisks
+- Stone Heads
+- Spell unlocking
+- Spellbook UI
+- Convert
+- Swarm
+- Invisibility
+- Magical Shield
+- Land Bridge
+- Lightning
+- Unit training
+- Multiple resource types
+- Population-based mana
+- Population-based reincarnation
+
+Goal:
+
+The player has a meaningful progression loop and a growing tactical spellbook.
+
+Implement the Phase 3 spells in this order:
+
+1. Convert
+2. Invisibility
+3. Magical Shield
+4. Land Bridge
+5. Swarm
+6. Lightning
+
+Each spell must be individually testable before moving to the next.
+
+---
+
+## PHASE 4 — ADVANCED SPELLS AND ENEMY TRIBES
+
+Implement:
+
+- Enemy settlement
+- Enemy Shaman
+- Enemy resource gathering
+- Enemy construction
+- Enemy training
+- Raids
+- Territory
+- Tribe defeat
+- Shaman death
+- Reincarnation-circle destruction
+- Hypnotize
+- Tornado
+- Swamp
+- Flatten
+- Enemy Shaman spell AI
+
+Goal:
+
+The player can conquer a complete enemy tribe using multiple tactical approaches.
+
+---
+
+## PHASE 5 — LATE-GAME TERRAIN AND DESTRUCTION
+
+Implement:
+
+- Earthquake
+- Erode
+- Firestorm
+- Angel of Death
+- Volcano
+- Runtime terrain deformation or the approved modular terrain replacement
+- Terrain fertility and recovery
+- Advanced building destruction
+- Advanced navigation updates
+- Late-game Shaman progression
+
+Goal:
+
+The player can reshape and devastate battlefields while the world remains playable and performant.
+
+---
+
+## PHASE 6 — SUPER SPELLS AND PROCEDURAL CAMPAIGN
+
+Implement:
+
+- Armageddon
+- Teleport
+- Bloodlust
+- Multiple maps
+- Biomes
+- Difficulty scaling
+- Procedural tribes
+- Procedural locations
+- Stone Head placement
+- Victory state
+- Map progression
+- One-shot spell persistence
+
+Goal:
+
+The game can generate and complete an entire campaign with rare, high-impact spell events.
+
+---
+
+## PHASE 7 — POLISH
+
+Add:
+
+- Better animations
+- Better environments
+- Better buildings
+- Better VFX
+- Better sound
+- Music
+- UI
+- Camera polish
+- Physics polish
+- AI polish
+- Story
+- Tutorials
+- Accessibility
+- Performance optimization
+- Spell readability and counterplay polish
+
+---
+
+# 20. ENGINEERING RULES FOR CLAUDE
+
+When implementing a feature:
+
+1. Explain the architecture briefly.
+2. Identify dependencies and compatibility risks.
+3. Preserve existing working behavior unless a change is required.
+4. Implement the smallest functional version.
+5. Add or update data assets and configuration values.
+6. Add automated tests for core rules.
+7. Test the feature in the editor.
+8. Fix errors.
+9. Do not prematurely add polish.
+10. Do not rewrite working systems unnecessarily.
+11. Keep systems modular.
+12. Keep balance values configurable.
+13. Document important interfaces.
+14. Maintain backward compatibility when practical.
+15. Report any balance changes to existing spells.
+16. Stop after the requested milestone and report results.
+
+When a feature depends on another unfinished system:
+
+Create an interface or stub rather than blocking the entire project.
+
+---
+
+# 21. IMPORTANT DEVELOPMENT PRINCIPLE
+
+DO NOT BUILD “FEATURES.”
+
+BUILD SYSTEMS.
+
+For example:
+
+Do not create:
+
+“Fireball code.”
+
+Create:
+
+SPELL SYSTEM
+→ TAKA — Blast is one implementation.
+
+Do not create:
+
+“Lightning code.”
+
+Create:
+
+SPELL SYSTEM
+→ Lightning is one data-driven implementation using shared damage, targeting, knockback, ignition, and building-interaction systems.
+
+Do not create:
+
+“Warrior AI.”
+
+Create:
+
+UNIT SYSTEM
+→ Warrior is one unit definition.
+
+Do not create:
+
+“House code.”
+
+Create:
+
+BUILDING SYSTEM
+→ House is one building definition.
+
+Do not create:
+
+“Enemy tribe code.”
+
+Create:
+
+TRIBE SYSTEM
+→ Player tribe and enemy tribes use the same underlying framework wherever practical.
+
+Do not create:
+
+“Swamp terrain code.”
+
+Create:
+
+TERRAIN HAZARD SYSTEM
+→ Swamp, lava, fire, and future hazards use shared interfaces and state rules.
+
+This will dramatically reduce development complexity.
+
+---
+
+# 22. NEXT DEVELOPMENT TASK
+
+The existing Phase 1 slice already contains TAKA — Blast.
+
+Do NOT rebuild the existing Phase 1 slice unless required for compatibility.
+
+The next task is to extend the existing spell system and add the first new spell:
+
+## NEXT MILESTONE — CONVERT
+
+Implement:
+
+- Data-driven Convert spell definition
+- Range and area targeting
+- Wildmen target filtering
+- Conversion into player Braves
+- Population-capacity validation
+- Conversion VFX and audio hooks
+- Mana cost
+- Cooldown
+- Spellbook entry
+- Unlock condition
+- Save-game identifier
+- Automated tests
+- In-editor playtest
+
+Suggested initial values:
+
+- Range: 100 reference units on the 0–100 design scale
+- Mana cost: 5
+- Medium-to-large area
+- Early-game unlock
+- No direct damage
+- Wildmen-only targeting
+
+After Convert works, stop and report:
+
+- What was implemented
+- How the existing TAKA spell was preserved
+- Data assets or classes added
+- Tests performed
+- Known bugs
+- Performance observations
+- Architecture decisions
+- Recommended next spell
+
+Do not implement the entire spell list in one pass.
+
+After Convert is approved, implement the remaining spells one at a time or in small, explicitly approved groups.
+
+---
+
+# 23. DESIGN PRIORITY
+
+If there is ever a conflict between:
+
+REALISM
+
+and
+
+FUN
+
+choose FUN.
+
+If there is a conflict between:
+
+VISUAL DETAIL
+
+and
+
+SYSTEMIC GAMEPLAY
+
+choose SYSTEMIC GAMEPLAY.
+
+If there is a conflict between:
+
+COMPLEXITY
+
+and
+
+ACCESSIBILITY
+
+choose ACCESSIBILITY.
+
+If there is a conflict between:
+
+SPELL POWER
+
+and
+
+COUNTERPLAY
+
+preserve counterplay.
+
+If there is a conflict between:
+
+NEW SPELL CONTENT
+
+and
+
+A STABLE SHARED SPELL SYSTEM
+
+choose the stable shared spell system.
+
+The central fantasy is:
+
+“I am a powerful Shaman personally exploring a living world while building and commanding my tribe.”
+
+Everything should reinforce that fantasy.

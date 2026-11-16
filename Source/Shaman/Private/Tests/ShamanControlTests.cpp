@@ -20,6 +20,10 @@
 #include "UI/ShamanSpellPanel.h"
 #include "Tribes/TribeTaskTypes.h"
 #include "GameplayTagContainer.h"
+#include "Characters/ShamanGuardRules.h"
+#include "World/ShamanGuardFlag.h"
+#include "Components/StaticMeshComponent.h"
+#include "Buildings/BuildingActor.h"
 #include "ShamanTribeTestWorld.h"
 
 /**
@@ -459,12 +463,21 @@ bool FShamanMoveCommandTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("One open task per Brave"), F.T0->GetOpenTaskCount(), 3);
 
-	// Right-click on the Shaman: the Braves guard (follow) him, their move tasks end.
-	TestEqual(TEXT("Guard: the 3 Braves (the Shaman does not guard himself)"), PC->CommandGuardShaman(Units), 3);
+	// G / right-click on the Shaman: the Braves circle and guard her, their move tasks end.
+	TestEqual(TEXT("Guard: the 3 Braves (the Shaman does not guard herself)"), PC->CommandGuardShaman(Units), 3);
 	TestEqual(TEXT("Guard ends the move tasks"), F.T0->GetOpenTaskCount(), 0);
-	bool bAllFollow = true;
-	for (AShamanUnitBase* B : F.Braves) bAllFollow &= B->GetOrder() == EFollowerOrder::FollowShaman;
-	TestTrue(TEXT("Guard: every Brave follows the Shaman"), bAllFollow);
+	bool bAllGuard = true;
+	TArray<int32> Slots;
+	for (AShamanUnitBase* B : F.Braves)
+	{
+		bAllGuard &= B->GetOrder() == EFollowerOrder::GuardShaman && B->GetGuardSlotCount() == 3;
+		Slots.AddUnique(B->GetGuardSlot());
+	}
+	TestTrue(TEXT("Guard: every Brave guards the Shaman"), bAllGuard);
+	TestEqual(TEXT("Guard: one ring slot each"), Slots.Num(), 3);
+	TestTrue(TEXT("Guard: the Shaman keeps her own order"), F.S0->GetOrder() != EFollowerOrder::GuardShaman);
+	FVector Centre;
+	TestTrue(TEXT("Guard centre follows the Shaman"), F.Braves[0]->ResolveGuardCentre(Centre) && Centre.Equals(F.S0->GetActorLocation(), 1.f));
 	TestEqual(TEXT("Workers are free again"), F.T0->GetAvailableWorkerCount(), 3);
 
 	// Switching to direct control stops the Shaman's walk (WASD takes over).
@@ -472,6 +485,135 @@ bool FShamanMoveCommandTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Shaman mode cancels the Shaman's move order"), PC->IsShamanMoving());
 	PC->ToggleControlMode();
 
+	PC->UnPossess();
+	PC->Destroy();
+	return true;
+}
+
+SHAMAN_CONTROL_TEST(FShamanGuardRulesTest, "Shaman.Controls.GuardRules")
+bool FShamanGuardRulesTest::RunTest(const FString& Parameters)
+{
+	using R = FShamanGuardRules;
+	TestEqual(TEXT("Small group: the base ring"), R::RingRadius(280.f, 3), 280.f);
+	TestTrue(TEXT("Big group: the ring widens to keep guards apart"), R::RingRadius(280.f, 40) > 280.f
+		&& 2.f * PI * R::RingRadius(280.f, 40) / 40.f >= 109.f);
+	TestEqual(TEXT("Slot 0 at angle 0"), R::SlotAngle(0, 4), 0.f);
+	TestEqual(TEXT("Slots evenly spaced"), R::SlotAngle(1, 4), PI * 0.5f, 1e-4f);
+
+	// Off the ring (just ordered): head for the own slot.
+	const FVector2D Far(2000.f, 0.f);
+	const FVector2D ToSlot = R::NextRingPoint(Far, 1, 4, 300.f);
+	TestTrue(TEXT("Away from the ring: go to the slot"), ToSlot.Equals(FVector2D(0.f, 300.f), 0.5f));
+	// On the ring: keep walking counter-clockwise, on the ring, without stopping.
+	bool bOnRing = true, bAhead = true;
+	for (int32 i = 0; i < 16; ++i)
+	{
+		const float A = 2.f * PI * i / 16;
+		const FVector2D At = FVector2D(FMath::Cos(A), FMath::Sin(A)) * 300.f;
+		const FVector2D Next = R::NextRingPoint(At, 0, 4, 300.f);
+		bOnRing &= FMath::IsNearlyEqual(Next.Size(), 300.f, 0.5f);
+		bAhead &= FVector2D::CrossProduct(At, Next) > 0.f && FVector2D::Distance(At, Next) > 60.f; // ahead, beyond arrival
+	}
+	TestTrue(TEXT("Ring walk: next point stays on the ring"), bOnRing);
+	TestTrue(TEXT("Ring walk: next point always ahead (counter-clockwise), far enough to keep walking"), bAhead);
+
+	TestEqual(TEXT("Patrol wraps"), R::NextPatrolIndex(2, 3), 0);
+	TestEqual(TEXT("Patrol advances"), R::NextPatrolIndex(0, 3), 1);
+	TestEqual(TEXT("Nearest patrol point"), R::NearestPoint({ FVector(0, 0, 0), FVector(1000, 0, 0), FVector(2000, 0, 0) }, FVector(1100, 50, 0)), 1);
+	TestTrue(TEXT("Quick second click on the same spot is a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.2, FVector2D(104, 102)));
+	TestFalse(TEXT("Too slow is not a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.6, FVector2D(100, 100)));
+	TestFalse(TEXT("Too far is not a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.1, FVector2D(160, 100)));
+	TestFalse(TEXT("No first click, no double-click"), R::IsDoubleClick(-1.0, FVector2D(100, 100), 0.1, FVector2D(100, 100)));
+	return true;
+}
+
+SHAMAN_CONTROL_TEST(FShamanGuardFlagsPatrolTest, "Shaman.Controls.GuardFlagsPatrol")
+bool FShamanGuardFlagsPatrolTest::RunTest(const FString& Parameters)
+{
+	FControlFixture F(3);
+	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
+	AShamanPlayerController* PC = F.W.World->SpawnActor<AShamanPlayerController>();
+	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
+	PC->CameraSettings.ModeBlendTime = 0.f;
+	PC->Possess(F.S0);
+	PC->RefreshPlayerTribe();
+	TArray<AShamanUnitBase*> Units = { F.Braves[0], F.Braves[1], F.Braves[2], F.S0, F.EnemyBrave };
+
+	// Flags: tribe colour (blue for the player tribe), counted, removable.
+	AShamanGuardFlag* A = PC->PlaceGuardFlag(FVector(2000.f, 0.f, 100.f));
+	AShamanGuardFlag* B = PC->PlaceGuardFlag(FVector(2000.f, 2000.f, 100.f));
+	AShamanGuardFlag* C = PC->PlaceGuardFlag(FVector(0.f, 2000.f, 100.f));
+	if (!TestTrue(TEXT("Three flags placed"), A && B && C && PC->GetGuardFlags().Num() == 3)) return false;
+	TestEqual(TEXT("Flag belongs to the player's tribe"), A->GetTribeId(), 0);
+	TestTrue(TEXT("Player flag is blue"), A->GetColor().B > 0.6f && A->GetColor().B > A->GetColor().R + 0.3f);
+	TestTrue(TEXT("Flag is tall and thin"), A->Height >= 300.f && A->Pole->GetRelativeScale3D().X < 0.2f);
+	TestTrue(TEXT("Flag never blocks units"), A->Pole->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore
+		&& A->Banner->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore);
+	PC->MaxGuardFlags = 3;
+	TestNull(TEXT("Flag limit respected"), PC->PlaceGuardFlag(FVector(-2000.f, 0.f, 100.f)));
+	PC->MaxGuardFlags = 32;
+
+	// Guard a flag: circle it; the Shaman and the enemy are never ordered.
+	TestEqual(TEXT("Guard flag: the 3 Braves"), PC->CommandGuardTarget(Units, A), 3);
+	bool bGuardA = true;
+	for (AShamanUnitBase* Br : F.Braves) bGuardA &= Br->GetOrder() == EFollowerOrder::GuardTarget && Br->GetOrderTarget() == A && Br->GetGuardRadius() >= A->GuardRadius;
+	TestTrue(TEXT("Guard flag: every Brave circles flag A"), bGuardA);
+	TestTrue(TEXT("Enemy Brave untouched"), F.EnemyBrave->GetOrder() != EFollowerOrder::GuardTarget);
+	// Removing the flag: its guards keep guarding the spot.
+	const FVector WhereA = A->GetActorLocation();
+	TestTrue(TEXT("Remove flag"), PC->RemoveGuardFlag(A));
+	FVector Centre;
+	TestTrue(TEXT("Guards of a removed flag guard its spot"), F.Braves[0]->ResolveGuardCentre(Centre)
+		&& F.Braves[0]->GetOrder() == EFollowerOrder::GuardSpot && Centre.Equals(WhereA, 1.f));
+	TestEqual(TEXT("Two flags left"), PC->GetGuardFlags().Num(), 2);
+
+	// Guard a building: the ring goes around its footprint.
+	ABuildingActor* Circle = F.W.SpawnCircle(0, FVector(-2500.f, -2500.f, 0.f));
+	if (TestNotNull(TEXT("Building"), Circle))
+	{
+		FVector O, E;
+		Circle->GetActorBounds(true, O, E);
+		TestEqual(TEXT("Guard building: the 3 Braves"), PC->CommandGuardTarget(Units, Circle), 3);
+		TestTrue(TEXT("Guard ring outside the building"), F.Braves[1]->GetOrderTarget() == Circle && F.Braves[1]->GetGuardRadius() > FVector2D(E.X, E.Y).Size());
+	}
+
+	// Patrol over flags (Ctrl+RMB B, then C): a loop; each Brave starts at its nearest point.
+	TestTrue(TEXT("Route point 1"), PC->AddRoutePoint(Units, B->GetActorLocation()));
+	TestTrue(TEXT("Route point 2"), PC->AddRoutePoint(Units, C->GetActorLocation()));
+	TestTrue(TEXT("Route open while building it"), PC->IsRouteOpen() && PC->GetRoutePoints().Num() == 2);
+	bool bPatrol = true;
+	for (AShamanUnitBase* Br : F.Braves) bPatrol &= Br->GetOrder() == EFollowerOrder::Patrol && Br->GetPatrolPoints().Num() == 2;
+	TestTrue(TEXT("Every Brave patrols the 2-point loop"), bPatrol);
+	const int32 Start = F.Braves[0]->GetPatrolIndex();
+	F.Braves[0]->AdvancePatrol();
+	TestEqual(TEXT("Patrol advances to the next point"), F.Braves[0]->GetPatrolIndex(), (Start + 1) % 2);
+	F.Braves[0]->AdvancePatrol();
+	TestEqual(TEXT("Patrol loops"), F.Braves[0]->GetPatrolIndex(), Start);
+	PC->CloseRoute();
+	TestFalse(TEXT("Route closed"), PC->IsRouteOpen());
+
+	// Ctrl+Alt ground route: at most MaxPatrolPoints; a new route starts after the old one closed.
+	for (int32 i = 0; i < PC->MaxPatrolPoints; ++i)
+		PC->HandleGroundRouteClick(Units, FVector(300.f * i, -1500.f, 100.f), FVector2D(100.f + 50.f * i, 300.f), 10.0 + i);
+	TestEqual(TEXT("Ground route has the clicked points"), PC->GetRoutePoints().Num(), PC->MaxPatrolPoints);
+	TestFalse(TEXT("Ground route is capped"), PC->AddRoutePoint(Units, FVector(0.f, -3000.f, 100.f)));
+	TestEqual(TEXT("Patrol uses the full route"), F.Braves[2]->GetPatrolPoints().Num(), PC->MaxPatrolPoints);
+	PC->CloseRoute();
+	// Ctrl+Alt double-click: guard that spot (the first click's route point is dropped).
+	const FVector Spot(-800.f, 900.f, 100.f);
+	PC->HandleGroundRouteClick(Units, Spot, FVector2D(500.f, 500.f), 50.0);
+	PC->HandleGroundRouteClick(Units, Spot, FVector2D(502.f, 501.f), 50.2);
+	bool bSpot = true;
+	for (AShamanUnitBase* Br : F.Braves) bSpot &= Br->GetOrder() == EFollowerOrder::GuardSpot && Br->GetOrderLocation().Equals(Spot, 1.f);
+	TestTrue(TEXT("Double-click: every Brave guards the spot"), bSpot);
+	TestFalse(TEXT("Double-click leaves no route open"), PC->IsRouteOpen());
+	TestEqual(TEXT("Guard / patrol orders create no tasks"), F.T0->GetOpenTaskCount(), 0);
+
+	// A plain order clears guard / patrol data.
+	F.Braves[0]->SetOrder(EFollowerOrder::HoldPosition, FVector::ZeroVector);
+	TestTrue(TEXT("SetOrder clears guard data"), !F.Braves[0]->IsGuardOrder() && F.Braves[0]->GetOrderTarget() == nullptr && F.Braves[0]->GetPatrolPoints().Num() == 0);
+
+	for (AShamanGuardFlag* Fl : PC->GetGuardFlags()) PC->RemoveGuardFlag(Fl);
 	PC->UnPossess();
 	PC->Destroy();
 	return true;

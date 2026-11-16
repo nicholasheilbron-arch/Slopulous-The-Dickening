@@ -27,6 +27,9 @@
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
 #include "CollisionQueryParams.h"
+#include "Characters/ShamanGuardRules.h"
+#include "World/ShamanGuardFlag.h"
+#include "Buildings/BuildingActor.h"
 
 static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
 	TEXT("shaman.DebugSelection"), 0,
@@ -42,6 +45,10 @@ static const TCHAR* OrderName(EFollowerOrder O)
 	case EFollowerOrder::FollowShaman: return TEXT("FollowShaman");
 	case EFollowerOrder::HoldPosition: return TEXT("HoldPosition");
 	case EFollowerOrder::GuardHome:    return TEXT("GuardHome");
+	case EFollowerOrder::GuardShaman:  return TEXT("GuardShaman");
+	case EFollowerOrder::GuardTarget:  return TEXT("GuardTarget");
+	case EFollowerOrder::GuardSpot:    return TEXT("GuardSpot");
+	case EFollowerOrder::Patrol:       return TEXT("Patrol");
 	default:                           return TEXT("Wander");
 	}
 }
@@ -113,6 +120,9 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShamanPlayerController::OnSelectPressed);
 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShamanPlayerController::OnSelectReleased);
 			RTSInput->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AShamanPlayerController::OnCommandPressed);
+			RTSInput->BindKey(EKeys::G, IE_Pressed, this, &AShamanPlayerController::OnGuardShamanPressed);
+			RTSInput->BindKey(EKeys::P, IE_Pressed, this, &AShamanPlayerController::OnPlaceFlagPressed);
+			RTSInput->BindKey(EKeys::Delete, IE_Pressed, this, &AShamanPlayerController::OnRemoveFlagPressed);
 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AShamanPlayerController::OnOrbitPressed);
 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AShamanPlayerController::OnOrbitReleased);
 			RTSInput->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShamanPlayerController::OnZoomIn);
@@ -138,6 +148,7 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
 	{
 		if (RTSInput && bRTSInputPushed) { PopInputComponent(RTSInput); bRTSInputPushed = false; }
 		StopShamanMove(TEXT("player took direct control")); // WASD drives the Shaman now
+		CloseRoute();
 		if (RTSCamera) RTSCamera->SetActorTickEnabled(false);
 		if (APawn* P = GetPawn()) SetViewTargetWithBlend(P, Blend);
 		bShowMouseCursor = false;
@@ -250,6 +261,8 @@ void AShamanPlayerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 	RefreshPlayerTribe(); // cheap; also follows a tribe change of the possessed Shaman
 	UpdateShamanMove();
+	// A patrol route is built while Ctrl is held; releasing it finishes the route.
+	if (bRouteOpen && !IsInputKeyDown(EKeys::LeftControl) && !IsInputKeyDown(EKeys::RightControl)) CloseRoute();
 	if (Mode == EShamanControlMode::RTS && RTSCamera) UpdateRTSInput(DeltaTime);
 }
 
@@ -500,7 +513,29 @@ void AShamanPlayerController::OnCommandPressed()
 		UE_LOG(LogShaman, Log, TEXT("[Command] nothing selected: select units with LMB first"));
 		return;
 	}
-	// Right-click on the player's Shaman: the selected Braves guard him.
+	const bool bCtrl = IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
+	const bool bAlt = IsInputKeyDown(EKeys::LeftAlt) || IsInputKeyDown(EKeys::RightAlt);
+	AShamanGuardFlag* Flag = PickGuardFlag(Mouse);
+
+	if (bCtrl && !bAlt)
+	{
+		// Ctrl+RMB: flags one after another make a patrol loop.
+		if (Flag) AddRoutePoint(Units, Flag->GetActorLocation());
+		else UE_LOG(LogShaman, Log, TEXT("[Command] Ctrl+right-click a guard flag to add it to a patrol (Ctrl+Alt+right-click for ground points)"));
+		return;
+	}
+	if (bCtrl && bAlt)
+	{
+		// Ctrl+Alt+RMB: ground points make a patrol loop; a double-click guards that spot.
+		FVector Point;
+		if (Flag) Point = Flag->GetActorLocation();
+		else if (!GetGroundUnderScreen(Mouse, Point)) { UE_LOG(LogShaman, Log, TEXT("[Command] no ground under the cursor")); return; }
+		HandleGroundRouteClick(Units, Point, Mouse, GetWorld()->GetRealTimeSeconds());
+		return;
+	}
+	CloseRoute();
+
+	// Right-click on the player's Shaman: the selected Braves guard her.
 	TArray<FShamanScreenCandidate> Candidates;
 	GatherScreenCandidates(Candidates);
 	const int32 Hit = FShamanSelectionRules::PickClosest(Candidates, Mouse, SelectionSettings.PickRadiusPx);
@@ -509,6 +544,8 @@ void AShamanPlayerController::OnCommandPressed()
 		CommandGuardShaman(Units);
 		return;
 	}
+	if (Flag) { CommandGuardTarget(Units, Flag); return; }
+	if (AActor* Building = PickOwnBuilding(Mouse)) { CommandGuardTarget(Units, Building); return; }
 	FVector Ground;
 	if (!GetGroundUnderScreen(Mouse, Ground))
 	{
@@ -620,19 +657,8 @@ int32 AShamanPlayerController::CommandGuardShaman(const TArray<AShamanUnitBase*>
 		UE_LOG(LogShaman, Log, TEXT("[Command] guard: the Shaman is not alive"));
 		return 0;
 	}
-	UTribeComponent* TC = Tribes->GetTribeComponent(Tribe);
-	int32 N = 0;
-	for (AShamanUnitBase* U : Units)
-	{
-		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue;
-		if (TC && U->TribeMember && U->TribeMember->HasTask()) TC->CancelTask(U->TribeMember->GetCurrentTaskId(), TEXT("PlayerCommand"));
-		U->SetOrder(EFollowerOrder::FollowShaman, S->GetActorLocation()); // follow within FollowDistance, fight within the leash
-		++N;
-	}
-	LastCommandLocation = S->GetActorLocation();
-	LastCommandTime = GetWorld()->GetTimeSeconds();
-	bLastCommandGuard = true;
-	UE_LOG(LogShaman, Log, TEXT("[Command] guard Shaman: %d Brave(s)"), N);
+	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardShaman, nullptr, S->GetActorLocation(), SelectionSettings.GuardShamanRadius);
+	UE_LOG(LogShaman, Log, TEXT("[Command] guard Shaman: %d Brave(s) circling her"), N);
 	return N;
 }
 
@@ -697,4 +723,218 @@ void AShamanPlayerController::UpdateShamanMove()
 	const float ToGoal = FShamanSpace::HorizontalDistance(this, Here, ShamanPath.Last());
 	if (ToGoal < ShamanBestDistance - 50.f) { ShamanBestDistance = ToGoal; ShamanLastProgressTime = Now; }
 	else if (Now - ShamanLastProgressTime > 4.0) StopShamanMove(TEXT("stuck (no progress for 4 s)"));
+}
+
+// ---- Guard / patrol orders and guard flags ------------------------------------------------------------------------------
+
+TArray<AShamanUnitBase*> AShamanPlayerController::TakeBravesForOrder(const TArray<AShamanUnitBase*>& Units)
+{
+	RefreshPlayerTribe();
+	const int32 Tribe = GetPlayerTribe();
+	UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
+	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(Tribe) : nullptr;
+	TArray<AShamanUnitBase*> Out;
+	for (AShamanUnitBase* U : Units)
+	{
+		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue; // the Shaman never guards / patrols
+		if (TC && U->TribeMember && U->TribeMember->HasTask()) TC->CancelTask(U->TribeMember->GetCurrentTaskId(), TEXT("PlayerCommand"));
+		Out.AddUnique(U);
+	}
+	return Out;
+}
+
+int32 AShamanPlayerController::IssueGuard(const TArray<AShamanUnitBase*>& Braves, EFollowerOrder Kind, AActor* Target, const FVector& Centre, float BaseRadius)
+{
+	if (Braves.Num() == 0) return 0;
+	// Slots in the order the units already stand around the centre, so nobody crosses the ring to reach theirs.
+	TArray<TPair<float, AShamanUnitBase*>> ByAngle;
+	const FVector Probe = FShamanSpace::OffsetAlongGround(this, Centre, FVector2D(100.f, 0.f));
+	const FVector XAxis = FShamanSpace::HorizontalDirection(this, Centre, Probe);
+	const FVector YAxis = FVector::CrossProduct(FShamanSpace::GetUp(this, Centre), XAxis);
+	for (AShamanUnitBase* B : Braves)
+	{
+		const FVector D = FShamanSpace::HorizontalDirection(this, Centre, B->GetActorLocation());
+		float A = FMath::Atan2(FVector::DotProduct(D, YAxis), FVector::DotProduct(D, XAxis));
+		if (A < 0.f) A += 2.f * PI;
+		ByAngle.Add(TPair<float, AShamanUnitBase*>(A, B));
+	}
+	ByAngle.Sort([](const TPair<float, AShamanUnitBase*>& L, const TPair<float, AShamanUnitBase*>& R) { return L.Key < R.Key; });
+	const float Radius = FShamanGuardRules::RingRadius(BaseRadius, Braves.Num(), SelectionSettings.GuardSpacing);
+	for (int32 i = 0; i < ByAngle.Num(); ++i) ByAngle[i].Value->SetGuardOrder(Kind, Target, Centre, Radius, i, ByAngle.Num());
+	MarkCommand(Centre, true);
+	return ByAngle.Num();
+}
+
+void AShamanPlayerController::MarkCommand(const FVector& Where, bool bGuard)
+{
+	LastCommandLocation = Where;
+	LastCommandTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	bLastCommandGuard = bGuard;
+}
+
+int32 AShamanPlayerController::CommandGuardTarget(const TArray<AShamanUnitBase*>& Units, AActor* Target)
+{
+	if (!Target) return 0;
+	float Base = SelectionSettings.GuardSpotRadius;
+	if (const AShamanGuardFlag* Flag = Cast<AShamanGuardFlag>(Target)) Base = Flag->GuardRadius;
+	else
+	{
+		// A building: walk just outside its footprint.
+		FVector Origin, Extent;
+		Target->GetActorBounds(/*bOnlyColliding*/ true, Origin, Extent);
+		Base = FVector2D(Extent.X, Extent.Y).Size() + SelectionSettings.GuardBuildingMargin;
+	}
+	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardTarget, Target, Target->GetActorLocation(), Base);
+	UE_LOG(LogShaman, Log, TEXT("[Command] guard %s: %d Brave(s)"), *Target->GetName(), N);
+	return N;
+}
+
+int32 AShamanPlayerController::CommandGuardSpot(const TArray<AShamanUnitBase*>& Units, const FVector& Spot)
+{
+	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardSpot, nullptr, Spot, SelectionSettings.GuardSpotRadius);
+	UE_LOG(LogShaman, Log, TEXT("[Command] guard spot (%.0f, %.0f, %.0f): %d Brave(s)"), Spot.X, Spot.Y, Spot.Z, N);
+	return N;
+}
+
+int32 AShamanPlayerController::CommandPatrol(const TArray<AShamanUnitBase*>& Units, const TArray<FVector>& Points)
+{
+	if (Points.Num() == 0) return 0;
+	const TArray<AShamanUnitBase*> Braves = TakeBravesForOrder(Units);
+	for (AShamanUnitBase* B : Braves)
+		B->SetPatrolOrder(Points, FShamanGuardRules::NearestPoint(Points, B->GetActorLocation()));
+	MarkCommand(Points.Last(), false);
+	UE_LOG(LogShaman, Log, TEXT("[Command] patrol: %d Brave(s), %d point(s)"), Braves.Num(), Points.Num());
+	return Braves.Num();
+}
+
+bool AShamanPlayerController::AddRoutePoint(const TArray<AShamanUnitBase*>& Units, const FVector& Point)
+{
+	if (!bRouteOpen) { RoutePoints.Reset(); bRouteOpen = true; }
+	if (RoutePoints.Num() >= FMath::Max(1, MaxPatrolPoints))
+	{
+		UE_LOG(LogShaman, Log, TEXT("[Command] patrol route is full (%d points)"), RoutePoints.Num());
+		return false;
+	}
+	RoutePoints.Add(Point);
+	CommandPatrol(Units, RoutePoints);
+	return true;
+}
+
+void AShamanPlayerController::CloseRoute()
+{
+	if (!bRouteOpen) return;
+	bRouteOpen = false;
+	LastGroundRouteClickTime = -1.0;
+	UE_LOG(LogShaman, Log, TEXT("[Command] patrol route finished: %d point(s)"), RoutePoints.Num());
+}
+
+void AShamanPlayerController::HandleGroundRouteClick(const TArray<AShamanUnitBase*>& Units, const FVector& Point, const FVector2D& ScreenPos, double Now)
+{
+	if (FShamanGuardRules::IsDoubleClick(LastGroundRouteClickTime, LastGroundRouteClickPos, Now, ScreenPos))
+	{
+		// The first click of the pair already added a route point: a double-click means "guard this spot" instead.
+		if (bRouteOpen && RoutePoints.Num() > 0) RoutePoints.Pop();
+		bRouteOpen = false;
+		RoutePoints.Reset();
+		LastGroundRouteClickTime = -1.0;
+		CommandGuardSpot(Units, Point);
+		return;
+	}
+	LastGroundRouteClickTime = Now;
+	LastGroundRouteClickPos = ScreenPos;
+	AddRoutePoint(Units, Point);
+}
+
+AShamanGuardFlag* AShamanPlayerController::PlaceGuardFlag(const FVector& Ground)
+{
+	GuardFlags.RemoveAll([](const TWeakObjectPtr<AShamanGuardFlag>& F) { return !F.IsValid(); });
+	if (GuardFlags.Num() >= FMath::Max(0, MaxGuardFlags))
+	{
+		UE_LOG(LogShaman, Log, TEXT("[Flag] limit reached (%d flags): remove one first (Delete over a flag)"), GuardFlags.Num());
+		return nullptr;
+	}
+	RefreshPlayerTribe();
+	AShamanGuardFlag* Flag = GetWorld()->SpawnActorDeferred<AShamanGuardFlag>(AShamanGuardFlag::StaticClass(), FTransform(Ground), this,
+		nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!Flag) return nullptr;
+	Flag->TribeId = GetPlayerTribe();
+	Flag->FinishSpawning(FTransform(Ground));
+	GuardFlags.Add(Flag);
+	UE_LOG(LogShaman, Log, TEXT("[Flag] placed %s at (%.0f, %.0f, %.0f), tribe %d (%d/%d)"), *Flag->GetName(), Ground.X, Ground.Y, Ground.Z,
+		Flag->TribeId, GuardFlags.Num(), MaxGuardFlags);
+	return Flag;
+}
+
+bool AShamanPlayerController::RemoveGuardFlag(AShamanGuardFlag* Flag)
+{
+	if (!Flag || Flag->IsPendingKillPending() || Flag->GetTribeId() != GetPlayerTribe()) return false;
+	GuardFlags.Remove(Flag);
+	UE_LOG(LogShaman, Log, TEXT("[Flag] removed %s (its guards keep guarding the spot)"), *Flag->GetName());
+	Flag->Destroy();
+	return true;
+}
+
+TArray<AShamanGuardFlag*> AShamanPlayerController::GetGuardFlags() const
+{
+	TArray<AShamanGuardFlag*> Out;
+	for (const TWeakObjectPtr<AShamanGuardFlag>& F : GuardFlags) if (AShamanGuardFlag* G = F.Get()) Out.Add(G);
+	return Out;
+}
+
+AShamanGuardFlag* AShamanPlayerController::PickGuardFlag(const FVector2D& ScreenPos) const
+{
+	AShamanGuardFlag* Best = nullptr;
+	float BestD = TNumericLimits<float>::Max();
+	for (const TWeakObjectPtr<AShamanGuardFlag>& W : GuardFlags)
+	{
+		AShamanGuardFlag* F = W.Get();
+		if (!F || !IsOnVisibleSide(F->GetActorLocation())) continue;
+		FVector2D Base, Top;
+		const FVector Up = FShamanSpace::GetUp(this, F->GetActorLocation());
+		if (!ProjectWorldLocationToScreen(F->GetActorLocation(), Base, false) || !ProjectWorldLocationToScreen(F->GetActorLocation() + Up * F->Height, Top, false)) continue;
+		const float D = FShamanSelectionRules::DistanceToSegment(ScreenPos, Base, Top);
+		if (D <= SelectionSettings.FlagPickRadiusPx + 0.15f * FVector2D::Distance(Base, Top) && D < BestD) { BestD = D; Best = F; }
+	}
+	return Best;
+}
+
+AActor* AShamanPlayerController::PickOwnBuilding(const FVector2D& ScreenPos) const
+{
+	FVector Origin, Dir;
+	if (!DeprojectScreenPositionToWorld(ScreenPos.X, ScreenPos.Y, Origin, Dir)) return nullptr;
+	FHitResult Hit;
+	FCollisionQueryParams Params(TEXT("ShamanRTSPickBuilding"), true, GetPawn());
+	if (!GetWorld()->LineTraceSingleByChannel(Hit, Origin, Origin + Dir * 500000.f, ECC_Visibility, Params)) return nullptr;
+	ABuildingActor* B = Cast<ABuildingActor>(Hit.GetActor());
+	return (B && B->GetTribeId() == GetPlayerTribe()) ? B : nullptr;
+}
+
+void AShamanPlayerController::OnGuardShamanPressed()
+{
+	if (!Selection) return;
+	RefreshPlayerTribe();
+	const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
+	if (Units.Num() == 0) { UE_LOG(LogShaman, Log, TEXT("[Command] G: select followers first")); return; }
+	CloseRoute();
+	CommandGuardShaman(Units);
+}
+
+void AShamanPlayerController::OnPlaceFlagPressed()
+{
+	float X = 0.f, Y = 0.f;
+	if (!GetMousePosition(X, Y)) return;
+	const FVector2D Mouse(X, Y);
+	if (const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD()))
+		if (HUD->IsOverSpellPanel(Mouse)) return;
+	FVector Ground;
+	if (!GetGroundUnderScreen(Mouse, Ground)) { UE_LOG(LogShaman, Log, TEXT("[Flag] no ground under the cursor")); return; }
+	PlaceGuardFlag(Ground);
+}
+
+void AShamanPlayerController::OnRemoveFlagPressed()
+{
+	float X = 0.f, Y = 0.f;
+	if (!GetMousePosition(X, Y)) return;
+	if (AShamanGuardFlag* Flag = PickGuardFlag(FVector2D(X, Y))) RemoveGuardFlag(Flag);
+	else UE_LOG(LogShaman, Log, TEXT("[Flag] Delete: point at one of your flags to remove it"));
 }

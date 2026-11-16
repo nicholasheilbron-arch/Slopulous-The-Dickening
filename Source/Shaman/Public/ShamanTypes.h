@@ -46,6 +46,18 @@ enum class EUnitRole : uint8 { Shaman, Brave, Warrior, Wildman };
 UENUM(BlueprintType)
 enum class EResourceType : uint8 { Wood, Food, Stone, Ore };
 
-/** Simple standing orders. Phase 2 adds work orders (gather/build). */
+/** Simple standing orders. Phase 2 adds work orders (gather/build). New values are appended (saved / Blueprint values
+ *  of the first four never change). RTS guard orders: the unit walks a ring around its guard centre and fights enemies
+ *  that come near it (AShamanUnitAIController). */
 UENUM(BlueprintType)
-enum class EFollowerOrder : uint8 { FollowShaman, HoldPosition, GuardHome, Wander };
+enum class EFollowerOrder : uint8
+{
+	FollowShaman,
+	HoldPosition,
+	GuardHome,
+	Wander,
+	GuardShaman, // circle the tribe's Shaman and follow her (G)
+	GuardTarget, // circle an actor: a guard flag or one of the tribe's buildings (RMB on it)
+	GuardSpot,   // circle a spot on the ground (Ctrl+Alt double right-click; also a guarded flag that was removed)
+	Patrol       // walk a loop of points (Ctrl+RMB flags, Ctrl+Alt+RMB ground points)
+};

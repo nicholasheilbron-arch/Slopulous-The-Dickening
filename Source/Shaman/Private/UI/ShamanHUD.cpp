@@ -16,6 +16,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "Engine/Texture2D.h"
+#include "Characters/ShamanUnitBase.h"
 
 void AShamanHUD::DrawLine(const FString& Text, float X, float Y, const FLinearColor& Color, float Scale, bool bCentered)
 {
@@ -236,8 +237,14 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
 	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
 		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
 	DrawLine(bRTS
-		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move there (on your Shaman: guard him)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
+		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move (on Shaman / flag / your building: guard it)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
 		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
+	if (bRTS)
+		DrawLine(TEXT("G: guard Shaman   P: plant flag   Del: remove flag   Ctrl+RMB flags: patrol   Ctrl+Alt+RMB ground: patrol (double-click: guard spot)"),
+			SW * 0.5f, 56.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.65f * UI, true);
+	if (bRTS && PC->IsRouteOpen())
+		DrawLine(FString::Printf(TEXT("Patrol route: %d / %d points (release Ctrl to finish)"), PC->GetRoutePoints().Num(), PC->MaxPatrolPoints),
+			SW * 0.5f, 84.f * UI, Sel.PatrolColor, 0.85f * UI, true);
 
 	// Selection rings (shown in both modes; selection is kept across switches).
 	if (const UShamanSelectionComponent* Selection = PC->Selection)
@@ -245,7 +252,9 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
 		const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
 		for (const AShamanUnitBase* U : Units) DrawSelectionRing(U, Sel.RingRadiusScale, Sel.RingColor);
 		if (bRTS && Units.Num() > 0)
-			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 62.f * UI, Sel.RingColor, 0.85f * UI, true);
+			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 70.f * UI, Sel.RingColor, 0.85f * UI, true);
+		// What the selection is guarding / patrolling: each guard ring and patrol loop once.
+		if (bRTS) DrawOrderOverlay(Units, Sel);
 	}
 
 	// Command marker: a shrinking ring where the last order went (gold around the Shaman for "guard").
@@ -580,5 +589,46 @@ void AShamanHUD::DrawGroundCircle(const FVector& Centre, float Radius, const FLi
 		if (bOk && bPrev) AHUD::DrawLine(Prev.X, Prev.Y, P.X, P.Y, Color, Thickness);
 		Prev = P;
 		bPrev = bOk;
+	}
+}
+
+void AShamanHUD::DrawOrderOverlay(const TArray<AShamanUnitBase*>& Units, const FShamanSelectionSettings& Sel)
+{
+	if (!PlayerOwner) return;
+	TArray<FVector> Rings;
+	TArray<const TArray<FVector>*> Loops;
+	for (const AShamanUnitBase* U : Units)
+	{
+		if (U->IsGuardOrder())
+		{
+			const FVector C = U->GetOrderLocation(); // kept current by the unit's AI (the Shaman / the flag / the spot)
+			if (!Rings.ContainsByPredicate([&C](const FVector& R) { return FVector::DistSquared(R, C) < 1.f; }))
+			{
+				Rings.Add(C);
+				FLinearColor Col = Sel.GuardMarkerColor;
+				Col.A = 0.55f;
+				DrawGroundCircle(C, U->GetGuardRadius(), Col, 1.5f);
+			}
+		}
+		else if (U->GetOrder() == EFollowerOrder::Patrol && U->GetPatrolPoints().Num() > 0)
+		{
+			// Same route given to a group: each unit holds a copy, so compare contents before drawing it again.
+			bool bSeen = false;
+			for (const TArray<FVector>* L : Loops) bSeen |= (*L == U->GetPatrolPoints());
+			if (bSeen) continue;
+			const TArray<FVector>& P = U->GetPatrolPoints();
+			Loops.Add(&P);
+			for (int32 i = 0; i < P.Num(); ++i)
+			{
+				DrawGroundCircle(P[i], 45.f, Sel.PatrolColor, 2.f);
+				if (P.Num() < 2) continue;
+				FVector2D A, B;
+				const FVector Lift = FShamanSpace::GetUp(this, P[i]) * 10.f;
+				const FVector& Q = P[(i + 1) % P.Num()];
+				if (PlayerOwner->ProjectWorldLocationToScreen(P[i] + Lift, A, false)
+					&& PlayerOwner->ProjectWorldLocationToScreen(Q + FShamanSpace::GetUp(this, Q) * 10.f, B, false))
+					AHUD::DrawLine(A.X, A.Y, B.X, B.Y, Sel.PatrolColor, 1.5f);
+			}
+		}
 	}
 }

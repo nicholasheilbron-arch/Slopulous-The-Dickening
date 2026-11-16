@@ -8,6 +8,7 @@ class AShamanCharacter;
 class AShamanUnitBase;
 class AShamanPlayerController;
 class UTexture2D;
+struct FShamanSelectionSettings;
 
 /**
  * Phase 1 HUD drawn on the canvas (no widget assets needed): health, mana and regen, followers, selected spell
@@ -35,6 +36,8 @@ private:
 	void DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color);
 	/** Ground-aligned circle at a world point (RTS command marker). */
 	void DrawGroundCircle(const FVector& Centre, float Radius, const FLinearColor& Color, float Thickness);
+	/** RTS: guard rings and patrol loops of the selected units. */
+	void DrawOrderOverlay(const TArray<AShamanUnitBase*>& Units, const FShamanSelectionSettings& Sel);
 	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
 	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
 	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);

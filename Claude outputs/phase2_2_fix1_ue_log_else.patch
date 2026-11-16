@@ -1,0 +1,23 @@
+diff --git a/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+index 118651b..3db6d7c 100644
+--- a/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
++++ b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+@@ -395,13 +395,18 @@ void FUnitTaskExecutor::Finish(ETribeTaskState Final, FName Reason, ETaskMoveRes
+ 	LastReason = Reason;
+ 	LastTaskId = Id;
+ 	Release(true); // local state first: the task-book call below re-enters HandleTaskState
++	// UE4's UE_LOG expands to a { } block, so "if (...) UE_LOG(...); else" does not compile (C2181): braces required.
+ 	if (Final == ETribeTaskState::Completed)
++	{
+ 		UE_LOG(LogShaman, Log, TEXT("[Task] %s completed task #%d %s (%s)."), *Unit, Id, FTribeTaskExecutionRules::KindName(WasKind),
+ 			FTribeTaskExecutionRules::MoveResultName(Result));
++	}
+ 	else // expected gameplay outcome, not an engine problem: Log, not Warning (automation treats warnings as errors)
++	{
+ 		UE_LOG(LogShaman, Log, TEXT("[Task] %s %s task #%d %s: %s (%s)."), *Unit, FTribeTaskRules::StateName(Final), Id,
+ 			FTribeTaskExecutionRules::KindName(WasKind), Reason.IsNone() ? TEXT("no reason") : *Reason.ToString(),
+ 			FTribeTaskExecutionRules::MoveResultName(Result));
++	}
+ 	if (!Tribe || Id == INDEX_NONE) return;
+ 	if (Final == ETribeTaskState::Completed) Tribe->CompleteTask(Id);
+ 	else if (Final == ETribeTaskState::Cancelled) Tribe->CancelTask(Id, Reason);

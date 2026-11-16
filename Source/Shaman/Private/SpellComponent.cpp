@@ -95,9 +95,12 @@ void USpellComponent::AdvanceChargeEconomy(float Seconds)
 	const float Step = FMath::Max(0.01f, ChargeStepSeconds);
 	const float Regen = GetManaRegen(); // the tribe is read once per call (units change state far slower than a step)
 	ChargeTimeAccumulator += Seconds;
-	for (int32 Guard = 0; ChargeTimeAccumulator >= Step && Guard < 1000; ++Guard) // 1000 steps = 100 s at the default step
+	// Float round-off: 30 s added and 0.1 s taken 300 times leaves 0.0999998 < Step, which silently dropped one step
+	// (0.1 s of mana) per call. Accept a step that is short by a hair, and never let the remainder go negative.
+	const float Tolerance = Step * 1e-3f;
+	for (int32 Guard = 0; ChargeTimeAccumulator >= Step - Tolerance && Guard < 1000; ++Guard) // 1000 steps = 100 s at the default step
 	{
-		ChargeTimeAccumulator -= Step;
+		ChargeTimeAccumulator = FMath::Max(0.f, ChargeTimeAccumulator - Step);
 		ChargeStep(Step, Regen);
 	}
 	if (ChargeTimeAccumulator >= Step) ChargeTimeAccumulator = 0.f; // pathological hitch: drop the backlog

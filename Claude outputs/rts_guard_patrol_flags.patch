@@ -1,0 +1,1300 @@
+diff --git a/Source/Shaman/Private/Characters/ShamanGuardRules.cpp b/Source/Shaman/Private/Characters/ShamanGuardRules.cpp
+new file mode 100644
+index 0000000..9d0e13d
+--- /dev/null
++++ b/Source/Shaman/Private/Characters/ShamanGuardRules.cpp
+@@ -0,0 +1,49 @@
++#include "Characters/ShamanGuardRules.h"
++
++float FShamanGuardRules::RingRadius(float BaseRadius, int32 Count, float Spacing)
++{
++	const float Crowd = FMath::Max(1, Count) * FMath::Max(1.f, Spacing) / (2.f * PI);
++	return FMath::Max(FMath::Max(BaseRadius, 50.f), Crowd);
++}
++
++float FShamanGuardRules::SlotAngle(int32 Slot, int32 Count)
++{
++	return 2.f * PI * (float)FMath::Max(0, Slot) / (float)FMath::Max(1, Count);
++}
++
++FVector2D FShamanGuardRules::NextRingPoint(const FVector2D& UnitOffset, int32 Slot, int32 Count, float Radius, float LeadArc, float JoinTolerance)
++{
++	const float R = FMath::Max(Radius, 1.f);
++	const float Dist = UnitOffset.Size();
++	if (Dist < KINDA_SMALL_NUMBER || FMath::Abs(Dist - R) > JoinTolerance)
++	{
++		const float A = SlotAngle(Slot, Count);
++		return FVector2D(FMath::Cos(A), FMath::Sin(A)) * R;
++	}
++	const float A = FMath::Atan2(UnitOffset.Y, UnitOffset.X) + FMath::Clamp(LeadArc / R, 0.15f, 1.2f);
++	return FVector2D(FMath::Cos(A), FMath::Sin(A)) * R;
++}
++
++int32 FShamanGuardRules::NextPatrolIndex(int32 Current, int32 NumPoints)
++{
++	return NumPoints > 0 ? (FMath::Max(0, Current) + 1) % NumPoints : INDEX_NONE;
++}
++
++int32 FShamanGuardRules::NearestPoint(const TArray<FVector>& Points, const FVector& Location)
++{
++	int32 Best = INDEX_NONE;
++	float BestD = TNumericLimits<float>::Max();
++	for (int32 i = 0; i < Points.Num(); ++i)
++	{
++		const float D = FVector::DistSquared(Points[i], Location);
++		if (D < BestD) { BestD = D; Best = i; }
++	}
++	return Best;
++}
++
++bool FShamanGuardRules::IsDoubleClick(double FirstTime, const FVector2D& FirstPos, double SecondTime, const FVector2D& SecondPos,
++	float MaxSeconds, float MaxPixels)
++{
++	const double Dt = SecondTime - FirstTime;
++	return FirstTime >= 0.0 && Dt >= 0.0 && Dt <= MaxSeconds && FVector2D::DistSquared(FirstPos, SecondPos) <= FMath::Square(MaxPixels);
++}
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+index bfacb62..0a757f6 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+@@ -1,6 +1,15 @@
+ #include "Characters/ShamanUnitAIController.h"
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/ShamanCharacter.h"
++#include "Characters/ShamanGuardRules.h"
++
++namespace
++{
++	/** Guards and patrols defend this far from what they protect (the unit row's LeashRadius still caps it). */
++	const float GuardLeashRadius = 1000.f;
++	/** Patrol: a point counts as reached within this ground distance. */
++	const float PatrolArrival = 170.f;
++}
+ #include "SpellComponent.h"
+ #include "Game/ShamanGameData.h"
+ #include "Tribes/TribeSubsystem.h"
+@@ -112,7 +121,8 @@ void AShamanUnitAIController::Think(AShamanUnitBase* U)
+ 		EUnitSimState Activity = EUnitSimState::Idle;
+ 		if (Target.IsValid()) Activity = EUnitSimState::Combat;
+ 		else if (U->GetOrder() == EFollowerOrder::FollowShaman) Activity = EUnitSimState::Following;
+-		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome) Activity = EUnitSimState::Guarding;
++		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome || U->IsGuardOrder()) Activity = EUnitSimState::Guarding;
++		else if (U->GetOrder() == EFollowerOrder::Patrol) Activity = EUnitSimState::Moving;
+ 		U->TribeMember->SetActivity(Activity);
+ 	}
+ }
+@@ -145,21 +155,38 @@ FVector AShamanUnitAIController::GetLeashAnchor(AShamanUnitBase* U) const
+ 				if (S->IsAlive()) return S->GetActorLocation();
+ 		return U->GetHomeLocation();
+ 	case EFollowerOrder::HoldPosition: return U->GetOrderLocation();
++	case EFollowerOrder::GuardShaman:
++	case EFollowerOrder::GuardTarget:
++	case EFollowerOrder::GuardSpot:
++	{
++		// Live centre (the Shaman / the guarded actor keep moving while a guard fights).
++		FVector Centre;
++		return U->ResolveGuardCentre(Centre) ? Centre : U->GetOrderLocation();
++	}
++	case EFollowerOrder::Patrol:
++		return U->GetOrderLocation(); // the patrol point being walked to (AdvancePatrol)
+ 	default: return U->GetHomeLocation();
+ 	}
+ }
+ 
++float AShamanUnitAIController::GetLeashRadius(const AShamanUnitBase* U) const
++{
++	const float RowLeash = U->GetRow().LeashRadius;
++	return (U->IsGuardOrder() || U->GetOrder() == EFollowerOrder::Patrol) ? FMath::Min(RowLeash, GuardLeashRadius) : RowLeash;
++}
++
+ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
+ {
+ 	const FUnitRow& Row = U->GetRow();
+ 	if (!Row.bCanFight) { Target = nullptr; return; }
+ 	const FVector Anchor = GetLeashAnchor(U);
++	const float Leash = GetLeashRadius(U);
+ 
+ 	// Keep the current target while it is valid and inside the leash.
+ 	if (AActor* T = Target.Get())
+ 	{
+ 		const bool bValid = FShamanTargetRules::CanAffect(U, T, ESpellTargetFilter::EnemiesOnly, false)
+-			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Row.LeashRadius;
++			&& FShamanSpace::HorizontalDistance(this, T->GetActorLocation(), Anchor) <= Leash;
+ 		if (bValid) return;
+ 		Target = nullptr;
+ 	}
+@@ -172,7 +199,7 @@ void AShamanUnitAIController::UpdateTarget(AShamanUnitBase* U)
+ 	{
+ 		AActor* A = H.GetActor();
+ 		if (!A || !FShamanTargetRules::CanAffect(U, A, ESpellTargetFilter::EnemiesOnly, false)) continue;
+-		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Row.LeashRadius) continue;
++		if (FShamanSpace::HorizontalDistance(this, A->GetActorLocation(), Anchor) > Leash) continue;
+ 		const float D = FVector::DistSquared(A->GetActorLocation(), U->GetActorLocation());
+ 		if (D < BestD) { BestD = D; Target = A; }
+ 	}
+@@ -224,10 +251,7 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 		const AShamanUnitBase* S = Tribes ? Tribes->GetShaman(U->GetTribeId()) : nullptr;
+ 		if (!S || !S->IsAlive())
+ 		{
+-			// Shaman is reincarnating: wait at the circle.
+-			const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
+-			const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
+-			if (FShamanSpace::HorizontalDistance(this, Here, Wait) > 600.f) MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
++			WaitForShaman(U); // Shaman is reincarnating: wait at the circle.
+ 			return;
+ 		}
+ 		const float FollowDist = Data->FollowDistance;
+@@ -247,6 +271,31 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 		if (FShamanSpace::HorizontalDistance(this, Here, Spot) > 400.f) MoveToward(Spot, 120.f);
+ 		return;
+ 	}
++	case EFollowerOrder::GuardShaman:
++	case EFollowerOrder::GuardTarget:
++	case EFollowerOrder::GuardSpot:
++	{
++		FVector Centre;
++		if (!U->ResolveGuardCentre(Centre)) { WaitForShaman(U); return; } // only GuardShaman fails: she is dead
++		WalkGuardRing(U, Centre, U->GetGuardRadius(), U->GetGuardSlot(), U->GetGuardSlotCount());
++		return;
++	}
++	case EFollowerOrder::Patrol:
++	{
++		const TArray<FVector>& Points = U->GetPatrolPoints();
++		if (Points.Num() == 0) return;
++		if (Points.Num() == 1) // a one-point patrol guards that point
++		{
++			WalkGuardRing(U, Points[0], U->GetGuardRadius(), 0, 1);
++			return;
++		}
++		const FVector Point = Points[FMath::Clamp(U->GetPatrolIndex(), 0, Points.Num() - 1)];
++		if (FShamanSpace::HorizontalDistance(this, Here, Point) <= PatrolArrival) U->AdvancePatrol();
++		const FVector Next = U->GetOrderLocation();
++		// Small per-unit offset so a patrolling group walks side by side instead of single file on one spot.
++		MoveToward(FShamanSpace::OffsetAlongGround(this, Next, FVector2D(FormationOffset) * 60.f), 50.f);
++		return;
++	}
+ 	case EFollowerOrder::Wander:
+ 	default:
+ 	{
+@@ -262,12 +311,41 @@ void AShamanUnitAIController::FollowOrders(AShamanUnitBase* U)
+ 	}
+ }
+ 
+-void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
++void AShamanUnitAIController::WaitForShaman(AShamanUnitBase* U)
++{
++	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	const ABuildingActor* Circle = Tribes ? Tribes->GetReincarnationCircle(U->GetTribeId()) : nullptr;
++	const FVector Wait = Circle ? Circle->GetActorLocation() : U->GetHomeLocation();
++	if (FShamanSpace::HorizontalDistance(this, U->GetActorLocation(), Wait) > 600.f)
++		MoveToward(FShamanSpace::OffsetAlongGround(this, Wait, FVector2D(FormationOffset) * 400.f), 120.f);
++}
++
++void AShamanUnitAIController::WalkGuardRing(AShamanUnitBase* U, const FVector& Centre, float Radius, int32 Slot, int32 Count)
++{
++	// The unit's position around the centre, in the same ground offsets OffsetAlongGround takes (flat: world X/Y; planet:
++	// the tangent basis at the centre, via the horizontal direction and distance).
++	const FVector Here = U->GetActorLocation();
++	const float Dist = FShamanSpace::HorizontalDistance(this, Centre, Here);
++	FVector2D Offset = FVector2D::ZeroVector;
++	if (Dist > KINDA_SMALL_NUMBER)
++	{
++		const FVector Dir = FShamanSpace::HorizontalDirection(this, Centre, Here);
++		const FVector Probe = FShamanSpace::OffsetAlongGround(this, Centre, FVector2D(1.f, 0.f) * 100.f);
++		const FVector XAxis = FShamanSpace::HorizontalDirection(this, Centre, Probe);
++		const FVector Up = FShamanSpace::GetUp(this, Centre);
++		const FVector YAxis = FVector::CrossProduct(Up, XAxis);
++		Offset = FVector2D(FVector::DotProduct(Dir, XAxis), FVector::DotProduct(Dir, YAxis)) * Dist;
++	}
++	const FVector2D NextOffset = FShamanGuardRules::NextRingPoint(Offset, Slot, Count, Radius);
++	MoveToward(FShamanSpace::OffsetAlongGround(this, Centre, NextOffset), 50.f, /*RepathDistance*/ 40.f);
++}
++
++void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance, float RepathDistance)
+ {
+ 	if (const UShamanTerrainSubsystem* Terrain = UShamanTerrainSubsystem::Get(this))
+ 		if (Terrain->IsPlanetActive())
+ 		{
+-			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
++			if (bHasSurfaceGoal && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(RepathDistance)) return;
+ 			LastMoveGoal = Dest;
+ 			const FShamanSurfacePath Path = FShamanSurfaceNavigation::Get().FindPath(*Terrain, GetPawn()->GetActorLocation(), Dest);
+ 			bHasSurfaceGoal = Path.bValid && Path.Points.Num() > 0;
+@@ -277,7 +355,7 @@ void AShamanUnitAIController::MoveToward(const FVector& Dest, float Acceptance)
+ 		}
+ 
+ 	const bool bMoving = GetMoveStatus() == EPathFollowingStatus::Moving;
+-	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(120.f)) return;
++	if (bMoving && FVector::DistSquared(Dest, LastMoveGoal) < FMath::Square(RepathDistance)) return;
+ 	LastMoveGoal = Dest;
+ 	EPathFollowingRequestResult::Type R = MoveToLocation(Dest, Acceptance, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true,
+ 		/*bProjectDestinationToNavigation*/ true, /*bCanStrafe*/ false, nullptr, /*bAllowPartialPath*/ true);
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+index beaee64..b94973e 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitBase.cpp
+@@ -223,6 +223,69 @@ void AShamanUnitBase::SetOrder(EFollowerOrder NewOrder, FVector Location)
+ {
+ 	Order = NewOrder;
+ 	OrderLocation = Location;
++	OrderTarget = nullptr;
++	PatrolPoints.Reset();
++	PatrolIndex = 0;
++	GuardSlot = 0;
++	GuardSlotCount = 1;
++}
++
++void AShamanUnitBase::SetGuardOrder(EFollowerOrder GuardKind, AActor* Target, const FVector& Centre, float RingRadius, int32 Slot, int32 SlotCount)
++{
++	if (GuardKind == EFollowerOrder::GuardTarget && !Target) GuardKind = EFollowerOrder::GuardSpot;
++	if (GuardKind != EFollowerOrder::GuardShaman && GuardKind != EFollowerOrder::GuardTarget) GuardKind = EFollowerOrder::GuardSpot;
++	SetOrder(GuardKind, Centre);
++	OrderTarget = GuardKind == EFollowerOrder::GuardTarget ? Target : nullptr;
++	GuardRadius = FMath::Max(50.f, RingRadius);
++	GuardSlotCount = FMath::Max(1, SlotCount);
++	GuardSlot = FMath::Clamp(Slot, 0, GuardSlotCount - 1);
++}
++
++void AShamanUnitBase::SetPatrolOrder(const TArray<FVector>& Points, int32 StartIndex)
++{
++	if (Points.Num() == 0) { SetOrder(EFollowerOrder::HoldPosition, GetActorLocation()); return; }
++	SetOrder(EFollowerOrder::Patrol, Points[FMath::Clamp(StartIndex, 0, Points.Num() - 1)]);
++	PatrolPoints = Points;
++	PatrolIndex = FMath::Clamp(StartIndex, 0, Points.Num() - 1);
++	GuardRadius = 180.f; // a one-point patrol circles its point
++}
++
++void AShamanUnitBase::AdvancePatrol()
++{
++	if (Order != EFollowerOrder::Patrol || PatrolPoints.Num() == 0) return;
++	PatrolIndex = (PatrolIndex + 1) % PatrolPoints.Num();
++	OrderLocation = PatrolPoints[PatrolIndex];
++}
++
++bool AShamanUnitBase::ResolveGuardCentre(FVector& OutCentre)
++{
++	switch (Order)
++	{
++	case EFollowerOrder::GuardShaman:
++	{
++		const UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++		const AShamanUnitBase* S = Tribes ? Tribes->GetShaman(GetTribeId()) : nullptr;
++		if (!S || !S->IsAlive()) return false;
++		OrderLocation = OutCentre = S->GetActorLocation();
++		return true;
++	}
++	case EFollowerOrder::GuardTarget:
++		if (const AActor* T = OrderTarget.Get())
++		{
++			OrderLocation = OutCentre = T->GetActorLocation();
++			return true;
++		}
++		// The flag was removed / the building is gone: keep guarding where it stood.
++		Order = EFollowerOrder::GuardSpot;
++		OrderTarget = nullptr;
++		OutCentre = OrderLocation;
++		return true;
++	case EFollowerOrder::GuardSpot:
++		OutCentre = OrderLocation;
++		return true;
++	default:
++		return false;
++	}
+ }
+ 
+ void AShamanUnitBase::ChangeTribe(int32 NewTribeId)
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+index bd31830..9ef2556 100644
+--- a/Source/Shaman/Private/Player/ShamanPlayerController.cpp
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -27,6 +27,9 @@
+ #include "NavigationSystem.h"
+ #include "NavigationPath.h"
+ #include "CollisionQueryParams.h"
++#include "Characters/ShamanGuardRules.h"
++#include "World/ShamanGuardFlag.h"
++#include "Buildings/BuildingActor.h"
+ 
+ static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
+ 	TEXT("shaman.DebugSelection"), 0,
+@@ -42,6 +45,10 @@ static const TCHAR* OrderName(EFollowerOrder O)
+ 	case EFollowerOrder::FollowShaman: return TEXT("FollowShaman");
+ 	case EFollowerOrder::HoldPosition: return TEXT("HoldPosition");
+ 	case EFollowerOrder::GuardHome:    return TEXT("GuardHome");
++	case EFollowerOrder::GuardShaman:  return TEXT("GuardShaman");
++	case EFollowerOrder::GuardTarget:  return TEXT("GuardTarget");
++	case EFollowerOrder::GuardSpot:    return TEXT("GuardSpot");
++	case EFollowerOrder::Patrol:       return TEXT("Patrol");
+ 	default:                           return TEXT("Wander");
+ 	}
+ }
+@@ -113,6 +120,9 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
+ 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShamanPlayerController::OnSelectPressed);
+ 			RTSInput->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShamanPlayerController::OnSelectReleased);
+ 			RTSInput->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AShamanPlayerController::OnCommandPressed);
++			RTSInput->BindKey(EKeys::G, IE_Pressed, this, &AShamanPlayerController::OnGuardShamanPressed);
++			RTSInput->BindKey(EKeys::P, IE_Pressed, this, &AShamanPlayerController::OnPlaceFlagPressed);
++			RTSInput->BindKey(EKeys::Delete, IE_Pressed, this, &AShamanPlayerController::OnRemoveFlagPressed);
+ 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AShamanPlayerController::OnOrbitPressed);
+ 			RTSInput->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AShamanPlayerController::OnOrbitReleased);
+ 			RTSInput->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShamanPlayerController::OnZoomIn);
+@@ -138,6 +148,7 @@ void AShamanPlayerController::ApplyControlMode(bool bFirstTime, bool bFromPosses
+ 	{
+ 		if (RTSInput && bRTSInputPushed) { PopInputComponent(RTSInput); bRTSInputPushed = false; }
+ 		StopShamanMove(TEXT("player took direct control")); // WASD drives the Shaman now
++		CloseRoute();
+ 		if (RTSCamera) RTSCamera->SetActorTickEnabled(false);
+ 		if (APawn* P = GetPawn()) SetViewTargetWithBlend(P, Blend);
+ 		bShowMouseCursor = false;
+@@ -250,6 +261,8 @@ void AShamanPlayerController::PlayerTick(float DeltaTime)
+ 	Super::PlayerTick(DeltaTime);
+ 	RefreshPlayerTribe(); // cheap; also follows a tribe change of the possessed Shaman
+ 	UpdateShamanMove();
++	// A patrol route is built while Ctrl is held; releasing it finishes the route.
++	if (bRouteOpen && !IsInputKeyDown(EKeys::LeftControl) && !IsInputKeyDown(EKeys::RightControl)) CloseRoute();
+ 	if (Mode == EShamanControlMode::RTS && RTSCamera) UpdateRTSInput(DeltaTime);
+ }
+ 
+@@ -500,7 +513,29 @@ void AShamanPlayerController::OnCommandPressed()
+ 		UE_LOG(LogShaman, Log, TEXT("[Command] nothing selected: select units with LMB first"));
+ 		return;
+ 	}
+-	// Right-click on the player's Shaman: the selected Braves guard him.
++	const bool bCtrl = IsInputKeyDown(EKeys::LeftControl) || IsInputKeyDown(EKeys::RightControl);
++	const bool bAlt = IsInputKeyDown(EKeys::LeftAlt) || IsInputKeyDown(EKeys::RightAlt);
++	AShamanGuardFlag* Flag = PickGuardFlag(Mouse);
++
++	if (bCtrl && !bAlt)
++	{
++		// Ctrl+RMB: flags one after another make a patrol loop.
++		if (Flag) AddRoutePoint(Units, Flag->GetActorLocation());
++		else UE_LOG(LogShaman, Log, TEXT("[Command] Ctrl+right-click a guard flag to add it to a patrol (Ctrl+Alt+right-click for ground points)"));
++		return;
++	}
++	if (bCtrl && bAlt)
++	{
++		// Ctrl+Alt+RMB: ground points make a patrol loop; a double-click guards that spot.
++		FVector Point;
++		if (Flag) Point = Flag->GetActorLocation();
++		else if (!GetGroundUnderScreen(Mouse, Point)) { UE_LOG(LogShaman, Log, TEXT("[Command] no ground under the cursor")); return; }
++		HandleGroundRouteClick(Units, Point, Mouse, GetWorld()->GetRealTimeSeconds());
++		return;
++	}
++	CloseRoute();
++
++	// Right-click on the player's Shaman: the selected Braves guard her.
+ 	TArray<FShamanScreenCandidate> Candidates;
+ 	GatherScreenCandidates(Candidates);
+ 	const int32 Hit = FShamanSelectionRules::PickClosest(Candidates, Mouse, SelectionSettings.PickRadiusPx);
+@@ -509,6 +544,8 @@ void AShamanPlayerController::OnCommandPressed()
+ 		CommandGuardShaman(Units);
+ 		return;
+ 	}
++	if (Flag) { CommandGuardTarget(Units, Flag); return; }
++	if (AActor* Building = PickOwnBuilding(Mouse)) { CommandGuardTarget(Units, Building); return; }
+ 	FVector Ground;
+ 	if (!GetGroundUnderScreen(Mouse, Ground))
+ 	{
+@@ -620,19 +657,8 @@ int32 AShamanPlayerController::CommandGuardShaman(const TArray<AShamanUnitBase*>
+ 		UE_LOG(LogShaman, Log, TEXT("[Command] guard: the Shaman is not alive"));
+ 		return 0;
+ 	}
+-	UTribeComponent* TC = Tribes->GetTribeComponent(Tribe);
+-	int32 N = 0;
+-	for (AShamanUnitBase* U : Units)
+-	{
+-		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue;
+-		if (TC && U->TribeMember && U->TribeMember->HasTask()) TC->CancelTask(U->TribeMember->GetCurrentTaskId(), TEXT("PlayerCommand"));
+-		U->SetOrder(EFollowerOrder::FollowShaman, S->GetActorLocation()); // follow within FollowDistance, fight within the leash
+-		++N;
+-	}
+-	LastCommandLocation = S->GetActorLocation();
+-	LastCommandTime = GetWorld()->GetTimeSeconds();
+-	bLastCommandGuard = true;
+-	UE_LOG(LogShaman, Log, TEXT("[Command] guard Shaman: %d Brave(s)"), N);
++	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardShaman, nullptr, S->GetActorLocation(), SelectionSettings.GuardShamanRadius);
++	UE_LOG(LogShaman, Log, TEXT("[Command] guard Shaman: %d Brave(s) circling her"), N);
+ 	return N;
+ }
+ 
+@@ -698,3 +724,217 @@ void AShamanPlayerController::UpdateShamanMove()
+ 	if (ToGoal < ShamanBestDistance - 50.f) { ShamanBestDistance = ToGoal; ShamanLastProgressTime = Now; }
+ 	else if (Now - ShamanLastProgressTime > 4.0) StopShamanMove(TEXT("stuck (no progress for 4 s)"));
+ }
++
++// ---- Guard / patrol orders and guard flags ------------------------------------------------------------------------------
++
++TArray<AShamanUnitBase*> AShamanPlayerController::TakeBravesForOrder(const TArray<AShamanUnitBase*>& Units)
++{
++	RefreshPlayerTribe();
++	const int32 Tribe = GetPlayerTribe();
++	UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(Tribe) : nullptr;
++	TArray<AShamanUnitBase*> Out;
++	for (AShamanUnitBase* U : Units)
++	{
++		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue; // the Shaman never guards / patrols
++		if (TC && U->TribeMember && U->TribeMember->HasTask()) TC->CancelTask(U->TribeMember->GetCurrentTaskId(), TEXT("PlayerCommand"));
++		Out.AddUnique(U);
++	}
++	return Out;
++}
++
++int32 AShamanPlayerController::IssueGuard(const TArray<AShamanUnitBase*>& Braves, EFollowerOrder Kind, AActor* Target, const FVector& Centre, float BaseRadius)
++{
++	if (Braves.Num() == 0) return 0;
++	// Slots in the order the units already stand around the centre, so nobody crosses the ring to reach theirs.
++	TArray<TPair<float, AShamanUnitBase*>> ByAngle;
++	const FVector Probe = FShamanSpace::OffsetAlongGround(this, Centre, FVector2D(100.f, 0.f));
++	const FVector XAxis = FShamanSpace::HorizontalDirection(this, Centre, Probe);
++	const FVector YAxis = FVector::CrossProduct(FShamanSpace::GetUp(this, Centre), XAxis);
++	for (AShamanUnitBase* B : Braves)
++	{
++		const FVector D = FShamanSpace::HorizontalDirection(this, Centre, B->GetActorLocation());
++		float A = FMath::Atan2(FVector::DotProduct(D, YAxis), FVector::DotProduct(D, XAxis));
++		if (A < 0.f) A += 2.f * PI;
++		ByAngle.Add(TPair<float, AShamanUnitBase*>(A, B));
++	}
++	ByAngle.Sort([](const TPair<float, AShamanUnitBase*>& L, const TPair<float, AShamanUnitBase*>& R) { return L.Key < R.Key; });
++	const float Radius = FShamanGuardRules::RingRadius(BaseRadius, Braves.Num(), SelectionSettings.GuardSpacing);
++	for (int32 i = 0; i < ByAngle.Num(); ++i) ByAngle[i].Value->SetGuardOrder(Kind, Target, Centre, Radius, i, ByAngle.Num());
++	MarkCommand(Centre, true);
++	return ByAngle.Num();
++}
++
++void AShamanPlayerController::MarkCommand(const FVector& Where, bool bGuard)
++{
++	LastCommandLocation = Where;
++	LastCommandTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
++	bLastCommandGuard = bGuard;
++}
++
++int32 AShamanPlayerController::CommandGuardTarget(const TArray<AShamanUnitBase*>& Units, AActor* Target)
++{
++	if (!Target) return 0;
++	float Base = SelectionSettings.GuardSpotRadius;
++	if (const AShamanGuardFlag* Flag = Cast<AShamanGuardFlag>(Target)) Base = Flag->GuardRadius;
++	else
++	{
++		// A building: walk just outside its footprint.
++		FVector Origin, Extent;
++		Target->GetActorBounds(/*bOnlyColliding*/ true, Origin, Extent);
++		Base = FVector2D(Extent.X, Extent.Y).Size() + SelectionSettings.GuardBuildingMargin;
++	}
++	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardTarget, Target, Target->GetActorLocation(), Base);
++	UE_LOG(LogShaman, Log, TEXT("[Command] guard %s: %d Brave(s)"), *Target->GetName(), N);
++	return N;
++}
++
++int32 AShamanPlayerController::CommandGuardSpot(const TArray<AShamanUnitBase*>& Units, const FVector& Spot)
++{
++	const int32 N = IssueGuard(TakeBravesForOrder(Units), EFollowerOrder::GuardSpot, nullptr, Spot, SelectionSettings.GuardSpotRadius);
++	UE_LOG(LogShaman, Log, TEXT("[Command] guard spot (%.0f, %.0f, %.0f): %d Brave(s)"), Spot.X, Spot.Y, Spot.Z, N);
++	return N;
++}
++
++int32 AShamanPlayerController::CommandPatrol(const TArray<AShamanUnitBase*>& Units, const TArray<FVector>& Points)
++{
++	if (Points.Num() == 0) return 0;
++	const TArray<AShamanUnitBase*> Braves = TakeBravesForOrder(Units);
++	for (AShamanUnitBase* B : Braves)
++		B->SetPatrolOrder(Points, FShamanGuardRules::NearestPoint(Points, B->GetActorLocation()));
++	MarkCommand(Points.Last(), false);
++	UE_LOG(LogShaman, Log, TEXT("[Command] patrol: %d Brave(s), %d point(s)"), Braves.Num(), Points.Num());
++	return Braves.Num();
++}
++
++bool AShamanPlayerController::AddRoutePoint(const TArray<AShamanUnitBase*>& Units, const FVector& Point)
++{
++	if (!bRouteOpen) { RoutePoints.Reset(); bRouteOpen = true; }
++	if (RoutePoints.Num() >= FMath::Max(1, MaxPatrolPoints))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Command] patrol route is full (%d points)"), RoutePoints.Num());
++		return false;
++	}
++	RoutePoints.Add(Point);
++	CommandPatrol(Units, RoutePoints);
++	return true;
++}
++
++void AShamanPlayerController::CloseRoute()
++{
++	if (!bRouteOpen) return;
++	bRouteOpen = false;
++	LastGroundRouteClickTime = -1.0;
++	UE_LOG(LogShaman, Log, TEXT("[Command] patrol route finished: %d point(s)"), RoutePoints.Num());
++}
++
++void AShamanPlayerController::HandleGroundRouteClick(const TArray<AShamanUnitBase*>& Units, const FVector& Point, const FVector2D& ScreenPos, double Now)
++{
++	if (FShamanGuardRules::IsDoubleClick(LastGroundRouteClickTime, LastGroundRouteClickPos, Now, ScreenPos))
++	{
++		// The first click of the pair already added a route point: a double-click means "guard this spot" instead.
++		if (bRouteOpen && RoutePoints.Num() > 0) RoutePoints.Pop();
++		bRouteOpen = false;
++		RoutePoints.Reset();
++		LastGroundRouteClickTime = -1.0;
++		CommandGuardSpot(Units, Point);
++		return;
++	}
++	LastGroundRouteClickTime = Now;
++	LastGroundRouteClickPos = ScreenPos;
++	AddRoutePoint(Units, Point);
++}
++
++AShamanGuardFlag* AShamanPlayerController::PlaceGuardFlag(const FVector& Ground)
++{
++	GuardFlags.RemoveAll([](const TWeakObjectPtr<AShamanGuardFlag>& F) { return !F.IsValid(); });
++	if (GuardFlags.Num() >= FMath::Max(0, MaxGuardFlags))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Flag] limit reached (%d flags): remove one first (Delete over a flag)"), GuardFlags.Num());
++		return nullptr;
++	}
++	RefreshPlayerTribe();
++	AShamanGuardFlag* Flag = GetWorld()->SpawnActorDeferred<AShamanGuardFlag>(AShamanGuardFlag::StaticClass(), FTransform(Ground), this,
++		nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++	if (!Flag) return nullptr;
++	Flag->TribeId = GetPlayerTribe();
++	Flag->FinishSpawning(FTransform(Ground));
++	GuardFlags.Add(Flag);
++	UE_LOG(LogShaman, Log, TEXT("[Flag] placed %s at (%.0f, %.0f, %.0f), tribe %d (%d/%d)"), *Flag->GetName(), Ground.X, Ground.Y, Ground.Z,
++		Flag->TribeId, GuardFlags.Num(), MaxGuardFlags);
++	return Flag;
++}
++
++bool AShamanPlayerController::RemoveGuardFlag(AShamanGuardFlag* Flag)
++{
++	if (!Flag || Flag->IsPendingKillPending() || Flag->GetTribeId() != GetPlayerTribe()) return false;
++	GuardFlags.Remove(Flag);
++	UE_LOG(LogShaman, Log, TEXT("[Flag] removed %s (its guards keep guarding the spot)"), *Flag->GetName());
++	Flag->Destroy();
++	return true;
++}
++
++TArray<AShamanGuardFlag*> AShamanPlayerController::GetGuardFlags() const
++{
++	TArray<AShamanGuardFlag*> Out;
++	for (const TWeakObjectPtr<AShamanGuardFlag>& F : GuardFlags) if (AShamanGuardFlag* G = F.Get()) Out.Add(G);
++	return Out;
++}
++
++AShamanGuardFlag* AShamanPlayerController::PickGuardFlag(const FVector2D& ScreenPos) const
++{
++	AShamanGuardFlag* Best = nullptr;
++	float BestD = TNumericLimits<float>::Max();
++	for (const TWeakObjectPtr<AShamanGuardFlag>& W : GuardFlags)
++	{
++		AShamanGuardFlag* F = W.Get();
++		if (!F || !IsOnVisibleSide(F->GetActorLocation())) continue;
++		FVector2D Base, Top;
++		const FVector Up = FShamanSpace::GetUp(this, F->GetActorLocation());
++		if (!ProjectWorldLocationToScreen(F->GetActorLocation(), Base, false) || !ProjectWorldLocationToScreen(F->GetActorLocation() + Up * F->Height, Top, false)) continue;
++		const float D = FShamanSelectionRules::DistanceToSegment(ScreenPos, Base, Top);
++		if (D <= SelectionSettings.FlagPickRadiusPx + 0.15f * FVector2D::Distance(Base, Top) && D < BestD) { BestD = D; Best = F; }
++	}
++	return Best;
++}
++
++AActor* AShamanPlayerController::PickOwnBuilding(const FVector2D& ScreenPos) const
++{
++	FVector Origin, Dir;
++	if (!DeprojectScreenPositionToWorld(ScreenPos.X, ScreenPos.Y, Origin, Dir)) return nullptr;
++	FHitResult Hit;
++	FCollisionQueryParams Params(TEXT("ShamanRTSPickBuilding"), true, GetPawn());
++	if (!GetWorld()->LineTraceSingleByChannel(Hit, Origin, Origin + Dir * 500000.f, ECC_Visibility, Params)) return nullptr;
++	ABuildingActor* B = Cast<ABuildingActor>(Hit.GetActor());
++	return (B && B->GetTribeId() == GetPlayerTribe()) ? B : nullptr;
++}
++
++void AShamanPlayerController::OnGuardShamanPressed()
++{
++	if (!Selection) return;
++	RefreshPlayerTribe();
++	const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
++	if (Units.Num() == 0) { UE_LOG(LogShaman, Log, TEXT("[Command] G: select followers first")); return; }
++	CloseRoute();
++	CommandGuardShaman(Units);
++}
++
++void AShamanPlayerController::OnPlaceFlagPressed()
++{
++	float X = 0.f, Y = 0.f;
++	if (!GetMousePosition(X, Y)) return;
++	const FVector2D Mouse(X, Y);
++	if (const AShamanHUD* HUD = Cast<AShamanHUD>(GetHUD()))
++		if (HUD->IsOverSpellPanel(Mouse)) return;
++	FVector Ground;
++	if (!GetGroundUnderScreen(Mouse, Ground)) { UE_LOG(LogShaman, Log, TEXT("[Flag] no ground under the cursor")); return; }
++	PlaceGuardFlag(Ground);
++}
++
++void AShamanPlayerController::OnRemoveFlagPressed()
++{
++	float X = 0.f, Y = 0.f;
++	if (!GetMousePosition(X, Y)) return;
++	if (AShamanGuardFlag* Flag = PickGuardFlag(FVector2D(X, Y))) RemoveGuardFlag(Flag);
++	else UE_LOG(LogShaman, Log, TEXT("[Flag] Delete: point at one of your flags to remove it"));
++}
+diff --git a/Source/Shaman/Private/Tests/ShamanControlTests.cpp b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+index 9cea342..36e55ca 100644
+--- a/Source/Shaman/Private/Tests/ShamanControlTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanControlTests.cpp
+@@ -20,6 +20,10 @@
+ #include "UI/ShamanSpellPanel.h"
+ #include "Tribes/TribeTaskTypes.h"
+ #include "GameplayTagContainer.h"
++#include "Characters/ShamanGuardRules.h"
++#include "World/ShamanGuardFlag.h"
++#include "Components/StaticMeshComponent.h"
++#include "Buildings/BuildingActor.h"
+ #include "ShamanTribeTestWorld.h"
+ 
+ /**
+@@ -459,12 +463,21 @@ bool FShamanMoveCommandTest::RunTest(const FString& Parameters)
+ 	}
+ 	TestEqual(TEXT("One open task per Brave"), F.T0->GetOpenTaskCount(), 3);
+ 
+-	// Right-click on the Shaman: the Braves guard (follow) him, their move tasks end.
+-	TestEqual(TEXT("Guard: the 3 Braves (the Shaman does not guard himself)"), PC->CommandGuardShaman(Units), 3);
++	// G / right-click on the Shaman: the Braves circle and guard her, their move tasks end.
++	TestEqual(TEXT("Guard: the 3 Braves (the Shaman does not guard herself)"), PC->CommandGuardShaman(Units), 3);
+ 	TestEqual(TEXT("Guard ends the move tasks"), F.T0->GetOpenTaskCount(), 0);
+-	bool bAllFollow = true;
+-	for (AShamanUnitBase* B : F.Braves) bAllFollow &= B->GetOrder() == EFollowerOrder::FollowShaman;
+-	TestTrue(TEXT("Guard: every Brave follows the Shaman"), bAllFollow);
++	bool bAllGuard = true;
++	TArray<int32> Slots;
++	for (AShamanUnitBase* B : F.Braves)
++	{
++		bAllGuard &= B->GetOrder() == EFollowerOrder::GuardShaman && B->GetGuardSlotCount() == 3;
++		Slots.AddUnique(B->GetGuardSlot());
++	}
++	TestTrue(TEXT("Guard: every Brave guards the Shaman"), bAllGuard);
++	TestEqual(TEXT("Guard: one ring slot each"), Slots.Num(), 3);
++	TestTrue(TEXT("Guard: the Shaman keeps her own order"), F.S0->GetOrder() != EFollowerOrder::GuardShaman);
++	FVector Centre;
++	TestTrue(TEXT("Guard centre follows the Shaman"), F.Braves[0]->ResolveGuardCentre(Centre) && Centre.Equals(F.S0->GetActorLocation(), 1.f));
+ 	TestEqual(TEXT("Workers are free again"), F.T0->GetAvailableWorkerCount(), 3);
+ 
+ 	// Switching to direct control stops the Shaman's walk (WASD takes over).
+@@ -477,6 +490,135 @@ bool FShamanMoveCommandTest::RunTest(const FString& Parameters)
+ 	return true;
+ }
+ 
++SHAMAN_CONTROL_TEST(FShamanGuardRulesTest, "Shaman.Controls.GuardRules")
++bool FShamanGuardRulesTest::RunTest(const FString& Parameters)
++{
++	using R = FShamanGuardRules;
++	TestEqual(TEXT("Small group: the base ring"), R::RingRadius(280.f, 3), 280.f);
++	TestTrue(TEXT("Big group: the ring widens to keep guards apart"), R::RingRadius(280.f, 40) > 280.f
++		&& 2.f * PI * R::RingRadius(280.f, 40) / 40.f >= 109.f);
++	TestEqual(TEXT("Slot 0 at angle 0"), R::SlotAngle(0, 4), 0.f);
++	TestEqual(TEXT("Slots evenly spaced"), R::SlotAngle(1, 4), PI * 0.5f, 1e-4f);
++
++	// Off the ring (just ordered): head for the own slot.
++	const FVector2D Far(2000.f, 0.f);
++	const FVector2D ToSlot = R::NextRingPoint(Far, 1, 4, 300.f);
++	TestTrue(TEXT("Away from the ring: go to the slot"), ToSlot.Equals(FVector2D(0.f, 300.f), 0.5f));
++	// On the ring: keep walking counter-clockwise, on the ring, without stopping.
++	bool bOnRing = true, bAhead = true;
++	for (int32 i = 0; i < 16; ++i)
++	{
++		const float A = 2.f * PI * i / 16;
++		const FVector2D At = FVector2D(FMath::Cos(A), FMath::Sin(A)) * 300.f;
++		const FVector2D Next = R::NextRingPoint(At, 0, 4, 300.f);
++		bOnRing &= FMath::IsNearlyEqual(Next.Size(), 300.f, 0.5f);
++		bAhead &= FVector2D::CrossProduct(At, Next) > 0.f && FVector2D::Distance(At, Next) > 60.f; // ahead, beyond arrival
++	}
++	TestTrue(TEXT("Ring walk: next point stays on the ring"), bOnRing);
++	TestTrue(TEXT("Ring walk: next point always ahead (counter-clockwise), far enough to keep walking"), bAhead);
++
++	TestEqual(TEXT("Patrol wraps"), R::NextPatrolIndex(2, 3), 0);
++	TestEqual(TEXT("Patrol advances"), R::NextPatrolIndex(0, 3), 1);
++	TestEqual(TEXT("Nearest patrol point"), R::NearestPoint({ FVector(0, 0, 0), FVector(1000, 0, 0), FVector(2000, 0, 0) }, FVector(1100, 50, 0)), 1);
++	TestTrue(TEXT("Quick second click on the same spot is a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.2, FVector2D(104, 102)));
++	TestFalse(TEXT("Too slow is not a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.6, FVector2D(100, 100)));
++	TestFalse(TEXT("Too far is not a double-click"), R::IsDoubleClick(1.0, FVector2D(100, 100), 1.1, FVector2D(160, 100)));
++	TestFalse(TEXT("No first click, no double-click"), R::IsDoubleClick(-1.0, FVector2D(100, 100), 0.1, FVector2D(100, 100)));
++	return true;
++}
++
++SHAMAN_CONTROL_TEST(FShamanGuardFlagsPatrolTest, "Shaman.Controls.GuardFlagsPatrol")
++bool FShamanGuardFlagsPatrolTest::RunTest(const FString& Parameters)
++{
++	FControlFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	AShamanPlayerController* PC = F.W.World->SpawnActor<AShamanPlayerController>();
++	if (!TestNotNull(TEXT("Player controller"), PC)) return false;
++	PC->CameraSettings.ModeBlendTime = 0.f;
++	PC->Possess(F.S0);
++	PC->RefreshPlayerTribe();
++	TArray<AShamanUnitBase*> Units = { F.Braves[0], F.Braves[1], F.Braves[2], F.S0, F.EnemyBrave };
++
++	// Flags: tribe colour (blue for the player tribe), counted, removable.
++	AShamanGuardFlag* A = PC->PlaceGuardFlag(FVector(2000.f, 0.f, 100.f));
++	AShamanGuardFlag* B = PC->PlaceGuardFlag(FVector(2000.f, 2000.f, 100.f));
++	AShamanGuardFlag* C = PC->PlaceGuardFlag(FVector(0.f, 2000.f, 100.f));
++	if (!TestTrue(TEXT("Three flags placed"), A && B && C && PC->GetGuardFlags().Num() == 3)) return false;
++	TestEqual(TEXT("Flag belongs to the player's tribe"), A->GetTribeId(), 0);
++	TestTrue(TEXT("Player flag is blue"), A->GetColor().B > 0.6f && A->GetColor().B > A->GetColor().R + 0.3f);
++	TestTrue(TEXT("Flag is tall and thin"), A->Height >= 300.f && A->Pole->GetRelativeScale3D().X < 0.2f);
++	TestTrue(TEXT("Flag never blocks units"), A->Pole->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore
++		&& A->Banner->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Ignore);
++	PC->MaxGuardFlags = 3;
++	TestNull(TEXT("Flag limit respected"), PC->PlaceGuardFlag(FVector(-2000.f, 0.f, 100.f)));
++	PC->MaxGuardFlags = 32;
++
++	// Guard a flag: circle it; the Shaman and the enemy are never ordered.
++	TestEqual(TEXT("Guard flag: the 3 Braves"), PC->CommandGuardTarget(Units, A), 3);
++	bool bGuardA = true;
++	for (AShamanUnitBase* Br : F.Braves) bGuardA &= Br->GetOrder() == EFollowerOrder::GuardTarget && Br->GetOrderTarget() == A && Br->GetGuardRadius() >= A->GuardRadius;
++	TestTrue(TEXT("Guard flag: every Brave circles flag A"), bGuardA);
++	TestTrue(TEXT("Enemy Brave untouched"), F.EnemyBrave->GetOrder() != EFollowerOrder::GuardTarget);
++	// Removing the flag: its guards keep guarding the spot.
++	const FVector WhereA = A->GetActorLocation();
++	TestTrue(TEXT("Remove flag"), PC->RemoveGuardFlag(A));
++	FVector Centre;
++	TestTrue(TEXT("Guards of a removed flag guard its spot"), F.Braves[0]->ResolveGuardCentre(Centre)
++		&& F.Braves[0]->GetOrder() == EFollowerOrder::GuardSpot && Centre.Equals(WhereA, 1.f));
++	TestEqual(TEXT("Two flags left"), PC->GetGuardFlags().Num(), 2);
++
++	// Guard a building: the ring goes around its footprint.
++	ABuildingActor* Circle = F.W.SpawnCircle(0, FVector(-2500.f, -2500.f, 0.f));
++	if (TestNotNull(TEXT("Building"), Circle))
++	{
++		FVector O, E;
++		Circle->GetActorBounds(true, O, E);
++		TestEqual(TEXT("Guard building: the 3 Braves"), PC->CommandGuardTarget(Units, Circle), 3);
++		TestTrue(TEXT("Guard ring outside the building"), F.Braves[1]->GetOrderTarget() == Circle && F.Braves[1]->GetGuardRadius() > FVector2D(E.X, E.Y).Size());
++	}
++
++	// Patrol over flags (Ctrl+RMB B, then C): a loop; each Brave starts at its nearest point.
++	TestTrue(TEXT("Route point 1"), PC->AddRoutePoint(Units, B->GetActorLocation()));
++	TestTrue(TEXT("Route point 2"), PC->AddRoutePoint(Units, C->GetActorLocation()));
++	TestTrue(TEXT("Route open while building it"), PC->IsRouteOpen() && PC->GetRoutePoints().Num() == 2);
++	bool bPatrol = true;
++	for (AShamanUnitBase* Br : F.Braves) bPatrol &= Br->GetOrder() == EFollowerOrder::Patrol && Br->GetPatrolPoints().Num() == 2;
++	TestTrue(TEXT("Every Brave patrols the 2-point loop"), bPatrol);
++	const int32 Start = F.Braves[0]->GetPatrolIndex();
++	F.Braves[0]->AdvancePatrol();
++	TestEqual(TEXT("Patrol advances to the next point"), F.Braves[0]->GetPatrolIndex(), (Start + 1) % 2);
++	F.Braves[0]->AdvancePatrol();
++	TestEqual(TEXT("Patrol loops"), F.Braves[0]->GetPatrolIndex(), Start);
++	PC->CloseRoute();
++	TestFalse(TEXT("Route closed"), PC->IsRouteOpen());
++
++	// Ctrl+Alt ground route: at most MaxPatrolPoints; a new route starts after the old one closed.
++	for (int32 i = 0; i < PC->MaxPatrolPoints; ++i)
++		PC->HandleGroundRouteClick(Units, FVector(300.f * i, -1500.f, 100.f), FVector2D(100.f + 50.f * i, 300.f), 10.0 + i);
++	TestEqual(TEXT("Ground route has the clicked points"), PC->GetRoutePoints().Num(), PC->MaxPatrolPoints);
++	TestFalse(TEXT("Ground route is capped"), PC->AddRoutePoint(Units, FVector(0.f, -3000.f, 100.f)));
++	TestEqual(TEXT("Patrol uses the full route"), F.Braves[2]->GetPatrolPoints().Num(), PC->MaxPatrolPoints);
++	PC->CloseRoute();
++	// Ctrl+Alt double-click: guard that spot (the first click's route point is dropped).
++	const FVector Spot(-800.f, 900.f, 100.f);
++	PC->HandleGroundRouteClick(Units, Spot, FVector2D(500.f, 500.f), 50.0);
++	PC->HandleGroundRouteClick(Units, Spot, FVector2D(502.f, 501.f), 50.2);
++	bool bSpot = true;
++	for (AShamanUnitBase* Br : F.Braves) bSpot &= Br->GetOrder() == EFollowerOrder::GuardSpot && Br->GetOrderLocation().Equals(Spot, 1.f);
++	TestTrue(TEXT("Double-click: every Brave guards the spot"), bSpot);
++	TestFalse(TEXT("Double-click leaves no route open"), PC->IsRouteOpen());
++	TestEqual(TEXT("Guard / patrol orders create no tasks"), F.T0->GetOpenTaskCount(), 0);
++
++	// A plain order clears guard / patrol data.
++	F.Braves[0]->SetOrder(EFollowerOrder::HoldPosition, FVector::ZeroVector);
++	TestTrue(TEXT("SetOrder clears guard data"), !F.Braves[0]->IsGuardOrder() && F.Braves[0]->GetOrderTarget() == nullptr && F.Braves[0]->GetPatrolPoints().Num() == 0);
++
++	for (AShamanGuardFlag* Fl : PC->GetGuardFlags()) PC->RemoveGuardFlag(Fl);
++	PC->UnPossess();
++	PC->Destroy();
++	return true;
++}
++
+ #undef SHAMAN_CONTROL_TEST
+ 
+ #endif
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index 4512cc1..efa9480 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -16,6 +16,7 @@
+ #include "Engine/Engine.h"
+ #include "Engine/Font.h"
+ #include "Engine/Texture2D.h"
++#include "Characters/ShamanUnitBase.h"
+ 
+ void AShamanHUD::DrawLine(const FString& Text, float X, float Y, const FLinearColor& Color, float Scale, bool bCentered)
+ {
+@@ -236,8 +237,14 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
+ 		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
+ 	DrawLine(bRTS
+-		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move there (on your Shaman: guard him)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
++		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move (on Shaman / flag / your building: guard it)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
+ 		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
++	if (bRTS)
++		DrawLine(TEXT("G: guard Shaman   P: plant flag   Del: remove flag   Ctrl+RMB flags: patrol   Ctrl+Alt+RMB ground: patrol (double-click: guard spot)"),
++			SW * 0.5f, 56.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.55f), 0.65f * UI, true);
++	if (bRTS && PC->IsRouteOpen())
++		DrawLine(FString::Printf(TEXT("Patrol route: %d / %d points (release Ctrl to finish)"), PC->GetRoutePoints().Num(), PC->MaxPatrolPoints),
++			SW * 0.5f, 84.f * UI, Sel.PatrolColor, 0.85f * UI, true);
+ 
+ 	// Selection rings (shown in both modes; selection is kept across switches).
+ 	if (const UShamanSelectionComponent* Selection = PC->Selection)
+@@ -245,7 +252,9 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 		const TArray<AShamanUnitBase*> Units = Selection->GetSelectedUnits();
+ 		for (const AShamanUnitBase* U : Units) DrawSelectionRing(U, Sel.RingRadiusScale, Sel.RingColor);
+ 		if (bRTS && Units.Num() > 0)
+-			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 62.f * UI, Sel.RingColor, 0.85f * UI, true);
++			DrawLine(FString::Printf(TEXT("Selected: %d"), Units.Num()), SW * 0.5f, 70.f * UI, Sel.RingColor, 0.85f * UI, true);
++		// What the selection is guarding / patrolling: each guard ring and patrol loop once.
++		if (bRTS) DrawOrderOverlay(Units, Sel);
+ 	}
+ 
+ 	// Command marker: a shrinking ring where the last order went (gold around the Shaman for "guard").
+@@ -582,3 +591,44 @@ void AShamanHUD::DrawGroundCircle(const FVector& Centre, float Radius, const FLi
+ 		bPrev = bOk;
+ 	}
+ }
++
++void AShamanHUD::DrawOrderOverlay(const TArray<AShamanUnitBase*>& Units, const FShamanSelectionSettings& Sel)
++{
++	if (!PlayerOwner) return;
++	TArray<FVector> Rings;
++	TArray<const TArray<FVector>*> Loops;
++	for (const AShamanUnitBase* U : Units)
++	{
++		if (U->IsGuardOrder())
++		{
++			const FVector C = U->GetOrderLocation(); // kept current by the unit's AI (the Shaman / the flag / the spot)
++			if (!Rings.ContainsByPredicate([&C](const FVector& R) { return FVector::DistSquared(R, C) < 1.f; }))
++			{
++				Rings.Add(C);
++				FLinearColor Col = Sel.GuardMarkerColor;
++				Col.A = 0.55f;
++				DrawGroundCircle(C, U->GetGuardRadius(), Col, 1.5f);
++			}
++		}
++		else if (U->GetOrder() == EFollowerOrder::Patrol && U->GetPatrolPoints().Num() > 0)
++		{
++			// Same route given to a group: each unit holds a copy, so compare contents before drawing it again.
++			bool bSeen = false;
++			for (const TArray<FVector>* L : Loops) bSeen |= (*L == U->GetPatrolPoints());
++			if (bSeen) continue;
++			const TArray<FVector>& P = U->GetPatrolPoints();
++			Loops.Add(&P);
++			for (int32 i = 0; i < P.Num(); ++i)
++			{
++				DrawGroundCircle(P[i], 45.f, Sel.PatrolColor, 2.f);
++				if (P.Num() < 2) continue;
++				FVector2D A, B;
++				const FVector Lift = FShamanSpace::GetUp(this, P[i]) * 10.f;
++				const FVector& Q = P[(i + 1) % P.Num()];
++				if (PlayerOwner->ProjectWorldLocationToScreen(P[i] + Lift, A, false)
++					&& PlayerOwner->ProjectWorldLocationToScreen(Q + FShamanSpace::GetUp(this, Q) * 10.f, B, false))
++					AHUD::DrawLine(A.X, A.Y, B.X, B.Y, Sel.PatrolColor, 1.5f);
++			}
++		}
++	}
++}
+diff --git a/Source/Shaman/Private/World/ShamanGuardFlag.cpp b/Source/Shaman/Private/World/ShamanGuardFlag.cpp
+new file mode 100644
+index 0000000..92591c6
+--- /dev/null
++++ b/Source/Shaman/Private/World/ShamanGuardFlag.cpp
+@@ -0,0 +1,67 @@
++#include "World/ShamanGuardFlag.h"
++#include "Game/ShamanGameData.h"
++#include "Core/ShamanVisuals.h"
++#include "Terrain/ShamanSpace.h"
++#include "Components/StaticMeshComponent.h"
++#include "Engine/StaticMesh.h"
++#include "UObject/ConstructorHelpers.h"
++
++AShamanGuardFlag::AShamanGuardFlag()
++{
++	PrimaryActorTick.bCanEverTick = false;
++	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
++	RootComponent = Root;
++
++	auto SetupPart = [this](UStaticMeshComponent* C, bool bClickable)
++	{
++		C->SetupAttachment(Root);
++		C->SetCanEverAffectNavigation(false);
++		C->SetGenerateOverlapEvents(false);
++		C->CastShadow = true;
++		if (bClickable)
++		{
++			// Clickable (Visibility traces) but never in the way of units, spells or the camera.
++			C->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
++			C->SetCollisionObjectType(ECC_WorldDynamic);
++			C->SetCollisionResponseToAllChannels(ECR_Ignore);
++			C->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
++		}
++		else
++		{
++			C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
++		}
++	};
++	Pole = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Pole"));
++	SetupPart(Pole, true);
++	Banner = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Banner"));
++	SetupPart(Banner, true);
++
++	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
++	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
++	CylinderMesh = Cylinder.Object;
++	CubeMesh = Cube.Object;
++	SetCanBeDamaged(false);
++}
++
++FLinearColor AShamanGuardFlag::GetFlagColor(const UObject* WorldContext, int32 InTribeId)
++{
++	const UShamanGameData* Data = WorldContext ? UShamanGameData::Get(WorldContext) : nullptr;
++	if (const FTribeDefinition* T = Data ? Data->GetTribe(InTribeId) : nullptr) return T->Color;
++	return FLinearColor(0.1f, 0.3f, 1.f, 1.f); // default: blue
++}
++
++void AShamanGuardFlag::BeginPlay()
++{
++	Super::BeginPlay();
++	Color = GetFlagColor(this, TribeId);
++	// Stand upright on the local ground (planets: along the local up).
++	SetActorRotation(FShamanSpace::UprightRotation(this, GetActorLocation(), GetActorForwardVector()));
++
++	// Engine basic shapes are 100 uu: the cylinder 100 tall / 100 wide, the cube 100 on each side.
++	const float H = FMath::Max(100.f, Height);
++	ShamanVisuals::ApplyMesh(Pole, TSoftObjectPtr<UStaticMesh>(), CylinderMesh, FVector(0.07f, 0.07f, H / 100.f), FLinearColor(0.28f, 0.18f, 0.09f, 1.f));
++	// Banner: thin cloth hanging from the top on one side of the pole.
++	const float BannerW = 120.f, BannerH = 75.f;
++	ShamanVisuals::ApplyMesh(Banner, TSoftObjectPtr<UStaticMesh>(), CubeMesh, FVector(0.03f, BannerW / 100.f, BannerH / 100.f), Color);
++	Banner->SetRelativeLocation(FVector(0.f, BannerW * 0.5f + 4.f, H - BannerH * 0.5f - 12.f));
++}
+diff --git a/Source/Shaman/Public/Characters/ShamanGuardRules.h b/Source/Shaman/Public/Characters/ShamanGuardRules.h
+new file mode 100644
+index 0000000..1dd48ce
+--- /dev/null
++++ b/Source/Shaman/Public/Characters/ShamanGuardRules.h
+@@ -0,0 +1,29 @@
++#pragma once
++#include "CoreMinimal.h"
++
++/**
++ * RTS guard / patrol geometry (pure, deterministic, unit-tested). Used by AShamanUnitAIController for the GuardShaman,
++ * GuardTarget, GuardSpot and Patrol orders and by AShamanPlayerController when it hands out guard slots.
++ * Angles are radians in the ground plane around the guard centre (FShamanSpace::OffsetAlongGround offsets).
++ */
++struct SHAMAN_API FShamanGuardRules
++{
++	/** Ring radius for guards: the target's own ring (Shaman, flag, building edge...) widened so Count units walking it
++	 *  stay about Spacing apart. */
++	static float RingRadius(float BaseRadius, int32 Count, float Spacing = 110.f);
++	/** Evenly spaced entry angle of slot Slot of Count (slot 0 at angle 0). */
++	static float SlotAngle(int32 Slot, int32 Count);
++	/**
++	 * Where a guard walks next (offset from the centre). Away from the ring (more than JoinTolerance off its radius) it
++	 * heads for its own slot so a group spreads out evenly; on the ring it aims LeadArc uu further round
++	 * (counter-clockwise), so it keeps walking circles at its own pace instead of stopping.
++	 */
++	static FVector2D NextRingPoint(const FVector2D& UnitOffset, int32 Slot, int32 Count, float Radius,
++		float LeadArc = 160.f, float JoinTolerance = 120.f);
++	static int32 NextPatrolIndex(int32 Current, int32 NumPoints);
++	/** Index of the point nearest to Location (patrols start there). INDEX_NONE when empty. */
++	static int32 NearestPoint(const TArray<FVector>& Points, const FVector& Location);
++	/** Two clicks form a double-click when close in time and on screen. */
++	static bool IsDoubleClick(double FirstTime, const FVector2D& FirstPos, double SecondTime, const FVector2D& SecondPos,
++		float MaxSeconds = 0.35f, float MaxPixels = 12.f);
++};
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitAIController.h b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+index be25d9c..6c255cd 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitAIController.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitAIController.h
+@@ -9,7 +9,9 @@ class AShamanUnitBase;
+ /**
+  * Phase 1 unit brain: a small C++ state machine (no Behavior Tree assets needed).
+  *   1. If hostile units are within AggroRadius and the leash allows it: engage (Shamans try spells first, then melee).
+- *   2. Otherwise follow the standing order: FollowShaman / HoldPosition / GuardHome / Wander.
++ *   2. Otherwise follow the standing order: FollowShaman / HoldPosition / GuardHome / Wander, or an RTS guard / patrol
++ *      order (GuardShaman / GuardTarget / GuardSpot: walk circles around the centre, see FShamanGuardRules; Patrol: walk
++ *      the loop). Guards and patrols only chase enemies within GuardLeashRadius of what they protect.
+  * Uses the navmesh when present and falls back to straight-line moves when it is not.
+  * On planets (no navmesh possible) it asks FShamanSurfaceNavigation for a path and steers along the surface
+  * every frame; decisions still run 4x per second.
+@@ -52,8 +54,15 @@ protected:
+ 	void Engage(AShamanUnitBase* U, AActor* T);
+ 	void FollowOrders(AShamanUnitBase* U);
+ 	bool TryCastAt(AShamanUnitBase* U, AActor* T);
+-	void MoveToward(const FVector& Dest, float Acceptance);
++	/** RepathDistance: a move already under way is only redirected once Dest moved this far (guards walking a ring use a
++	 *  short one so they follow the moving ring point smoothly). */
++	void MoveToward(const FVector& Dest, float Acceptance, float RepathDistance = 120.f);
+ 	FVector GetLeashAnchor(AShamanUnitBase* U) const;
++	float GetLeashRadius(const AShamanUnitBase* U) const;
++	/** One step of walking the guard ring around Centre. */
++	void WalkGuardRing(AShamanUnitBase* U, const FVector& Centre, float Radius, int32 Slot, int32 Count);
++	/** FollowShaman / GuardShaman while the Shaman is dead: wait at the Reincarnation Circle. */
++	void WaitForShaman(AShamanUnitBase* U);
+ 	void Think(AShamanUnitBase* U);
+ 	void SteerOnSurface(AShamanUnitBase* U);
+ 
+diff --git a/Source/Shaman/Public/Characters/ShamanUnitBase.h b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+index bf1afd1..a9a6ab0 100644
+--- a/Source/Shaman/Public/Characters/ShamanUnitBase.h
++++ b/Source/Shaman/Public/Characters/ShamanUnitBase.h
+@@ -47,9 +47,29 @@ public:
+ 	UFUNCTION(BlueprintCallable) float GetDrownRemaining() const { return FMath::Max(0.f, Row.DrownTime - DrownTimer); }
+ 
+ 	// Orders
++	/** Any standing order. Clears guard / patrol data (a guard or patrol order is given with the functions below). */
+ 	UFUNCTION(BlueprintCallable) void SetOrder(EFollowerOrder NewOrder, FVector Location);
+ 	EFollowerOrder GetOrder() const { return Order; }
+ 	FVector GetOrderLocation() const { return OrderLocation; }
++
++	// RTS guard / patrol orders (see EFollowerOrder). Slot / SlotCount spread a group evenly around the ring.
++	/** GuardShaman (Target ignored, the tribe's Shaman is looked up live), GuardTarget (Target required) or GuardSpot. */
++	void SetGuardOrder(EFollowerOrder GuardKind, AActor* Target, const FVector& Centre, float RingRadius, int32 Slot, int32 SlotCount);
++	/** Walk Points in a loop starting at StartIndex. One point = guard that spot. */
++	void SetPatrolOrder(const TArray<FVector>& Points, int32 StartIndex);
++	bool IsGuardOrder() const { return Order == EFollowerOrder::GuardShaman || Order == EFollowerOrder::GuardTarget || Order == EFollowerOrder::GuardSpot; }
++	AActor* GetOrderTarget() const { return OrderTarget.Get(); }
++	float GetGuardRadius() const { return GuardRadius; }
++	int32 GetGuardSlot() const { return GuardSlot; }
++	int32 GetGuardSlotCount() const { return GuardSlotCount; }
++	const TArray<FVector>& GetPatrolPoints() const { return PatrolPoints; }
++	int32 GetPatrolIndex() const { return PatrolIndex; }
++	void AdvancePatrol();
++	/**
++	 * Centre of the current guard order (false when the order is not a guard order or the Shaman to guard is dead).
++	 * A GuardTarget whose actor is gone (flag removed, building destroyed) becomes a GuardSpot at its last position.
++	 */
++	bool ResolveGuardCentre(FVector& OutCentre);
+ 	FVector GetHomeLocation() const { return HomeLocation; }
+ 
+ 	// Combat
+@@ -102,6 +122,12 @@ protected:
+ 	FUnitRow Row;
+ 	EFollowerOrder Order = EFollowerOrder::Wander;
+ 	FVector OrderLocation = FVector::ZeroVector;
++	TWeakObjectPtr<AActor> OrderTarget;
++	float GuardRadius = 250.f;
++	int32 GuardSlot = 0;
++	int32 GuardSlotCount = 1;
++	TArray<FVector> PatrolPoints;
++	int32 PatrolIndex = 0;
+ 	FVector HomeLocation = FVector::ZeroVector;
+ 	double LastMeleeTime = -1000.0;
+ 	float DrownTimer = 0.f;
+diff --git a/Source/Shaman/Public/Player/ShamanControlTypes.h b/Source/Shaman/Public/Player/ShamanControlTypes.h
+index 32ffb68..9469217 100644
+--- a/Source/Shaman/Public/Player/ShamanControlTypes.h
++++ b/Source/Shaman/Public/Player/ShamanControlTypes.h
+@@ -64,6 +64,15 @@ struct SHAMAN_API FShamanSelectionSettings
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="40")) float FormationSpacing = 140.f;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor MoveMarkerColor = FLinearColor(0.3f, 1.f, 0.4f, 1.f);
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor GuardMarkerColor = FLinearColor(1.f, 0.85f, 0.1f, 1.f);
++	/** Guard rings (uu): around the Shaman, around a ground spot, outside a building's footprint; spacing between guards
++	 *  (the ring widens for big groups). Flags use AShamanGuardFlag::GuardRadius. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="50")) float GuardShamanRadius = 280.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="50")) float GuardSpotRadius = 180.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="0")) float GuardBuildingMargin = 150.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="40")) float GuardSpacing = 110.f;
++	/** Screen pick tolerance for guard flags (thin poles), plus 15% of the flag's on-screen height. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="1")) float FlagPickRadiusPx = 14.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor PatrolColor = FLinearColor(0.35f, 0.9f, 1.f, 1.f);
+ };
+ 
+ /**
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+index 7ef3eaa..791f0bc 100644
+--- a/Source/Shaman/Public/Player/ShamanPlayerController.h
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -2,10 +2,12 @@
+ #include "CoreMinimal.h"
+ #include "GameFramework/PlayerController.h"
+ #include "Player/ShamanControlTypes.h"
++#include "ShamanTypes.h"
+ #include "ShamanPlayerController.generated.h"
+ 
+ class AShamanRTSCamera;
+ class AShamanUnitBase;
++class AShamanGuardFlag;
+ class UShamanSelectionComponent;
+ class UInputComponent;
+ 
+@@ -19,8 +21,11 @@ class UInputComponent;
+  * Enter toggles (bound on the RTS layer and on the controller's own layer; only one is ever active, so one press
+  * toggles once). Keys held during a switch are flushed so nothing carries over.
+  *
+- * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman: selected
+- * Braves follow and guard him), LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
++ * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman, a guard
++ * flag or one of your buildings: the selected Braves walk circles around it and guard it), G guard the Shaman,
++ * P plant a guard flag under the cursor, Delete remove the flag under the cursor, Ctrl+RMB flags one after another:
++ * patrol loop (finished when Ctrl is released), Ctrl+Alt+RMB ground points: patrol loop (up to 8 points),
++ * Ctrl+Alt double right-click: guard that spot, LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
+  * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
+  * before the game sees it, so use Backspace there), F3 debug.
+  */
+@@ -71,8 +76,31 @@ public:
+ 	// and then hold that spot; the Shaman (player-possessed, no AI controller) walks a path steered here.
+ 	/** Move the given units (the player's selectable units only) to Ground in formation. Returns how many got the order. */
+ 	int32 CommandMove(const TArray<AShamanUnitBase*>& Units, const FVector& Ground);
+-	/** Selected Braves follow and guard the player's Shaman (the Phase 1 FollowShaman order). Returns how many. */
++	/** G (or RMB on the Shaman): the selected Braves walk circles around the player's Shaman, follow her and fight
++	 *  enemies that come near her (GuardShaman order). The Shaman herself is never part of it. Returns how many. */
+ 	int32 CommandGuardShaman(const TArray<AShamanUnitBase*>& Units);
++	/** RMB on a guard flag or one of the player's buildings: circle and defend it (GuardTarget). Returns how many. */
++	int32 CommandGuardTarget(const TArray<AShamanUnitBase*>& Units, AActor* Target);
++	/** Ctrl+Alt double right-click: circle and defend a spot on the ground (GuardSpot). Returns how many. */
++	int32 CommandGuardSpot(const TArray<AShamanUnitBase*>& Units, const FVector& Spot);
++	/** Walk Points in a loop; each Brave starts at the point nearest to it. Returns how many. */
++	int32 CommandPatrol(const TArray<AShamanUnitBase*>& Units, const TArray<FVector>& Points);
++
++	/** Patrol route being built with Ctrl(+Alt)+RMB: adds a point and re-issues the patrol to Units. Returns false when
++	 *  the route is full (MaxPatrolPoints). The route closes when Ctrl is released (or CloseRoute). */
++	bool AddRoutePoint(const TArray<AShamanUnitBase*>& Units, const FVector& Point);
++	void CloseRoute();
++	bool IsRouteOpen() const { return bRouteOpen; }
++	const TArray<FVector>& GetRoutePoints() const { return RoutePoints; }
++	/** Ctrl+Alt+RMB at Point (screen position ScreenPos, time Now): a route point, or a spot guard on a double-click. */
++	void HandleGroundRouteClick(const TArray<AShamanUnitBase*>& Units, const FVector& Point, const FVector2D& ScreenPos, double Now);
++
++	// Guard flags (the player's tribe). Free to place; at most MaxGuardFlags.
++	AShamanGuardFlag* PlaceGuardFlag(const FVector& Ground);
++	bool RemoveGuardFlag(AShamanGuardFlag* Flag);
++	TArray<AShamanGuardFlag*> GetGuardFlags() const;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") int32 MaxGuardFlags = 32;
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") int32 MaxPatrolPoints = 8;
+ 	bool IsShamanMoving() const { return ShamanPath.Num() > 0; }
+ 	void StopShamanMove(const TCHAR* Why);
+ 	/** Last command marker (HUD feedback): false when none. */
+@@ -103,6 +131,18 @@ protected:
+ 	bool HandleSpellPanelRightClick(const FVector2D& ScreenPos);
+ 	void OnSelectReleased();
+ 	void OnCommandPressed();
++	void OnGuardShamanPressed();
++	void OnPlaceFlagPressed();
++	void OnRemoveFlagPressed();
++	/** The player's guard flag under a screen position (screen-space pick on the pole: easy to hit). */
++	AShamanGuardFlag* PickGuardFlag(const FVector2D& ScreenPos) const;
++	/** One of the player's buildings under a screen position (Visibility trace). */
++	AActor* PickOwnBuilding(const FVector2D& ScreenPos) const;
++	/** Selectable, non-Shaman units of the player's tribe, task cancelled (a player order replaces it). */
++	TArray<AShamanUnitBase*> TakeBravesForOrder(const TArray<AShamanUnitBase*>& Units);
++	/** Gives Braves a guard order with evenly spread slots (ordered by their angle around the centre: no crossing). */
++	int32 IssueGuard(const TArray<AShamanUnitBase*>& Braves, EFollowerOrder Kind, AActor* Target, const FVector& Centre, float BaseRadius);
++	void MarkCommand(const FVector& Where, bool bGuard);
+ 	/** Ground point under a screen position (terrain / static world; planets fall back to the sphere). */
+ 	bool GetGroundUnderScreen(const FVector2D& ScreenPos, FVector& OutGround) const;
+ 	void StartShamanMove(const FVector& Goal);
+@@ -138,4 +178,11 @@ protected:
+ 	FVector LastCommandLocation = FVector::ZeroVector;
+ 	double LastCommandTime = -1.0;
+ 	bool bLastCommandGuard = false;
++
++	// Patrol route builder (Ctrl / Ctrl+Alt + RMB)
++	TArray<FVector> RoutePoints;
++	bool bRouteOpen = false;
++	double LastGroundRouteClickTime = -1.0;
++	FVector2D LastGroundRouteClickPos = FVector2D::ZeroVector;
++	TArray<TWeakObjectPtr<AShamanGuardFlag>> GuardFlags;
+ };
+diff --git a/Source/Shaman/Public/ShamanTypes.h b/Source/Shaman/Public/ShamanTypes.h
+index 0cede48..d9e618f 100644
+--- a/Source/Shaman/Public/ShamanTypes.h
++++ b/Source/Shaman/Public/ShamanTypes.h
+@@ -46,6 +46,18 @@ enum class EUnitRole : uint8 { Shaman, Brave, Warrior, Wildman };
+ UENUM(BlueprintType)
+ enum class EResourceType : uint8 { Wood, Food, Stone, Ore };
+ 
+-/** Simple standing orders. Phase 2 adds work orders (gather/build). */
++/** Simple standing orders. Phase 2 adds work orders (gather/build). New values are appended (saved / Blueprint values
++ *  of the first four never change). RTS guard orders: the unit walks a ring around its guard centre and fights enemies
++ *  that come near it (AShamanUnitAIController). */
+ UENUM(BlueprintType)
+-enum class EFollowerOrder : uint8 { FollowShaman, HoldPosition, GuardHome, Wander };
++enum class EFollowerOrder : uint8
++{
++	FollowShaman,
++	HoldPosition,
++	GuardHome,
++	Wander,
++	GuardShaman, // circle the tribe's Shaman and follow her (G)
++	GuardTarget, // circle an actor: a guard flag or one of the tribe's buildings (RMB on it)
++	GuardSpot,   // circle a spot on the ground (Ctrl+Alt double right-click; also a guarded flag that was removed)
++	Patrol       // walk a loop of points (Ctrl+RMB flags, Ctrl+Alt+RMB ground points)
++};
+diff --git a/Source/Shaman/Public/UI/ShamanHUD.h b/Source/Shaman/Public/UI/ShamanHUD.h
+index daf1968..e6916c7 100644
+--- a/Source/Shaman/Public/UI/ShamanHUD.h
++++ b/Source/Shaman/Public/UI/ShamanHUD.h
+@@ -8,6 +8,7 @@ class AShamanCharacter;
+ class AShamanUnitBase;
+ class AShamanPlayerController;
+ class UTexture2D;
++struct FShamanSelectionSettings;
+ 
+ /**
+  * Phase 1 HUD drawn on the canvas (no widget assets needed): health, mana and regen, followers, selected spell
+@@ -35,6 +36,8 @@ private:
+ 	void DrawSelectionRing(const AShamanUnitBase* Unit, float RadiusScale, const FLinearColor& Color);
+ 	/** Ground-aligned circle at a world point (RTS command marker). */
+ 	void DrawGroundCircle(const FVector& Centre, float Radius, const FLinearColor& Color, float Thickness);
++	/** RTS: guard rings and patrol loops of the selected units. */
++	void DrawOrderOverlay(const TArray<AShamanUnitBase*>& Units, const FShamanSelectionSettings& Sel);
+ 	/** Data-driven spell panel (both modes): known spells, "?" for discoverable ones, unavailable ones marked. */
+ 	void DrawSpellPanel(const AShamanCharacter* S, float SW, float SH, float UI, bool bRTS);
+ 	void DrawSlotText(const FString& Text, const FBox2D& Box, float Y, const FLinearColor& Color, float MaxScale);
+diff --git a/Source/Shaman/Public/World/ShamanGuardFlag.h b/Source/Shaman/Public/World/ShamanGuardFlag.h
+new file mode 100644
+index 0000000..510c73e
+--- /dev/null
++++ b/Source/Shaman/Public/World/ShamanGuardFlag.h
+@@ -0,0 +1,47 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameFramework/Actor.h"
++#include "Core/ShamanInterfaces.h"
++#include "ShamanGuardFlag.generated.h"
++
++class UStaticMeshComponent;
++class UStaticMesh;
++
++/**
++ * Guard post (RTS): a thin, tall flag in its tribe's colour (blue for the player tribe by default). Replaces the
++ * original game's campfire guard post. Free to place (P in RTS mode), removable (Delete). Followers ordered to it
++ * (RMB) walk circles around it and defend it; Ctrl+RMB on several flags makes a patrol loop.
++ * Placeholder art from engine basic shapes (pole + banner); no collision for movement (units walk through the pole's
++ * ring), a Visibility-only query collision so it can be clicked. Enemies have no reason to look at it: it is not a
++ * damage receiver and not a building.
++ */
++UCLASS()
++class SHAMAN_API AShamanGuardFlag : public AActor, public ITribeOwned
++{
++	GENERATED_BODY()
++public:
++	AShamanGuardFlag();
++
++	UPROPERTY(VisibleAnywhere) USceneComponent* Root;
++	UPROPERTY(VisibleAnywhere) UStaticMeshComponent* Pole;
++	UPROPERTY(VisibleAnywhere) UStaticMeshComponent* Banner;
++
++	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ExposeOnSpawn=true)) int32 TribeId = 0;
++	/** Flag height (uu) and the radius guards circle at (before crowd widening). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) float Height = 420.f;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) float GuardRadius = 220.f;
++
++	/** The tribe's colour from game data; blue when the tribe has none. */
++	static FLinearColor GetFlagColor(const UObject* WorldContext, int32 InTribeId);
++	FLinearColor GetColor() const { return Color; }
++
++	// ITribeOwned
++	virtual int32 GetTribeId() const override { return TribeId; }
++
++protected:
++	virtual void BeginPlay() override;
++
++	UPROPERTY() UStaticMesh* CylinderMesh = nullptr;
++	UPROPERTY() UStaticMesh* CubeMesh = nullptr;
++	FLinearColor Color = FLinearColor(0.1f, 0.3f, 1.f, 1.f);
++};

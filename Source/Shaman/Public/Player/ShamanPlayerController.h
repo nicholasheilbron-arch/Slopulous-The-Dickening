@@ -2,10 +2,12 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Player/ShamanControlTypes.h"
+#include "ShamanTypes.h"
 #include "ShamanPlayerController.generated.h"
 
 class AShamanRTSCamera;
 class AShamanUnitBase;
+class AShamanGuardFlag;
 class UShamanSelectionComponent;
 class UInputComponent;
 
@@ -19,8 +21,11 @@ class UInputComponent;
  * Enter toggles (bound on the RTS layer and on the controller's own layer; only one is ever active, so one press
  * toggles once). Keys held during a switch are flushed so nothing carries over.
  *
- * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman: selected
- * Braves follow and guard him), LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
+ * RTS keys: LMB click select / drag box (Shift adds), RMB command (ground: move there and hold; your Shaman, a guard
+ * flag or one of your buildings: the selected Braves walk circles around it and guard it), G guard the Shaman,
+ * P plant a guard flag under the cursor, Delete remove the flag under the cursor, Ctrl+RMB flags one after another:
+ * patrol loop (finished when Ctrl is released), Ctrl+Alt+RMB ground points: patrol loop (up to 8 points),
+ * Ctrl+Alt double right-click: guard that spot, LMB / RMB on the spell panel: select a spell / toggle its charging, WASD or arrows pan, Q/E rotate, middle-mouse drag orbit,
  * wheel zoom, F focus selection (or Shaman), Home focus Shaman, Backspace or Esc clear selection (Esc stops Play-in-Editor
  * before the game sees it, so use Backspace there), F3 debug.
  */
@@ -71,8 +76,31 @@ public:
 	// and then hold that spot; the Shaman (player-possessed, no AI controller) walks a path steered here.
 	/** Move the given units (the player's selectable units only) to Ground in formation. Returns how many got the order. */
 	int32 CommandMove(const TArray<AShamanUnitBase*>& Units, const FVector& Ground);
-	/** Selected Braves follow and guard the player's Shaman (the Phase 1 FollowShaman order). Returns how many. */
+	/** G (or RMB on the Shaman): the selected Braves walk circles around the player's Shaman, follow her and fight
+	 *  enemies that come near her (GuardShaman order). The Shaman herself is never part of it. Returns how many. */
 	int32 CommandGuardShaman(const TArray<AShamanUnitBase*>& Units);
+	/** RMB on a guard flag or one of the player's buildings: circle and defend it (GuardTarget). Returns how many. */
+	int32 CommandGuardTarget(const TArray<AShamanUnitBase*>& Units, AActor* Target);
+	/** Ctrl+Alt double right-click: circle and defend a spot on the ground (GuardSpot). Returns how many. */
+	int32 CommandGuardSpot(const TArray<AShamanUnitBase*>& Units, const FVector& Spot);
+	/** Walk Points in a loop; each Brave starts at the point nearest to it. Returns how many. */
+	int32 CommandPatrol(const TArray<AShamanUnitBase*>& Units, const TArray<FVector>& Points);
+
+	/** Patrol route being built with Ctrl(+Alt)+RMB: adds a point and re-issues the patrol to Units. Returns false when
+	 *  the route is full (MaxPatrolPoints). The route closes when Ctrl is released (or CloseRoute). */
+	bool AddRoutePoint(const TArray<AShamanUnitBase*>& Units, const FVector& Point);
+	void CloseRoute();
+	bool IsRouteOpen() const { return bRouteOpen; }
+	const TArray<FVector>& GetRoutePoints() const { return RoutePoints; }
+	/** Ctrl+Alt+RMB at Point (screen position ScreenPos, time Now): a route point, or a spot guard on a double-click. */
+	void HandleGroundRouteClick(const TArray<AShamanUnitBase*>& Units, const FVector& Point, const FVector2D& ScreenPos, double Now);
+
+	// Guard flags (the player's tribe). Free to place; at most MaxGuardFlags.
+	AShamanGuardFlag* PlaceGuardFlag(const FVector& Ground);
+	bool RemoveGuardFlag(AShamanGuardFlag* Flag);
+	TArray<AShamanGuardFlag*> GetGuardFlags() const;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") int32 MaxGuardFlags = 32;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Controls") int32 MaxPatrolPoints = 8;
 	bool IsShamanMoving() const { return ShamanPath.Num() > 0; }
 	void StopShamanMove(const TCHAR* Why);
 	/** Last command marker (HUD feedback): false when none. */
@@ -103,6 +131,18 @@ protected:
 	bool HandleSpellPanelRightClick(const FVector2D& ScreenPos);
 	void OnSelectReleased();
 	void OnCommandPressed();
+	void OnGuardShamanPressed();
+	void OnPlaceFlagPressed();
+	void OnRemoveFlagPressed();
+	/** The player's guard flag under a screen position (screen-space pick on the pole: easy to hit). */
+	AShamanGuardFlag* PickGuardFlag(const FVector2D& ScreenPos) const;
+	/** One of the player's buildings under a screen position (Visibility trace). */
+	AActor* PickOwnBuilding(const FVector2D& ScreenPos) const;
+	/** Selectable, non-Shaman units of the player's tribe, task cancelled (a player order replaces it). */
+	TArray<AShamanUnitBase*> TakeBravesForOrder(const TArray<AShamanUnitBase*>& Units);
+	/** Gives Braves a guard order with evenly spread slots (ordered by their angle around the centre: no crossing). */
+	int32 IssueGuard(const TArray<AShamanUnitBase*>& Braves, EFollowerOrder Kind, AActor* Target, const FVector& Centre, float BaseRadius);
+	void MarkCommand(const FVector& Where, bool bGuard);
 	/** Ground point under a screen position (terrain / static world; planets fall back to the sphere). */
 	bool GetGroundUnderScreen(const FVector2D& ScreenPos, FVector& OutGround) const;
 	void StartShamanMove(const FVector& Goal);
@@ -138,4 +178,11 @@ protected:
 	FVector LastCommandLocation = FVector::ZeroVector;
 	double LastCommandTime = -1.0;
 	bool bLastCommandGuard = false;
+
+	// Patrol route builder (Ctrl / Ctrl+Alt + RMB)
+	TArray<FVector> RoutePoints;
+	bool bRouteOpen = false;
+	double LastGroundRouteClickTime = -1.0;
+	FVector2D LastGroundRouteClickPos = FVector2D::ZeroVector;
+	TArray<TWeakObjectPtr<AShamanGuardFlag>> GuardFlags;
 };

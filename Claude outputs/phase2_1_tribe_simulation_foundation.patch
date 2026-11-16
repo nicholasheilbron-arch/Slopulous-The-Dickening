@@ -1,0 +1,1385 @@
+diff --git a/Config/DefaultGameplayTags.ini b/Config/DefaultGameplayTags.ini
+index 9ce526c..fe86148 100644
+--- a/Config/DefaultGameplayTags.ini
++++ b/Config/DefaultGameplayTags.ini
+@@ -30,3 +30,19 @@ ImportTagsFromConfig=True
+ +GameplayTagList=(Tag="State.Ragdoll",DevComment="")
+ +GameplayTagList=(Tag="State.OnFire",DevComment="")
+ +GameplayTagList=(Tag="State.InWater",DevComment="")
++; Tribe simulation (Phase 2.1): task types for UTribeComponent's task book. Only Task.Debug is used so far; the rest are
++; reserved for later Phase 2 milestones (Brave AI, gathering, construction, food, water, commands).
+++GameplayTagList=(Tag="Task.Debug",DevComment="Test/console task with no behaviour")
+++GameplayTagList=(Tag="Task.Gather.Wood",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Gather.Food",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Gather.Stone",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Gather.Ore",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Build",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Repair",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.CarryResource",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.FetchFood",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.DrinkWater",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Guard",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.FollowShaman",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Patrol",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Attack",DevComment="Reserved")
+diff --git a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+index 8a4931b..eff985f 100644
+--- a/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
++++ b/Source/Shaman/Private/Characters/ShamanUnitAIController.cpp
+@@ -10,6 +10,7 @@
+ #include "Terrain/ShamanTerrainSubsystem.h"
+ #include "Navigation/ShamanSurfaceNavigation.h"
+ #include "Navigation/PathFollowingComponent.h"
++#include "TribeMemberComponent.h"
+ #include "Engine/World.h"
+ 
+ AShamanUnitAIController::AShamanUnitAIController()
+@@ -71,6 +72,15 @@ void AShamanUnitAIController::Think(AShamanUnitBase* U)
+ 	UpdateTarget(U);
+ 	if (AActor* T = Target.Get()) Engage(U, T);
+ 	else FollowOrders(U);
++	// Mirror what this AI is doing into the tribe simulation state (debug/inspection only; tasks are not executed yet).
++	if (U->TribeMember)
++	{
++		EUnitSimState Activity = EUnitSimState::Idle;
++		if (Target.IsValid()) Activity = EUnitSimState::Combat;
++		else if (U->GetOrder() == EFollowerOrder::FollowShaman) Activity = EUnitSimState::Following;
++		else if (U->GetOrder() == EFollowerOrder::HoldPosition || U->GetOrder() == EFollowerOrder::GuardHome) Activity = EUnitSimState::Guarding;
++		U->TribeMember->SetActivity(Activity);
++	}
+ }
+ 
+ void AShamanUnitAIController::StopMovement()
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index 3541f1f..28fa340 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -8,6 +8,13 @@
+ #include "Characters/ShamanUnitBase.h"
+ #include "Characters/ShamanCharacter.h"
+ #include "Tribes/TribeSubsystem.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "Terrain/ShamanSpace.h"
++#include "GameplayTagContainer.h"
++#include "Core/ShamanTargetRules.h"
++#include "GameFramework/PlayerController.h"
+ #include "UI/ShamanHUD.h"
+ #include "Core/ShamanDebug.h"
+ #include "Core/ShamanLog.h"
+@@ -302,7 +309,7 @@ void AShamanGameMode::RegenerateWorld(int32 Seed)
+ void AShamanGameMode::Tick(float DeltaSeconds)
+ {
+ 	Super::Tick(DeltaSeconds);
+-	if (ShamanDebug::IsEnabled()) DrawDebug();
++	if (ShamanDebug::IsEnabled()) { DrawDebug(); DrawTribeSimDebug(); }
+ }
+ 
+ void AShamanGameMode::DrawDebug() const
+@@ -335,3 +342,135 @@ void AShamanGameMode::DrawDebug() const
+ 				DrawDebugString(W, Circle->GetActorLocation() + FVector(0, 0, 300.f), Txt, nullptr, Tribes->GetTribeColor(Id).ToFColor(true), 0.f, true);
+ 			}
+ }
++
++// --------------------------------------------------------------------------------------------------------
++// Tribe simulation debug (Phase 2.1)
++
++void AShamanGameMode::DrawTribeSimDebug() const
++{
++	UWorld* W = GetWorld();
++	const UTribeSubsystem* Tribes = W ? W->GetSubsystem<UTribeSubsystem>() : nullptr;
++	if (!Tribes) return;
++	for (int32 Id = 0; Id < Tribes->GetNumTribes(); ++Id)
++	{
++		const UTribeComponent* TC = Tribes->GetTribeComponent(Id);
++		if (!TC) continue;
++		const FColor Color = Tribes->GetTribeColor(Id).ToFColor(true);
++		for (const UTribeMemberComponent* M : TC->GetFollowers()) // this tribe's roster only, no world scan
++		{
++			const AActor* A = M->GetOwner();
++			if (!A) continue;
++			FString Txt = FString::Printf(TEXT("T%d %s%s"), M->TribeId, FTribeTaskRules::SimStateName(M->GetSimState()),
++				M->IsAvailableWorker() ? TEXT(" | available") : TEXT(" | busy"));
++			if (const FTribeTask* T = TC->FindTask(M->GetCurrentTaskId()))
++			{
++				Txt += FString::Printf(TEXT("\n#%d %s %s (%s)"), T->TaskId, *T->Type.ToString(), FTribeTaskRules::StateName(T->State), FTribeTaskRules::PriorityName(T->Priority));
++				if (const AActor* Target = T->TargetActor.Get()) Txt += FString::Printf(TEXT(" -> %s"), *Target->GetName());
++				else if (T->bHasTargetLocation) Txt += FString::Printf(TEXT(" -> %.0f uu away"), FVector::Dist(A->GetActorLocation(), T->TargetLocation));
++			}
++			const FVector Loc = A->GetActorLocation();
++			DrawDebugString(W, Loc + FShamanSpace::GetUp(this, Loc) * 160.f, Txt, nullptr, Color, 0.f, true);
++		}
++	}
++}
++
++void AShamanGameMode::ShamanTribeReport()
++{
++	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	if (!Tribes) return;
++	for (int32 Id = 0; Id < Tribes->GetNumTribes(); ++Id)
++	{
++		const UTribeComponent* TC = Tribes->GetTribeComponent(Id);
++		FVector Anchor;
++		const bool bAnchor = Tribes->GetSettlementAnchor(Id, Anchor);
++		const FString Msg = FString::Printf(TEXT("Tribe %d (%s): followers %d, living members %d, available workers %d, open tasks %d, buildings %d, settlement %s%s"),
++			Id, *Tribes->GetFactionTag(Id).ToString(), Tribes->GetFollowerCount(Id), Tribes->GetLivingMemberCount(Id), Tribes->GetAvailableWorkerCount(Id),
++			TC ? TC->GetOpenTaskCount() : 0, Tribes->GetBuildings(Id).Num(), bAnchor ? TEXT("yes") : TEXT("none"),
++			Tribes->IsTribeEliminated(Id) ? TEXT(", ELIMINATED") : TEXT(""));
++		UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
++		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, Tribes->GetTribeColor(Id).ToFColor(true), Msg);
++	}
++}
++
++void AShamanGameMode::ShamanTaskTest(const FString& Action)
++{
++	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
++	const APawn* Player = PC ? PC->GetPawn() : nullptr;
++	const int32 MyTribe = Player ? FShamanTargetRules::GetTribeOf(Player) : 0;
++	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(MyTribe) : nullptr;
++	if (!TC) return;
++
++	auto NearestAvailable = [&]() -> UTribeMemberComponent*
++	{
++		UTribeMemberComponent* Best = nullptr;
++		float BestD = TNumericLimits<float>::Max();
++		for (UTribeMemberComponent* M : TC->GetAvailableWorkers())
++		{
++			const float D = Player ? FVector::DistSquared(M->GetOwner()->GetActorLocation(), Player->GetActorLocation()) : 0.f;
++			if (D < BestD) { BestD = D; Best = M; }
++		}
++		return Best;
++	};
++
++	bool bOk = false;
++	const FString A = Action.ToLower();
++	if (A == TEXT("create"))
++	{
++		DebugTaskId = TC->CreateTask(FGameplayTag::RequestGameplayTag(TEXT("Task.Debug")), ETribeTaskPriority::Normal, nullptr,
++			Player ? Player->GetActorLocation() : FVector::ZeroVector, Player != nullptr, TEXT("Console"));
++		bOk = DebugTaskId != INDEX_NONE;
++	}
++	else if (A == TEXT("assign"))
++	{
++		UTribeMemberComponent* M = NearestAvailable();
++		bOk = M && TC->AssignTask(DebugTaskId, M);
++		if (bOk) DebugMember = M;
++	}
++	else if (A == TEXT("start"))    bOk = TC->StartTask(DebugTaskId);
++	else if (A == TEXT("complete")) bOk = TC->CompleteTask(DebugTaskId);
++	else if (A == TEXT("fail"))     bOk = TC->FailTask(DebugTaskId, TEXT("Console"));
++	else if (A == TEXT("cancel"))   bOk = TC->CancelTask(DebugTaskId, TEXT("Console"));
++	else if (A == TEXT("unavailable"))
++	{
++		UTribeMemberComponent* M = DebugMember.IsValid() ? DebugMember.Get() : NearestAvailable();
++		if (M) { M->SetUnavailable(true); DebugMember = M; bOk = true; }
++	}
++	else if (A == TEXT("available"))
++	{
++		if (UTribeMemberComponent* M = DebugMember.Get()) { M->SetUnavailable(false); bOk = true; }
++	}
++
++	FTribeTask T;
++	const bool bHasTask = TC->GetTask(DebugTaskId, T);
++	const UTribeMemberComponent* Who = bHasTask ? T.Assignee.Get() : nullptr;
++	const FString Msg = FString::Printf(TEXT("TaskTest %s: %s | task #%d %s | unit %s %s | available workers %d"),
++		*Action, bOk ? TEXT("OK") : TEXT("REFUSED"), DebugTaskId, bHasTask ? FTribeTaskRules::StateName(T.State) : TEXT("-"),
++		Who ? *Who->GetOwner()->GetName() : TEXT("-"), Who ? FTribeTaskRules::SimStateName(Who->GetSimState()) : TEXT(""),
++		TC->GetAvailableWorkerCount());
++	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
++	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, bOk ? FColor::Green : FColor::Red, Msg);
++}
++
++void AShamanGameMode::ShamanTribeTransfer(int32 NewTribeId)
++{
++	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
++	const APawn* Player = PC ? PC->GetPawn() : nullptr;
++	if (!Tribes || !Player) return;
++	const int32 MyTribe = FShamanTargetRules::GetTribeOf(Player);
++	AShamanUnitBase* Best = nullptr;
++	float BestD = TNumericLimits<float>::Max();
++	for (AShamanUnitBase* F : Tribes->GetFollowers(MyTribe))
++	{
++		const float D = FVector::DistSquared(F->GetActorLocation(), Player->GetActorLocation());
++		if (D < BestD) { BestD = D; Best = F; }
++	}
++	const int32 OldBefore = Tribes->GetFollowerCount(MyTribe), NewBefore = Tribes->GetFollowerCount(NewTribeId);
++	if (Best && NewTribeId != MyTribe && NewTribeId >= 0 && NewTribeId < Tribes->GetNumTribes()) Best->ChangeTribe(NewTribeId);
++	const FString Msg = FString::Printf(TEXT("TribeTransfer %s -> tribe %d: tribe %d followers %d -> %d, tribe %d followers %d -> %d"),
++		Best ? *Best->GetName() : TEXT("(none)"), NewTribeId, MyTribe, OldBefore, Tribes->GetFollowerCount(MyTribe),
++		NewTribeId, NewBefore, Tribes->GetFollowerCount(NewTribeId));
++	UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
++	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Msg);
++}
+diff --git a/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp b/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
+index 4f29576..975fbbb 100644
+--- a/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanPlanetGameMode.cpp
+@@ -287,7 +287,7 @@ void AShamanPlanetGameMode::Tick(float DeltaSeconds)
+ 		}
+ 	}
+ 
+-	if (ShamanDebug::IsEnabled()) DrawPlanetDebug();
++	if (ShamanDebug::IsEnabled()) { DrawPlanetDebug(); DrawTribeSimDebug(); }
+ }
+ 
+ void AShamanPlanetGameMode::DrawPlanetDebug() const
+diff --git a/Source/Shaman/Private/Tests/ShamanTribeSimTests.cpp b/Source/Shaman/Private/Tests/ShamanTribeSimTests.cpp
+new file mode 100644
+index 0000000..02cb0f1
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanTribeSimTests.cpp
+@@ -0,0 +1,287 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "GameplayTagContainer.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Characters/ShamanCharacter.h"
++#include "Characters/HealthComponent.h"
++#include "ShamanTribeTestWorld.h"
++
++/**
++ * Phase 2.1 tribe simulation foundation: membership lifecycle, task lifecycle, one-primary-task assignment and the
++ * worker pool, on real production unit/building rows. Flat test world, no movement; asserts authoritative state.
++ */
++namespace ShamanTribeSimTestsPrivate
++{
++	using namespace ShamanTribeTestsPrivate;
++
++	/** Player Shaman (tribe 0, owns the roster) + enemy Shaman (tribe 1) + NumBraves player Braves. */
++	struct FSimFixture
++	{
++		FTribeTestWorld W;
++		AShamanCharacter* S0 = nullptr;
++		AShamanCharacter* S1 = nullptr;
++		TArray<AShamanUnitBase*> Braves;
++		UTribeComponent* T0 = nullptr;
++		UTribeComponent* T1 = nullptr;
++
++		explicit FSimFixture(int32 NumBraves)
++		{
++			S0 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++			S1 = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 1, FVector(9000.f, 0.f, 100.f));
++			for (int32 i = 0; i < NumBraves; ++i)
++				Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
++			T0 = W.Tribes->GetTribeComponent(0);
++			T1 = W.Tribes->GetTribeComponent(1);
++		}
++		static FGameplayTag DebugTag() { return FGameplayTag::RequestGameplayTag(TEXT("Task.Debug"), false); }
++		int32 NewTask(UTribeComponent* T, ETribeTaskPriority P = ETribeTaskPriority::Normal)
++		{
++			return T->CreateTask(DebugTag(), P, nullptr, FVector(100.f, 200.f, 300.f), true, TEXT("Test"));
++		}
++		ETribeTaskState StateOf(const UTribeComponent* T, int32 Id) const
++		{
++			const FTribeTask* Task = T->FindTask(Id);
++			return Task ? Task->State : ETribeTaskState::Unassigned;
++		}
++	};
++}
++using namespace ShamanTribeSimTestsPrivate;
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeMemberLifecycleTest, "Shaman.Tribes.MemberLifecycle",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeMemberLifecycleTest::RunTest(const FString& Parameters)
++{
++	FSimFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0) || !TestNotNull(TEXT("Tribe 1"), F.T1)) return false;
++	UTribeMemberComponent* M0 = F.Braves[0]->TribeMember;
++	UTribeMemberComponent* M1 = F.Braves[1]->TribeMember;
++	UTribeMemberComponent* M2 = F.Braves[2]->TribeMember;
++
++	TestEqual(TEXT("3 Braves -> tribe count 3"), F.T0->GetFollowerCount(), 3);
++	TestFalse(TEXT("The Shaman is not a follower of its own roster"), F.T0->IsFollower(F.S0->TribeMember));
++	TestEqual(TEXT("Living members = 3 followers + Shaman"), F.W.Tribes->GetLivingMemberCount(0), 4);
++
++	TestTrue(TEXT("Re-registering is idempotent"), F.T0->RegisterFollower(M0));
++	TestEqual(TEXT("No double registration"), F.T0->GetFollowerCount(), 3);
++
++	TestTrue(TEXT("Remove member"), F.T0->UnregisterFollower(M0));
++	TestEqual(TEXT("Remove -> count decreases"), F.T0->GetFollowerCount(), 2);
++	TestFalse(TEXT("Second removal reports nothing removed"), F.T0->UnregisterFollower(M0));
++	TestEqual(TEXT("No double decrement"), F.T0->GetFollowerCount(), 2);
++	TestTrue(TEXT("Add member back"), F.T0->RegisterFollower(M0));
++	TestEqual(TEXT("Add -> count increases"), F.T0->GetFollowerCount(), 3);
++
++	F.Braves[1]->Health->Kill(nullptr);
++	TestEqual(TEXT("Death -> count decreases"), F.T0->GetFollowerCount(), 2);
++	TestFalse(TEXT("A dead unit cannot rejoin"), F.T0->RegisterFollower(M1));
++	TestEqual(TEXT("Dead unit not counted"), F.T0->GetFollowerCount(), 2);
++	TestEqual(TEXT("Living members after death"), F.W.Tribes->GetLivingMemberCount(0), 3);
++
++	F.Braves[2]->ChangeTribe(1);
++	TestEqual(TEXT("Change of tribe: old tribe loses the member"), F.T0->GetFollowerCount(), 1);
++	TestEqual(TEXT("Change of tribe: new tribe gains the member"), F.T1->GetFollowerCount(), 1);
++	TestTrue(TEXT("Member now in tribe 1's roster"), F.T1->IsFollower(M2) && !F.T0->IsFollower(M2));
++
++	AShamanUnitBase* Wild = F.W.SpawnUnit<AShamanUnitBase>(F.W.Data->WildmanUnitId, -1, FVector(-500.f, 0.f, 100.f));
++	TestEqual(TEXT("A Wildman is nobody's follower"), F.T0->GetFollowerCount(), 1);
++	TestNotNull(TEXT("Conversion succeeds"), Wild->TribeMember->ConvertToTribe(F.T0, EConversionKind::Recruit));
++	TestEqual(TEXT("Conversion: tribe gains the member"), F.T0->GetFollowerCount(), 2);
++
++	F.Braves[0]->Destroy(); // stale reference: the roster must not keep counting it
++	TestEqual(TEXT("Destroyed member removed"), F.T0->GetFollowerCount(), 1);
++	TestEqual(TEXT("Roster holds no stale entries"), F.T0->GetFollowers().Num(), F.T0->GetFollowerCount());
++	TestFalse(TEXT("Null member is ignored (register)"), F.T0->RegisterFollower(nullptr));
++	TestFalse(TEXT("Null member is ignored (unregister)"), F.T0->UnregisterFollower(nullptr));
++	TestEqual(TEXT("Count unchanged by invalid input"), F.T0->GetFollowerCount(), 1);
++	return true;
++}
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeTaskLifecycleTest, "Shaman.Tribes.TaskLifecycle",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeTaskLifecycleTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	// The pure state machine: every allowed transition, nothing else.
++	const S All[] = { S::Unassigned, S::Assigned, S::Active, S::Completed, S::Failed, S::Cancelled };
++	auto Allowed = [](S From, S To)
++	{
++		return (From == S::Unassigned && (To == S::Assigned || To == S::Cancelled))
++			|| (From == S::Assigned && (To == S::Active || To == S::Failed || To == S::Cancelled))
++			|| (From == S::Active && (To == S::Completed || To == S::Failed || To == S::Cancelled));
++	};
++	for (S From : All) for (S To : All)
++		TestTrue(FString::Printf(TEXT("Transition %s -> %s %s"), FTribeTaskRules::StateName(From), FTribeTaskRules::StateName(To),
++			Allowed(From, To) ? TEXT("allowed") : TEXT("refused")), FTribeTaskRules::CanTransition(From, To) == Allowed(From, To));
++
++	FSimFixture F(1);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0)) return false;
++	TestTrue(TEXT("Task.Debug tag registered"), FSimFixture::DebugTag().IsValid());
++	UTribeMemberComponent* M = F.Braves[0]->TribeMember;
++
++	// Create -> Assigned -> Active -> Completed, with every illegal shortcut refused.
++	const int32 Id = F.NewTask(F.T0, ETribeTaskPriority::High);
++	FTribeTask T;
++	TestTrue(TEXT("Created task is queryable"), F.T0->GetTask(Id, T));
++	TestTrue(TEXT("Created: Unassigned"), T.State == S::Unassigned);
++	TestTrue(TEXT("Records type, priority, tribe, target, source"), T.Type == FSimFixture::DebugTag() && T.Priority == ETribeTaskPriority::High
++		&& T.TribeId == 0 && T.bHasTargetLocation && T.TargetLocation.Equals(FVector(100.f, 200.f, 300.f)) && T.Source == FName(TEXT("Test")) && T.CreatedTime >= 0.f);
++	TestFalse(TEXT("Cannot start an unassigned task"), F.T0->StartTask(Id));
++	TestFalse(TEXT("Cannot complete an unassigned task"), F.T0->CompleteTask(Id));
++	TestTrue(TEXT("Assign"), F.T0->AssignTask(Id, M));
++	F.T0->GetTask(Id, T);
++	TestTrue(TEXT("Assigned state, assignee and time recorded"), T.State == S::Assigned && T.Assignee.Get() == M && T.AssignedTime >= 0.f);
++	TestFalse(TEXT("Cannot complete before it is active"), F.T0->CompleteTask(Id));
++	TestTrue(TEXT("Start"), F.T0->StartTask(Id));
++	TestTrue(TEXT("Active"), F.StateOf(F.T0, Id) == S::Active);
++	TestFalse(TEXT("Cannot start twice"), F.T0->StartTask(Id));
++	TestTrue(TEXT("Complete"), F.T0->CompleteTask(Id));
++	F.T0->GetTask(Id, T);
++	TestTrue(TEXT("Completed and still inspectable"), T.State == S::Completed && T.EndedTime >= 0.f);
++	TestFalse(TEXT("Completed is final (complete)"), F.T0->CompleteTask(Id));
++	TestFalse(TEXT("Completed is final (cancel)"), F.T0->CancelTask(Id, TEXT("Test")));
++	TestFalse(TEXT("Completed is final (fail)"), F.T0->FailTask(Id, TEXT("Test")));
++	TestTrue(TEXT("Completing frees the unit"), !M->HasTask() && M->IsAvailableWorker());
++	TestTrue(TEXT("Completing does not kill or move the unit to another tribe"), F.Braves[0]->IsAlive() && M->TribeId == 0 && F.T0->IsFollower(M));
++
++	// Fail and cancel paths.
++	const int32 IdF = F.NewTask(F.T0);
++	F.T0->AssignTask(IdF, M);
++	TestTrue(TEXT("Fail from Assigned"), F.T0->FailTask(IdF, TEXT("Blocked")));
++	F.T0->GetTask(IdF, T);
++	TestTrue(TEXT("Failed with reason"), T.State == S::Failed && T.EndReason == FName(TEXT("Blocked")));
++	const int32 IdC = F.NewTask(F.T0);
++	TestTrue(TEXT("Cancel an unassigned task"), F.T0->CancelTask(IdC, TEXT("NotNeeded")) && F.StateOf(F.T0, IdC) == S::Cancelled);
++	const int32 IdA = F.NewTask(F.T0);
++	F.T0->AssignTask(IdA, M);
++	F.T0->StartTask(IdA);
++	TestTrue(TEXT("Cancel an active task"), F.T0->CancelTask(IdA, TEXT("Interrupted")) && F.StateOf(F.T0, IdA) == S::Cancelled);
++	TestEqual(TEXT("No open tasks left"), F.T0->GetOpenTaskCount(), 0);
++	TestFalse(TEXT("Unknown task id refused"), F.T0->StartTask(123456) || F.T0->CompleteTask(123456) || F.T0->CancelTask(123456, NAME_None));
++	return true;
++}
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeTaskAssignmentTest, "Shaman.Tribes.TaskAssignment",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeTaskAssignmentTest::RunTest(const FString& Parameters)
++{
++	using S = ETribeTaskState;
++	FSimFixture F(4);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0) || !TestNotNull(TEXT("Tribe 1"), F.T1)) return false;
++	UTribeMemberComponent* Idle = F.Braves[0]->TribeMember;
++
++	TestTrue(TEXT("New Brave is Idle and available"), Idle->GetSimState() == EUnitSimState::Idle && Idle->IsAvailableWorker());
++	const int32 A = F.NewTask(F.T0);
++	TestTrue(TEXT("Idle unit accepts a task"), F.T0->AssignTask(A, Idle));
++	TestTrue(TEXT("Unit holds the task and shows Working"), Idle->GetCurrentTaskId() == A && Idle->GetSimState() == EUnitSimState::Working);
++	const int32 B = F.NewTask(F.T0);
++	TestFalse(TEXT("Busy unit rejects a second exclusive task"), F.T0->AssignTask(B, Idle));
++	TestTrue(TEXT("Rejected task stays unassigned, unit keeps its task"), F.StateOf(F.T0, B) == S::Unassigned && Idle->GetCurrentTaskId() == A);
++	TestFalse(TEXT("A task cannot go to two units"), F.T0->AssignTask(A, F.Braves[3]->TribeMember));
++
++	UTribeMemberComponent* Off = F.Braves[1]->TribeMember;
++	Off->SetUnavailable(true);
++	TestTrue(TEXT("Unavailable state"), Off->GetSimState() == EUnitSimState::Unavailable);
++	TestFalse(TEXT("Unavailable unit rejects a task"), F.T0->AssignTask(B, Off));
++	Off->SetUnavailable(false);
++	TestTrue(TEXT("Available again accepts"), F.T0->AssignTask(B, Off));
++
++	UTribeMemberComponent* Dead = F.Braves[2]->TribeMember;
++	F.Braves[2]->Health->Kill(nullptr);
++	const int32 C = F.NewTask(F.T0);
++	TestTrue(TEXT("Dead state"), Dead->GetSimState() == EUnitSimState::Dead);
++	TestFalse(TEXT("Dead unit rejects a task"), F.T0->AssignTask(C, Dead));
++	TestFalse(TEXT("The Shaman never takes worker tasks"), F.T0->AssignTask(C, F.S0->TribeMember));
++	AShamanUnitBase* EnemyBrave = F.W.SpawnUnit<AShamanUnitBase>(F.W.Data->BraveUnitId, 1, FVector(9300.f, 0.f, 100.f));
++	TestFalse(TEXT("Another tribe's unit rejects this tribe's task"), F.T0->AssignTask(C, EnemyBrave->TribeMember));
++	TestTrue(TEXT("Refused task still unassigned"), F.StateOf(F.T0, C) == S::Unassigned);
++
++	// Ending a task frees the unit, whatever the outcome.
++	F.T0->StartTask(A);
++	F.T0->CompleteTask(A);
++	TestTrue(TEXT("Completed task frees the unit"), !Idle->HasTask() && Idle->GetSimState() != EUnitSimState::Working && F.T0->AssignTask(C, Idle));
++	TestTrue(TEXT("Cancelled task frees the unit"), F.T0->CancelTask(C, TEXT("Test")) && !Idle->HasTask() && Idle->IsAvailableWorker());
++	TestTrue(TEXT("Failed task frees the unit"), F.T0->FailTask(B, TEXT("Test")) && !Off->HasTask() && Off->IsAvailableWorker());
++
++	// Losing the unit ends its task (no task held by a dead / departed unit).
++	const int32 D = F.NewTask(F.T0);
++	F.T0->AssignTask(D, Idle);
++	F.T0->StartTask(D);
++	F.Braves[0]->Health->Kill(nullptr);
++	TestTrue(TEXT("Assigned unit dies -> task Failed"), F.StateOf(F.T0, D) == S::Failed && !Idle->HasTask());
++	const int32 E = F.NewTask(F.T0);
++	F.T0->AssignTask(E, Off);
++	F.Braves[1]->ChangeTribe(1);
++	TestTrue(TEXT("Assigned unit changes tribe -> task Failed, unit free in its new tribe"),
++		F.StateOf(F.T0, E) == S::Failed && !Off->HasTask() && F.T1->CanAssignTo(Off));
++	return true;
++}
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeWorkerPoolTest, "Shaman.Tribes.WorkerPool",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeWorkerPoolTest::RunTest(const FString& Parameters)
++{
++	FSimFixture F(3);
++	if (!TestNotNull(TEXT("Tribe 0"), F.T0) || !TestNotNull(TEXT("Tribe 1"), F.T1)) return false;
++	auto InPool = [](const UTribeComponent* T, const UTribeMemberComponent* M) { return T->GetAvailableWorkers().Contains(const_cast<UTribeMemberComponent*>(M)); };
++	UTribeMemberComponent* M0 = F.Braves[0]->TribeMember;
++
++	TestEqual(TEXT("3 available workers"), F.T0->GetAvailableWorkerCount(), 3);
++	TestEqual(TEXT("Subsystem view agrees"), F.W.Tribes->GetAvailableWorkerCount(0), 3);
++	TestFalse(TEXT("The Shaman is never in the worker pool"), InPool(F.T0, F.S0->TribeMember));
++
++	const int32 Id = F.NewTask(F.T0);
++	F.T0->AssignTask(Id, M0);
++	TestTrue(TEXT("Assigned worker leaves the pool"), F.T0->GetAvailableWorkerCount() == 2 && !InPool(F.T0, M0));
++	F.T0->StartTask(Id);
++	TestFalse(TEXT("Active worker not available"), InPool(F.T0, M0));
++	F.T0->CompleteTask(Id);
++	TestTrue(TEXT("Completed worker returns"), F.T0->GetAvailableWorkerCount() == 3 && InPool(F.T0, M0));
++
++	M0->SetUnavailable(true);
++	TestTrue(TEXT("Unavailable worker leaves the pool"), F.T0->GetAvailableWorkerCount() == 2 && !InPool(F.T0, M0));
++	M0->SetUnavailable(false);
++	TestEqual(TEXT("Available again"), F.T0->GetAvailableWorkerCount(), 3);
++
++	UTribeMemberComponent* M1 = F.Braves[1]->TribeMember;
++	F.Braves[1]->Health->Kill(nullptr);
++	TestTrue(TEXT("Dead worker disappears"), F.T0->GetAvailableWorkerCount() == 2 && !InPool(F.T0, M1));
++
++	UTribeMemberComponent* M2 = F.Braves[2]->TribeMember;
++	F.Braves[2]->ChangeTribe(1);
++	TestTrue(TEXT("Transferred worker leaves the old pool"), F.T0->GetAvailableWorkerCount() == 1 && !InPool(F.T0, M2));
++	TestTrue(TEXT("...and joins the new tribe's pool"), F.T1->GetAvailableWorkerCount() == 1 && InPool(F.T1, M2));
++
++	AShamanUnitBase* Wild = F.W.SpawnUnit<AShamanUnitBase>(F.W.Data->WildmanUnitId, -1, FVector(-500.f, 0.f, 100.f));
++	TestFalse(TEXT("Wildmen are not workers"), Wild->TribeMember->IsAvailableWorker());
++	UTribeMemberComponent* Converted = Wild->TribeMember->ConvertToTribe(F.T0, EConversionKind::Recruit);
++	TestTrue(TEXT("Converted worker appears in the new tribe's pool"), Converted && InPool(F.T0, Converted) && F.T0->GetAvailableWorkerCount() == 2);
++	return true;
++}
++
++IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanTribeSettlementTest, "Shaman.Tribes.SettlementAnchor",
++	EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++bool FShamanTribeSettlementTest::RunTest(const FString& Parameters)
++{
++	FTribeTestWorld W;
++	if (!TestNotNull(TEXT("Building table (production data)"), W.Data->BuildingTable)) return false;
++	FVector Anchor;
++	TestFalse(TEXT("No buildings: no settlement anchor"), W.Tribes->GetSettlementAnchor(0, Anchor));
++	const FVector CircleAt(0.f, 0.f, 0.f), FireAt(480.f, 0.f, 0.f);
++	W.SpawnCircle(0, CircleAt);
++	TestTrue(TEXT("Circle anchors the settlement"), W.Tribes->GetSettlementAnchor(0, Anchor) && Anchor.Equals(CircleAt));
++	ABuildingActor* Fire = W.SpawnBuilding(W.Data->CampfireBuildingId, 0, FireAt);
++	TestTrue(TEXT("Gathering point (campfire) becomes the anchor"), W.Tribes->GetSettlementAnchor(0, Anchor) && Anchor.Equals(FireAt));
++	TestEqual(TEXT("Tribe owns 2 buildings"), W.Tribes->GetBuildings(0).Num(), 2);
++	TestEqual(TEXT("Other tribe owns none"), W.Tribes->GetBuildings(1).Num(), 0);
++	Fire->Destroy();
++	TestTrue(TEXT("Campfire gone: back to the circle"), W.Tribes->GetSettlementAnchor(0, Anchor) && Anchor.Equals(CircleAt));
++	TestEqual(TEXT("Tribe owns 1 building"), W.Tribes->GetBuildings(0).Num(), 1);
++	return true;
++}
++
++#endif
+diff --git a/Source/Shaman/Private/Tests/ShamanTribeTestWorld.h b/Source/Shaman/Private/Tests/ShamanTribeTestWorld.h
+new file mode 100644
+index 0000000..f8a065c
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanTribeTestWorld.h
+@@ -0,0 +1,76 @@
++#pragma once
++// Shared fixture for tribe tests (ShamanTribeTests.cpp, ShamanTribeSimTests.cpp). Test-only; included under
++// WITH_DEV_AUTOMATION_TESTS.
++#include "CoreMinimal.h"
++#include "CoreGlobals.h"
++#include "Engine/Engine.h"
++#include "Engine/World.h"
++#include "GameFramework/WorldSettings.h"
++#include "TimerManager.h"
++#include "Game/ShamanGameData.h"
++#include "Tribes/TribeSubsystem.h"
++#include "Buildings/BuildingActor.h"
++
++/**
++ * Tribe rules on real production data (units/buildings resolve their rows like the game does): follower roster
++ * updates on death (mana regen and rebirth time follow it) and enemy-tribe elimination / level win.
++ * Flat test world, no movement simulated.
++ */
++namespace ShamanTribeTestsPrivate
++{
++	struct FTribeTestWorld
++	{
++		UWorld* World = nullptr;
++		UTribeSubsystem* Tribes = nullptr;
++		const UShamanGameData* Data = nullptr;
++
++		FTribeTestWorld()
++		{
++			World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("ShamanTribeTestWorld"));
++			FWorldContext& Ctx = GEngine->CreateNewWorldContext(EWorldType::Game);
++			Ctx.SetCurrentWorld(World);
++			World->InitializeActorsForPlay(FURL());
++			World->BeginPlay();
++			if (!World->HasBegunPlay()) World->GetWorldSettings()->NotifyBeginPlay();
++			Data = UShamanGameData::Get(World);
++			Tribes = World->GetSubsystem<UTribeSubsystem>();
++			Tribes->InitTribes(Data->Tribes, Data->Reincarnation); // tribe 0 = player, 1 = enemy (game defaults)
++		}
++		~FTribeTestWorld()
++		{
++			GEngine->DestroyWorldContext(World);
++			World->DestroyWorld(false);
++			World->RemoveFromRoot();
++		}
++
++		/** Runs the world's timers (rebirth, end-of-frame death checks). The test runs inside one engine frame, so
++		 *  the frame counter is advanced for FTimerManager's once-per-frame guard. */
++		void AdvanceTimers(float Seconds)
++		{
++			++GFrameCounter;
++			World->GetTimerManager().Tick(Seconds);
++		}
++
++		template<class T>
++		T* SpawnUnit(FName UnitId, int32 Tribe, const FVector& Where)
++		{
++			T* U = World->SpawnActorDeferred<T>(T::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++			U->UnitId = UnitId;
++			U->TribeId = Tribe;
++			U->AutoPossessAI = EAutoPossessAI::Disabled;
++			U->FinishSpawning(FTransform(Where));
++			if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
++			return U;
++		}
++		ABuildingActor* SpawnCircle(int32 Tribe, const FVector& Where) { return SpawnBuilding(Data->CircleBuildingId, Tribe, Where); }
++		ABuildingActor* SpawnBuilding(FName BuildingId, int32 Tribe, const FVector& Where)
++		{
++			ABuildingActor* B = World->SpawnActorDeferred<ABuildingActor>(ABuildingActor::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++			B->BuildingId = BuildingId;
++			B->TribeId = Tribe;
++			B->FinishSpawning(FTransform(Where));
++			if (!B->HasActorBegunPlay()) B->DispatchBeginPlay();
++			return B;
++		}
++	};
++}
+diff --git a/Source/Shaman/Private/Tests/ShamanTribeTests.cpp b/Source/Shaman/Private/Tests/ShamanTribeTests.cpp
+index a610aa1..29f1e0b 100644
+--- a/Source/Shaman/Private/Tests/ShamanTribeTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanTribeTests.cpp
+@@ -18,68 +18,8 @@
+ #include "Characters/HealthComponent.h"
+ #include "Buildings/BuildingActor.h"
+ 
+-/**
+- * Tribe rules on real production data (units/buildings resolve their rows like the game does): follower roster
+- * updates on death (mana regen and rebirth time follow it) and enemy-tribe elimination / level win.
+- * Flat test world, no movement simulated.
+- */
+-namespace ShamanTribeTestsPrivate
+-{
+-	struct FTribeTestWorld
+-	{
+-		UWorld* World = nullptr;
+-		UTribeSubsystem* Tribes = nullptr;
+-		const UShamanGameData* Data = nullptr;
+-
+-		FTribeTestWorld()
+-		{
+-			World = UWorld::CreateWorld(EWorldType::Game, false, TEXT("ShamanTribeTestWorld"));
+-			FWorldContext& Ctx = GEngine->CreateNewWorldContext(EWorldType::Game);
+-			Ctx.SetCurrentWorld(World);
+-			World->InitializeActorsForPlay(FURL());
+-			World->BeginPlay();
+-			if (!World->HasBegunPlay()) World->GetWorldSettings()->NotifyBeginPlay();
+-			Data = UShamanGameData::Get(World);
+-			Tribes = World->GetSubsystem<UTribeSubsystem>();
+-			Tribes->InitTribes(Data->Tribes, Data->Reincarnation); // tribe 0 = player, 1 = enemy (game defaults)
+-		}
+-		~FTribeTestWorld()
+-		{
+-			GEngine->DestroyWorldContext(World);
+-			World->DestroyWorld(false);
+-			World->RemoveFromRoot();
+-		}
++#include "ShamanTribeTestWorld.h"
+ 
+-		/** Runs the world's timers (rebirth, end-of-frame death checks). The test runs inside one engine frame, so
+-		 *  the frame counter is advanced for FTimerManager's once-per-frame guard. */
+-		void AdvanceTimers(float Seconds)
+-		{
+-			++GFrameCounter;
+-			World->GetTimerManager().Tick(Seconds);
+-		}
+-
+-		template<class T>
+-		T* SpawnUnit(FName UnitId, int32 Tribe, const FVector& Where)
+-		{
+-			T* U = World->SpawnActorDeferred<T>(T::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+-			U->UnitId = UnitId;
+-			U->TribeId = Tribe;
+-			U->AutoPossessAI = EAutoPossessAI::Disabled;
+-			U->FinishSpawning(FTransform(Where));
+-			if (!U->HasActorBegunPlay()) U->DispatchBeginPlay();
+-			return U;
+-		}
+-		ABuildingActor* SpawnCircle(int32 Tribe, const FVector& Where)
+-		{
+-			ABuildingActor* B = World->SpawnActorDeferred<ABuildingActor>(ABuildingActor::StaticClass(), FTransform(Where), nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+-			B->BuildingId = Data->CircleBuildingId;
+-			B->TribeId = Tribe;
+-			B->FinishSpawning(FTransform(Where));
+-			if (!B->HasActorBegunPlay()) B->DispatchBeginPlay();
+-			return B;
+-		}
+-	};
+-}
+ using namespace ShamanTribeTestsPrivate;
+ 
+ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FShamanFollowerCountOnDeathTest, "Shaman.Tribes.FollowerCountOnDeath",
+diff --git a/Source/Shaman/Private/TribeComponent.cpp b/Source/Shaman/Private/TribeComponent.cpp
+index 8f65a27..ccd14d8 100644
+--- a/Source/Shaman/Private/TribeComponent.cpp
++++ b/Source/Shaman/Private/TribeComponent.cpp
+@@ -3,6 +3,8 @@
+ #include "TribeRegistrySubsystem.h"
+ #include "SpellComponent.h"
+ #include "GameFramework/Actor.h"
++#include "Engine/World.h"
++#include "Core/ShamanLog.h"
+ 
+ UTribeComponent::UTribeComponent() { PrimaryComponentTick.bCanEverTick = false; }
+ 
+@@ -16,6 +18,10 @@ void UTribeComponent::BeginPlay()
+ 
+ void UTribeComponent::EndPlay(const EEndPlayReason::Type Reason)
+ {
++	// The task book goes with the tribe: release every unit still holding one of its tasks.
++	TArray<int32> Open;
++	for (const TPair<int32, FTribeTask>& P : Tasks) if (P.Value.IsOpen()) Open.Add(P.Key);
++	for (int32 Id : Open) EndTask(Id, ETribeTaskState::Cancelled, TEXT("TribeRemoved"));
+ 	if (UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(this)) R->UnregisterTribe(this);
+ 	Super::EndPlay(Reason);
+ }
+@@ -77,12 +83,20 @@ bool UTribeComponent::UnregisterFollower(UTribeMemberComponent* Member)
+ {
+ 	const int32 Removed = Followers.RemoveAll([Member](const TWeakObjectPtr<UTribeMemberComponent>& M) { return M.Get() == Member; });
+ 	Prune();
++	// A unit leaving the roster (death, conversion, tribe change, destroyed) cannot keep working for this tribe.
++	// (Task ids are per tribe: only end the task if this tribe really assigned it to this unit.)
++	if (Member && Member->HasTask())
++	{
++		const FTribeTask* T = Tasks.Find(Member->GetCurrentTaskId());
++		if (T && T->IsHeld() && T->Assignee.Get() == Member) EndTask(T->TaskId, ETribeTaskState::Failed, TEXT("MemberLeftTribe"));
++	}
+ 	if (Removed > 0) NotifyChanged();
+ 	return Removed > 0;
+ }
+ 
+ void UTribeComponent::NotifyChanged()
+ {
++	NotifyWorkerAvailabilityChanged();
+ 	const int32 Count = GetFollowerCount();
+ 	if (bDriveOwnerManaRegen)
+ 		if (USpellComponent* Spells = GetOwner() ? GetOwner()->FindComponentByClass<USpellComponent>() : nullptr)
+@@ -98,3 +112,124 @@ UTribeComponent* UTribeComponent::FindTribeFor(const AActor* Actor)
+ 		if (UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(Actor)) return R->FindTribe(M->TribeId);
+ 	return nullptr;
+ }
++
++// ---- Worker pool -------------------------------------------------------------------------------------------------
++
++bool UTribeComponent::CanAssignTo(const UTribeMemberComponent* Member) const
++{
++	return Member && Member->TribeId == TribeId && Member->IsAvailableWorker() && IsFollower(Member);
++}
++
++TArray<UTribeMemberComponent*> UTribeComponent::GetAvailableWorkers() const
++{
++	TArray<UTribeMemberComponent*> Out;
++	for (const TWeakObjectPtr<UTribeMemberComponent>& W : Followers)
++		if (UTribeMemberComponent* M = W.Get())
++			if (M->TribeId == TribeId && M->IsAvailableWorker()) Out.Add(M);
++	return Out;
++}
++
++int32 UTribeComponent::GetAvailableWorkerCount() const
++{
++	int32 N = 0;
++	for (const TWeakObjectPtr<UTribeMemberComponent>& W : Followers)
++		if (const UTribeMemberComponent* M = W.Get())
++			if (M->TribeId == TribeId && M->IsAvailableWorker()) ++N;
++	return N;
++}
++
++void UTribeComponent::NotifyWorkerAvailabilityChanged()
++{
++	OnWorkersChanged.Broadcast(TribeId);
++}
++
++// ---- Task book ---------------------------------------------------------------------------------------------------
++
++float UTribeComponent::Now() const
++{
++	const UWorld* W = GetWorld();
++	return W ? W->GetTimeSeconds() : 0.f;
++}
++
++int32 UTribeComponent::CreateTask(FGameplayTag Type, ETribeTaskPriority Priority, AActor* TargetActor, FVector TargetLocation,
++	bool bHasTargetLocation, FName Source)
++{
++	FTribeTask T;
++	T.TaskId = NextTaskId++;
++	T.Type = Type;
++	T.Priority = Priority;
++	T.TribeId = TribeId;
++	T.TargetActor = TargetActor;
++	T.TargetLocation = TargetLocation;
++	T.bHasTargetLocation = bHasTargetLocation;
++	T.Source = Source;
++	T.CreatedTime = Now();
++	Tasks.Add(T.TaskId, T);
++	OnTaskChanged.Broadcast(TribeId, T.TaskId, T.State);
++	return T.TaskId;
++}
++
++bool UTribeComponent::AssignTask(int32 TaskId, UTribeMemberComponent* Member)
++{
++	FTribeTask* T = Tasks.Find(TaskId);
++	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Assigned)) return false;
++	if (!CanAssignTo(Member)) return false; // dead, unavailable, busy, Shaman, other tribe...
++	T->State = ETribeTaskState::Assigned;
++	T->Assignee = Member;
++	T->AssignedTime = Now();
++	Member->SetCurrentTaskId(TaskId);
++	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
++	NotifyWorkerAvailabilityChanged();
++	return true;
++}
++
++bool UTribeComponent::StartTask(int32 TaskId)
++{
++	FTribeTask* T = Tasks.Find(TaskId);
++	if (!T || !FTribeTaskRules::CanTransition(T->State, ETribeTaskState::Active)) return false;
++	T->State = ETribeTaskState::Active;
++	OnTaskChanged.Broadcast(TribeId, TaskId, T->State);
++	return true;
++}
++
++bool UTribeComponent::CompleteTask(int32 TaskId) { return EndTask(TaskId, ETribeTaskState::Completed, NAME_None); }
++bool UTribeComponent::FailTask(int32 TaskId, FName Reason) { return EndTask(TaskId, ETribeTaskState::Failed, Reason); }
++bool UTribeComponent::CancelTask(int32 TaskId, FName Reason) { return EndTask(TaskId, ETribeTaskState::Cancelled, Reason); }
++
++bool UTribeComponent::EndTask(int32 TaskId, ETribeTaskState Final, FName Reason)
++{
++	FTribeTask* T = Tasks.Find(TaskId);
++	if (!T || !FTribeTaskRules::CanTransition(T->State, Final)) return false;
++	T->State = Final;
++	T->EndReason = Reason;
++	T->EndedTime = Now();
++	UTribeMemberComponent* Freed = T->Assignee.Get();
++	if (Freed && Freed->GetCurrentTaskId() == TaskId) Freed->SetCurrentTaskId(INDEX_NONE); // bookkeeping only
++	EndedTaskOrder.Add(TaskId);
++	OnTaskChanged.Broadcast(TribeId, TaskId, Final);
++	if (Freed) NotifyWorkerAvailabilityChanged();
++	ForgetOldEndedTasks();
++	return true;
++}
++
++void UTribeComponent::ForgetOldEndedTasks()
++{
++	while (EndedTaskOrder.Num() > FMath::Max(0, MaxEndedTasksKept))
++	{
++		Tasks.Remove(EndedTaskOrder[0]);
++		EndedTaskOrder.RemoveAt(0);
++	}
++}
++
++bool UTribeComponent::GetTask(int32 TaskId, FTribeTask& OutTask) const
++{
++	if (const FTribeTask* T = Tasks.Find(TaskId)) { OutTask = *T; return true; }
++	return false;
++}
++
++int32 UTribeComponent::GetOpenTaskCount() const
++{
++	int32 N = 0;
++	for (const TPair<int32, FTribeTask>& P : Tasks) if (P.Value.IsOpen()) ++N;
++	return N;
++}
+diff --git a/Source/Shaman/Private/TribeMemberComponent.cpp b/Source/Shaman/Private/TribeMemberComponent.cpp
+index a2f06e4..155bd40 100644
+--- a/Source/Shaman/Private/TribeMemberComponent.cpp
++++ b/Source/Shaman/Private/TribeMemberComponent.cpp
+@@ -1,6 +1,7 @@
+ #include "TribeMemberComponent.h"
+ #include "TribeComponent.h"
+ #include "TribeRegistrySubsystem.h"
++#include "Core/ShamanInterfaces.h"
+ #include "GameFramework/Actor.h"
+ #include "Engine/World.h"
+ 
+@@ -142,3 +143,40 @@ UTribeMemberComponent* UTribeMemberComponent::ConvertToTribe(UTribeComponent* Ne
+ 	}
+ 	return Result;
+ }
++
++// ---- Tribe simulation ------------------------------------------------------------------------------------------------
++
++bool UTribeMemberComponent::IsAlive() const
++{
++	const AActor* Owner = GetOwner();
++	if (!Owner || Owner->IsPendingKillPending()) return false;
++	const IShamanDamageReceiver* Life = Cast<IShamanDamageReceiver>(const_cast<AActor*>(Owner));
++	return !Life || Life->IsAlive();
++}
++
++bool UTribeMemberComponent::IsAvailableWorker() const
++{
++	return IsFollower() && TribeId >= 0 && !bUnavailable && CurrentTaskId == INDEX_NONE && IsAlive();
++}
++
++EUnitSimState UTribeMemberComponent::GetSimState() const
++{
++	if (!IsAlive()) return EUnitSimState::Dead;
++	if (bUnavailable) return EUnitSimState::Unavailable;
++	if (CurrentTaskId != INDEX_NONE) return EUnitSimState::Working;
++	return Activity;
++}
++
++void UTribeMemberComponent::SetUnavailable(bool bNewUnavailable)
++{
++	if (bUnavailable == bNewUnavailable) return;
++	bUnavailable = bNewUnavailable;
++	NotifyAvailabilityChanged();
++}
++
++void UTribeMemberComponent::NotifyAvailabilityChanged() const
++{
++	if (const UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(this))
++		if (UTribeComponent* Tribe = R->FindTribe(TribeId))
++			Tribe->NotifyWorkerAvailabilityChanged();
++}
+diff --git a/Source/Shaman/Private/Tribes/TribeSubsystem.cpp b/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
+index 7721c79..5a9aecb 100644
+--- a/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
++++ b/Source/Shaman/Private/Tribes/TribeSubsystem.cpp
+@@ -69,6 +69,8 @@ void UTribeSubsystem::RegisterBuilding(ABuildingActor* B)
+ 	if (!T) return;
+ 	T->Buildings.AddUnique(B);
+ 	if (B->IsReincarnationSite()) T->Circle = B;
++	if (B->IsGatheringPoint()) T->Settlement.GatheringPoint = B;
++	RefreshSettlement(*T);
+ 	RefreshCapacity(T->TribeId);
+ }
+ 
+@@ -78,6 +80,8 @@ void UTribeSubsystem::UnregisterBuilding(ABuildingActor* B)
+ 	{
+ 		if (T.Buildings.Remove(B) > 0) RefreshCapacity(T.TribeId);
+ 		if (T.Circle.Get() == B) T.Circle = nullptr;
++		if (T.Settlement.GatheringPoint.Get() == B) T.Settlement.GatheringPoint = nullptr;
++		RefreshSettlement(T);
+ 	}
+ }
+ 
+@@ -215,3 +219,53 @@ void UTribeSubsystem::DoRebirth(int32 TribeId)
+ 	S->Reincarnate(C->GetRebirthLocation(), C->GetActorRotation());
+ 	OnShamanReborn.Broadcast(TribeId, S);
+ }
++
++// ---- Tribe simulation view ------------------------------------------------------------------------------------------
++
++void UTribeSubsystem::RefreshSettlement(FTribeState& T)
++{
++	const ABuildingActor* A = T.Settlement.GatheringPoint.Get();
++	if (!A) A = T.Circle.Get();
++	T.Settlement.bHasAnchor = A != nullptr;
++	if (A) T.Settlement.Anchor = A->GetActorLocation();
++}
++
++int32 UTribeSubsystem::GetLivingMemberCount(int32 TribeId) const
++{
++	const AShamanUnitBase* S = GetShaman(TribeId);
++	return GetFollowers(TribeId).Num() + (S && S->IsAlive() ? 1 : 0);
++}
++
++TArray<UTribeMemberComponent*> UTribeSubsystem::GetAvailableWorkers(int32 TribeId) const
++{
++	const UTribeComponent* TC = GetTribeComponent(TribeId);
++	return TC ? TC->GetAvailableWorkers() : TArray<UTribeMemberComponent*>();
++}
++
++int32 UTribeSubsystem::GetAvailableWorkerCount(int32 TribeId) const
++{
++	const UTribeComponent* TC = GetTribeComponent(TribeId);
++	return TC ? TC->GetAvailableWorkerCount() : 0;
++}
++
++bool UTribeSubsystem::GetSettlementAnchor(int32 TribeId, FVector& OutAnchor) const
++{
++	const FTribeState* T = Find(TribeId);
++	if (!T || !T->Settlement.bHasAnchor) return false;
++	OutAnchor = T->Settlement.Anchor;
++	return true;
++}
++
++TArray<ABuildingActor*> UTribeSubsystem::GetBuildings(int32 TribeId) const
++{
++	TArray<ABuildingActor*> Out;
++	if (const FTribeState* T = Find(TribeId))
++		for (const TWeakObjectPtr<ABuildingActor>& B : T->Buildings) if (B.IsValid()) Out.Add(B.Get());
++	return Out;
++}
++
++FName UTribeSubsystem::GetFactionTag(int32 TribeId) const
++{
++	const FTribeState* T = Find(TribeId);
++	return T ? T->Def.FactionTag : NAME_None;
++}
+diff --git a/Source/Shaman/Private/Tribes/TribeTaskTypes.cpp b/Source/Shaman/Private/Tribes/TribeTaskTypes.cpp
+new file mode 100644
+index 0000000..536b93a
+--- /dev/null
++++ b/Source/Shaman/Private/Tribes/TribeTaskTypes.cpp
+@@ -0,0 +1,48 @@
++#include "Tribes/TribeTaskTypes.h"
++
++const TCHAR* FTribeTaskRules::StateName(ETribeTaskState S)
++{
++	switch (S)
++	{
++	case ETribeTaskState::Unassigned: return TEXT("Unassigned");
++	case ETribeTaskState::Assigned:   return TEXT("Assigned");
++	case ETribeTaskState::Active:     return TEXT("Active");
++	case ETribeTaskState::Completed:  return TEXT("Completed");
++	case ETribeTaskState::Failed:     return TEXT("Failed");
++	case ETribeTaskState::Cancelled:  return TEXT("Cancelled");
++	default:                          return TEXT("?");
++	}
++}
++
++const TCHAR* FTribeTaskRules::PriorityName(ETribeTaskPriority P)
++{
++	switch (P)
++	{
++	case ETribeTaskPriority::Low:       return TEXT("Low");
++	case ETribeTaskPriority::Normal:    return TEXT("Normal");
++	case ETribeTaskPriority::High:      return TEXT("High");
++	case ETribeTaskPriority::Emergency: return TEXT("Emergency");
++	default:                            return TEXT("?");
++	}
++}
++
++const TCHAR* FTribeTaskRules::SimStateName(EUnitSimState S)
++{
++	switch (S)
++	{
++	case EUnitSimState::Idle:        return TEXT("Idle");
++	case EUnitSimState::Moving:      return TEXT("Moving");
++	case EUnitSimState::Working:     return TEXT("Working");
++	case EUnitSimState::Building:    return TEXT("Building");
++	case EUnitSimState::Gathering:   return TEXT("Gathering");
++	case EUnitSimState::Eating:      return TEXT("Eating");
++	case EUnitSimState::Drinking:    return TEXT("Drinking");
++	case EUnitSimState::Sleeping:    return TEXT("Sleeping");
++	case EUnitSimState::Following:   return TEXT("Following");
++	case EUnitSimState::Guarding:    return TEXT("Guarding");
++	case EUnitSimState::Combat:      return TEXT("Combat");
++	case EUnitSimState::Dead:        return TEXT("Dead");
++	case EUnitSimState::Unavailable: return TEXT("Unavailable");
++	default:                         return TEXT("?");
++	}
++}
+diff --git a/Source/Shaman/Public/Buildings/BuildingActor.h b/Source/Shaman/Public/Buildings/BuildingActor.h
+index 6da9d0a..4f80893 100644
+--- a/Source/Shaman/Public/Buildings/BuildingActor.h
++++ b/Source/Shaman/Public/Buildings/BuildingActor.h
+@@ -26,6 +26,7 @@ public:
+ 
+ 	const FBuildingRow& GetRow() const { return Row; }
+ 	UFUNCTION(BlueprintCallable) bool IsReincarnationSite() const { return Row.bIsReincarnationSite; }
++	UFUNCTION(BlueprintCallable) bool IsGatheringPoint() const { return Row.bIsGatheringPoint; }
+ 	UFUNCTION(BlueprintCallable) int32 GetPopulationCapacity() const { return Row.PopulationCapacity; }
+ 	/** Where a reborn Shaman appears (just beside the circle so it does not stand inside the mesh). */
+ 	UFUNCTION(BlueprintCallable) FVector GetRebirthLocation() const;
+diff --git a/Source/Shaman/Public/Game/ShamanGameMode.h b/Source/Shaman/Public/Game/ShamanGameMode.h
+index 82f6632..1b33b54 100644
+--- a/Source/Shaman/Public/Game/ShamanGameMode.h
++++ b/Source/Shaman/Public/Game/ShamanGameMode.h
+@@ -43,6 +43,20 @@ public:
+ 	/** Rebuild everything from a seed without restarting the editor session (console: ShamanRegenerate 42). */
+ 	UFUNCTION(Exec) void ShamanRegenerate(int32 Seed);
+ 
++	/** Tribe simulation (Phase 2.1) report: members, living/available counts, open tasks, settlement anchor. */
++	UFUNCTION(Exec) void ShamanTribeReport();
++	/**
++	 * Developer test of the task foundation on the player's tribe (Task.Debug, no behaviour):
++	 * ShamanTaskTest Create | Assign | Start | Complete | Fail | Cancel | Unavailable | Available
++	 * Assign picks the available Brave nearest to the player; Unavailable/Available toggle that Brave.
++	 */
++	UFUNCTION(Exec) void ShamanTaskTest(const FString& Action);
++	/** Developer test: moves the player's Brave nearest to the player into tribe NewTribeId (membership transfer). */
++	UFUNCTION(Exec) void ShamanTribeTransfer(int32 NewTribeId);
++
++	/** Per-unit tribe simulation labels (tribe, state, task, priority, target, availability). Debug mode only. */
++	void DrawTribeSimDebug() const;
++
+ protected:
+ 	/** Builds the world once (flat Phase 1 world here; AShamanPlanetGameMode builds a planet). */
+ 	virtual void EnsureWorldGenerated();
+@@ -66,6 +80,8 @@ protected:
+ 	FWorldLayout Layout;
+ 	TArray<FVector> MarkerGround;   // ground position per Layout.Markers entry (debug)
+ 	bool bWorldGenerated = false;
++	int32 DebugTaskId = INDEX_NONE;                       // ShamanTaskTest's current task
++	TWeakObjectPtr<class UTribeMemberComponent> DebugMember; // ShamanTaskTest Unavailable/Available target
+ 	int32 SeedOverride = 0;
+ 	bool bHasSeedOverride = false;
+ };
+diff --git a/Source/Shaman/Public/TribeComponent.h b/Source/Shaman/Public/TribeComponent.h
+index cd0803c..e3d1382 100644
+--- a/Source/Shaman/Public/TribeComponent.h
++++ b/Source/Shaman/Public/TribeComponent.h
+@@ -2,16 +2,24 @@
+ #include "CoreMinimal.h"
+ #include "Components/ActorComponent.h"
+ #include "TribeTypes.h"
++#include "Tribes/TribeTaskTypes.h"
+ #include "TribeComponent.generated.h"
+ 
+ class UTribeMemberComponent;
+ 
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTribeFollowersChanged, int32, TribeId, int32, FollowerCount);
++DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnTribeTaskChanged, int32, TribeId, int32, TaskId, ETribeTaskState, NewState);
++DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeWorkersChanged, int32, TribeId);
+ 
+ /**
+  * Smallest tribe: identity, follower roster and population capacity. Put one on each tribe's Shaman (BP_Shaman).
+  * The roster is the single source of truth: counts are derived from it, and registration is idempotent,
+- * so the population cannot drift or double count. Food, housing, growth etc. arrive with the tribe-simulation milestone.
++ * so the population cannot drift or double count.
++ *
++ * Phase 2.1 (tribe simulation foundation): the tribe also owns its task book (create / assign / start / complete /
++ * fail / cancel) and answers worker-pool queries. Leaving the roster (death, conversion, tribe change, destruction)
++ * fails the member's task, so no task can be held by a unit that is no longer a living follower of this tribe.
++ * Food, housing, growth etc. arrive with later Phase 2 milestones.
+  */
+ UCLASS(ClassGroup=(Shaman), meta=(BlueprintSpawnableComponent))
+ class SHAMAN_API UTribeComponent : public UActorComponent
+@@ -46,6 +54,39 @@ public:
+ 
+ 	UPROPERTY(BlueprintAssignable, Category="Tribe") FOnTribeFollowersChanged OnFollowersChanged;
+ 
++	// ---- Worker pool -----------------------------------------------------------------------------------------------
++	/** Followers that can take a task now (UTribeMemberComponent::IsAvailableWorker). Walks this tribe's roster only;
++	 *  call on demand or on OnWorkersChanged, never per frame for every unit. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") TArray<UTribeMemberComponent*> GetAvailableWorkers() const;
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetAvailableWorkerCount() const;
++	/** True when Member is an available worker of this tribe. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CanAssignTo(const UTribeMemberComponent* Member) const;
++	/** Fired when worker availability may have changed (roster, task held/released, unavailable flag). */
++	UPROPERTY(BlueprintAssignable, Category="Tribe|Simulation") FOnTribeWorkersChanged OnWorkersChanged;
++	void NotifyWorkerAvailabilityChanged();
++
++	// ---- Task book -------------------------------------------------------------------------------------------------
++	/** New Unassigned task owned by this tribe. Returns its id. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 CreateTask(FGameplayTag Type, ETribeTaskPriority Priority,
++		AActor* TargetActor, FVector TargetLocation, bool bHasTargetLocation, FName Source);
++	/** Unassigned -> Assigned to Member. Refused if Member is not an available worker of this tribe (one primary task per unit). */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool AssignTask(int32 TaskId, UTribeMemberComponent* Member);
++	/** Assigned -> Active (the executor started). */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool StartTask(int32 TaskId);
++	/** Active -> Completed. Frees the unit. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CompleteTask(int32 TaskId);
++	/** Assigned/Active -> Failed. Frees the unit. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool FailTask(int32 TaskId, FName Reason);
++	/** Unassigned/Assigned/Active -> Cancelled. Frees the unit. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool CancelTask(int32 TaskId, FName Reason);
++	/** Copy of a task (open or recently ended). False if unknown or already forgotten. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool GetTask(int32 TaskId, FTribeTask& OutTask) const;
++	const FTribeTask* FindTask(int32 TaskId) const { return Tasks.Find(TaskId); }
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetOpenTaskCount() const;
++	UPROPERTY(BlueprintAssignable, Category="Tribe|Simulation") FOnTribeTaskChanged OnTaskChanged;
++	/** Ended tasks kept for inspection (debug, tests); older ones are forgotten. */
++	UPROPERTY(EditAnywhere, Category="Tribe|Simulation", meta=(ClampMin="0")) int32 MaxEndedTasksKept = 64;
++
+ 	/** The tribe an actor acts for: its own UTribeComponent, else the tribe of its UTribeMemberComponent. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe") static UTribeComponent* FindTribeFor(const AActor* Actor);
+ 
+@@ -56,5 +97,12 @@ protected:
+ private:
+ 	void Prune();
+ 	void NotifyChanged();
++	/** Moves a held/open task to a final state and frees its unit. */
++	bool EndTask(int32 TaskId, ETribeTaskState Final, FName Reason);
++	void ForgetOldEndedTasks();
++	float Now() const;
+ 	TArray<TWeakObjectPtr<UTribeMemberComponent>> Followers;
++	TMap<int32, FTribeTask> Tasks;
++	TArray<int32> EndedTaskOrder;
++	int32 NextTaskId = 1;
+ };
+diff --git a/Source/Shaman/Public/TribeMemberComponent.h b/Source/Shaman/Public/TribeMemberComponent.h
+index 9f5dcaa..09029b0 100644
+--- a/Source/Shaman/Public/TribeMemberComponent.h
++++ b/Source/Shaman/Public/TribeMemberComponent.h
+@@ -2,6 +2,7 @@
+ #include "CoreMinimal.h"
+ #include "Components/ActorComponent.h"
+ #include "TribeTypes.h"
++#include "Tribes/TribeTaskTypes.h"
+ #include "TribeMemberComponent.generated.h"
+ 
+ class UTribeComponent;
+@@ -51,6 +52,28 @@ public:
+ 
+ 	UFUNCTION(BlueprintCallable, Category="Tribe") static UTribeMemberComponent* FindOn(const AActor* Actor);
+ 
++	// ---- Tribe simulation (Phase 2.1): availability and the unit's one primary task ------------------------------
++	// Tasks are owned and ended by the tribe (UTribeComponent::CreateTask/AssignTask/...); the member only records
++	// which one it holds. Execution (moving, gathering...) is not part of this foundation.
++
++	/** Owner is alive (IShamanDamageReceiver), not being destroyed. Members without health count as alive. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAlive() const;
++	/** Worker pool rule: a living follower of a tribe, not marked unavailable, holding no task. Never true for Shamans. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsAvailableWorker() const;
++	/** Temporarily remove/return this unit from/to its tribe's worker pool (stunned, scripted, in a cutscene...). */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") void SetUnavailable(bool bNewUnavailable);
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool IsUnavailable() const { return bUnavailable; }
++	/** Id of the task this unit holds (Assigned or Active), or INDEX_NONE. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") int32 GetCurrentTaskId() const { return CurrentTaskId; }
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") bool HasTask() const { return CurrentTaskId != INDEX_NONE; }
++	/** Derived: Dead > Unavailable > Working (holds a task) > current activity (Idle / Following / Guarding / Combat). */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Simulation") EUnitSimState GetSimState() const;
++	/** What the unit's own AI is doing when it holds no task (set by the Phase 1 AI; Idle by default). */
++	void SetActivity(EUnitSimState NewActivity) { Activity = NewActivity; }
++
++	/** Bookkeeping hooks for UTribeComponent only. */
++	void SetCurrentTaskId(int32 TaskId) { CurrentTaskId = TaskId; }
++
+ protected:
+ 	/** Applies a pending conversion identity (see UTribeRegistrySubsystem::BeginPendingConversion) before any BeginPlay runs. */
+ 	virtual void InitializeComponent() override;
+@@ -58,5 +81,11 @@ protected:
+ 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+ 
+ private:
++	/** Tells the owning tribe that this unit's worker availability may have changed. */
++	void NotifyAvailabilityChanged() const;
++
+ 	bool bConversionInProgress = false;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") bool bUnavailable = false;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") int32 CurrentTaskId = INDEX_NONE;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState Activity = EUnitSimState::Idle;
+ };
+diff --git a/Source/Shaman/Public/Tribes/TribeSubsystem.h b/Source/Shaman/Public/Tribes/TribeSubsystem.h
+index a1c5fd4..b39af8d 100644
+--- a/Source/Shaman/Public/Tribes/TribeSubsystem.h
++++ b/Source/Shaman/Public/Tribes/TribeSubsystem.h
+@@ -7,6 +7,19 @@
+ class AShamanUnitBase;
+ class ABuildingActor;
+ class UTribeComponent;
++class UTribeMemberComponent;
++
++/**
++ * Where a tribe lives. Phase 2.1 only records anchors from the buildings that already exist; storage, food sources,
++ * water access and housing state attach here in later Phase 2 milestones (not global variables).
++ */
++struct FTribeSettlement
++{
++	/** Settlement centre for future jobs (return home, deliver resources): the gathering point (campfire), else the circle. */
++	FVector Anchor = FVector::ZeroVector;
++	bool bHasAnchor = false;
++	TWeakObjectPtr<ABuildingActor> GatheringPoint;
++};
+ 
+ /** Per-tribe game state that is not the follower roster: definition, Shaman, buildings, circle, rebirth. */
+ struct FTribeState
+@@ -16,6 +29,7 @@ struct FTribeState
+ 	TWeakObjectPtr<AShamanUnitBase> Shaman;
+ 	TArray<TWeakObjectPtr<ABuildingActor>> Buildings;
+ 	TWeakObjectPtr<ABuildingActor> Circle;
++	FTribeSettlement Settlement;
+ 	double RebirthAt = -1.0;                              // world time of pending rebirth, -1 = none
+ 	bool bShamanEliminated = false;
+ 	FTimerHandle RebirthTimer;
+@@ -54,6 +68,19 @@ public:
+ 	/** Seconds until the tribe's Shaman is reborn, or -1 if not dead. */
+ 	UFUNCTION(BlueprintCallable) float GetRebirthRemaining(int32 TribeId) const;
+ 	TArray<AShamanUnitBase*> GetFollowers(int32 TribeId) const;
++
++	// ---- Tribe simulation view (Phase 2.1). Membership, tasks and the worker pool live on the tribe's UTribeComponent;
++	//      these are convenience reads by tribe id.
++	/** Living followers + the Shaman if alive. */
++	UFUNCTION(BlueprintCallable) int32 GetLivingMemberCount(int32 TribeId) const;
++	/** Followers that can take a task now (never the Shaman). */
++	TArray<UTribeMemberComponent*> GetAvailableWorkers(int32 TribeId) const;
++	UFUNCTION(BlueprintCallable) int32 GetAvailableWorkerCount(int32 TribeId) const;
++	/** Settlement anchor (gathering point, else circle). False if the tribe has neither. */
++	bool GetSettlementAnchor(int32 TribeId, FVector& OutAnchor) const;
++	/** Buildings registered to the tribe (valid ones only). */
++	TArray<ABuildingActor*> GetBuildings(int32 TribeId) const;
++	FName GetFactionTag(int32 TribeId) const;
+ 	int32 GetNumTribes() const { return Tribes.Num(); }
+ 
+ 	/**
+@@ -84,6 +111,7 @@ private:
+ 	void RefreshCapacity(int32 TribeId);
+ 	void DoRebirth(int32 TribeId);
+ 	void ResolveShamanDeath(int32 TribeId);
++	void RefreshSettlement(FTribeState& T);
+ 	void EliminateTribe(FTribeState& T, const TCHAR* Reason);
+ 	void CheckLevelWon();
+ 
+diff --git a/Source/Shaman/Public/Tribes/TribeTaskTypes.h b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+new file mode 100644
+index 0000000..2264a0e
+--- /dev/null
++++ b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+@@ -0,0 +1,107 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameplayTagContainer.h"
++#include "TribeTaskTypes.generated.h"
++
++class UTribeMemberComponent;
++
++/**
++ * Tribe simulation foundation (Phase 2.1): bookkeeping types for unit tasks.
++ *
++ * A task is what a unit has been asked to accomplish (gather wood, build, guard...). The owning tribe
++ * (UTribeComponent) creates, assigns and ends tasks; executing them (moving, gathering, building) is the job of later
++ * systems (Brave AI, Phase 2.2+). Ending a task only changes bookkeeping: it never kills, converts or moves a unit.
++ */
++
++/** Task lifecycle. Unassigned -> Assigned -> Active -> Completed | Failed | Cancelled (see FTribeTaskRules). */
++UENUM(BlueprintType)
++enum class ETribeTaskState : uint8
++{
++	Unassigned,
++	Assigned,   // reserved for a unit; the unit is busy
++	Active,     // the unit is executing it
++	Completed,
++	Failed,
++	Cancelled
++};
++
++/** Relative importance for future schedulers (combat, starvation, construction, player commands). Not used to
++ *  pre-empt anything yet. */
++UENUM(BlueprintType)
++enum class ETribeTaskPriority : uint8
++{
++	Low,
++	Normal,
++	High,
++	Emergency
++};
++
++/**
++ * What a unit is doing, as seen by the tribe simulation. Only Idle, Unavailable and Dead drive behaviour in 2.1
++ * (worker availability); Working marks a unit holding a task; Following / Guarding / Combat mirror what the existing
++ * Phase 1 AI is doing (debug visibility). The rest are reserved for later milestones and are never set yet.
++ */
++UENUM(BlueprintType)
++enum class EUnitSimState : uint8
++{
++	Idle,
++	Moving,      // reserved
++	Working,     // holds an Assigned/Active task
++	Building,    // reserved
++	Gathering,   // reserved
++	Eating,      // reserved
++	Drinking,    // reserved
++	Sleeping,    // reserved
++	Following,
++	Guarding,
++	Combat,
++	Dead,
++	Unavailable
++};
++
++/** One unit of work owned by a tribe. Targets are world-space (actor and/or location): executors must reach them
++ *  through the terrain/navigation abstractions (FShamanSpace, ITerrainQuery), never by flat-world assumptions. */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FTribeTask
++{
++	GENERATED_BODY()
++
++	UPROPERTY(BlueprintReadOnly, Category="Task") int32 TaskId = INDEX_NONE;
++	/** Task.* gameplay tag (Task.Gather.Wood, Task.Build, Task.Debug...). */
++	UPROPERTY(BlueprintReadOnly, Category="Task") FGameplayTag Type;
++	UPROPERTY(BlueprintReadOnly, Category="Task") ETribeTaskPriority Priority = ETribeTaskPriority::Normal;
++	UPROPERTY(BlueprintReadOnly, Category="Task") ETribeTaskState State = ETribeTaskState::Unassigned;
++	UPROPERTY(BlueprintReadOnly, Category="Task") int32 TribeId = INDEX_NONE;
++	UPROPERTY() TWeakObjectPtr<AActor> TargetActor;
++	UPROPERTY(BlueprintReadOnly, Category="Task") FVector TargetLocation = FVector::ZeroVector;
++	UPROPERTY(BlueprintReadOnly, Category="Task") bool bHasTargetLocation = false;
++	UPROPERTY() TWeakObjectPtr<UTribeMemberComponent> Assignee;
++	/** Who asked for it (system or command name), for debugging. */
++	UPROPERTY(BlueprintReadOnly, Category="Task") FName Source;
++	/** Why it ended (Failed/Cancelled), for debugging. */
++	UPROPERTY(BlueprintReadOnly, Category="Task") FName EndReason;
++	UPROPERTY(BlueprintReadOnly, Category="Task") float CreatedTime = -1.f;
++	UPROPERTY(BlueprintReadOnly, Category="Task") float AssignedTime = -1.f;
++	UPROPERTY(BlueprintReadOnly, Category="Task") float EndedTime = -1.f;
++
++	bool IsOpen() const { return State == ETribeTaskState::Unassigned || State == ETribeTaskState::Assigned || State == ETribeTaskState::Active; }
++	bool IsHeld() const { return State == ETribeTaskState::Assigned || State == ETribeTaskState::Active; }
++};
++
++/** The task state machine, kept pure so it is deterministic and testable on its own. */
++struct SHAMAN_API FTribeTaskRules
++{
++	static bool CanTransition(ETribeTaskState From, ETribeTaskState To)
++	{
++		switch (From)
++		{
++		case ETribeTaskState::Unassigned: return To == ETribeTaskState::Assigned || To == ETribeTaskState::Cancelled;
++		case ETribeTaskState::Assigned:   return To == ETribeTaskState::Active || To == ETribeTaskState::Failed || To == ETribeTaskState::Cancelled;
++		case ETribeTaskState::Active:     return To == ETribeTaskState::Completed || To == ETribeTaskState::Failed || To == ETribeTaskState::Cancelled;
++		default:                          return false; // Completed / Failed / Cancelled are final
++		}
++	}
++	static const TCHAR* StateName(ETribeTaskState S);
++	static const TCHAR* PriorityName(ETribeTaskPriority P);
++	static const TCHAR* SimStateName(EUnitSimState S);
++};

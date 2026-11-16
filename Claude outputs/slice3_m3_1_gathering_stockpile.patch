@@ -1,0 +1,1881 @@
+diff --git a/Config/DefaultGameplayTags.ini b/Config/DefaultGameplayTags.ini
+index d5b9ac5..5e8e6ff 100644
+--- a/Config/DefaultGameplayTags.ini
++++ b/Config/DefaultGameplayTags.ini
+@@ -31,12 +31,13 @@ ImportTagsFromConfig=True
+ +GameplayTagList=(Tag="State.OnFire",DevComment="")
+ +GameplayTagList=(Tag="State.InWater",DevComment="")
+ ; Tribe simulation: task types for UTribeComponent's task book. Task.Debug is bookkeeping-only (2.1); Task.MoveTo,
+-; Task.MoveToActor and Task.Guard are executed by Braves (2.2); the rest are reserved for later Phase 2 milestones.
++; Task.MoveToActor and Task.Guard are executed by Braves (2.2); Task.Gather.* are executed from Slice 3 (3.1); the rest are
++; reserved for later Slice 3 milestones.
+ +GameplayTagList=(Tag="Task.Debug",DevComment="Test/console task with no behaviour")
+-+GameplayTagList=(Tag="Task.Gather.Wood",DevComment="Reserved")
+-+GameplayTagList=(Tag="Task.Gather.Food",DevComment="Reserved")
+-+GameplayTagList=(Tag="Task.Gather.Stone",DevComment="Reserved")
+-+GameplayTagList=(Tag="Task.Gather.Ore",DevComment="Reserved")
+++GameplayTagList=(Tag="Task.Gather.Wood",DevComment="Slice 3: gather wood from a resource node into the tribe stockpile until cancelled")
+++GameplayTagList=(Tag="Task.Gather.Food",DevComment="Slice 3: gather food from a resource node into the tribe stockpile until cancelled")
+++GameplayTagList=(Tag="Task.Gather.Stone",DevComment="Slice 3: gather stone from a resource node into the tribe stockpile until cancelled")
+++GameplayTagList=(Tag="Task.Gather.Ore",DevComment="Slice 3: gather ore from a resource node into the tribe stockpile until cancelled")
+ +GameplayTagList=(Tag="Task.Build",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.Repair",DevComment="Reserved")
+ +GameplayTagList=(Tag="Task.CarryResource",DevComment="Reserved")
+diff --git a/Content/Data/Buildings.csv b/Content/Data/Buildings.csv
+index 832e89d..a710c1f 100644
+--- a/Content/Data/Buildings.csv
++++ b/Content/Data/Buildings.csv
+@@ -1,4 +1,4 @@
+----,DisplayName,Description,PopulationCapacity,bIsReincarnationSite,bIsGatheringPoint,bTerrainLocked,bInvulnerable,MaxHealth,bBlocksMovement,Mesh,MeshScale,Tint,TribeColorBlend
+-House,House,"Shelter for followers. Raises the tribe's population capacity.",5,false,false,false,false,400,true,/Engine/BasicShapes/Cube.Cube,"(X=4.0,Y=3.4,Z=2.6)","(R=0.45,G=0.30,B=0.16,A=1.0)",0.25
+-Campfire,Campfire,"Heart of the settlement. Interact to call your followers here.",0,false,true,false,false,150,true,/Engine/BasicShapes/Cylinder.Cylinder,"(X=1.1,Y=1.1,Z=0.35)","(R=1.0,G=0.45,B=0.08,A=1.0)",0.0
+-ReincarnationCircle,Reincarnation Circle,"Your Shaman is reborn here while it stands. Cannot be modified by terrain spells.",0,true,false,true,true,1000,false,/Engine/BasicShapes/Cylinder.Cylinder,"(X=5.0,Y=5.0,Z=0.08)","(R=0.85,G=0.85,B=0.9,A=1.0)",0.5
++---,DisplayName,Description,PopulationCapacity,bIsReincarnationSite,bIsGatheringPoint,bTerrainLocked,bInvulnerable,MaxHealth,bBlocksMovement,Mesh,MeshScale,Tint,TribeColorBlend,bIsResourceDropOff
++House,House,"Shelter for followers. Raises the tribe's population capacity.",5,false,false,false,false,400,true,/Engine/BasicShapes/Cube.Cube,"(X=4.0,Y=3.4,Z=2.6)","(R=0.45,G=0.30,B=0.16,A=1.0)",0.25,false
++Campfire,Campfire,"Heart of the settlement. Interact to call your followers here.",0,false,true,false,false,150,true,/Engine/BasicShapes/Cylinder.Cylinder,"(X=1.1,Y=1.1,Z=0.35)","(R=1.0,G=0.45,B=0.08,A=1.0)",0.0,true
++ReincarnationCircle,Reincarnation Circle,"Your Shaman is reborn here while it stands. Cannot be modified by terrain spells.",0,true,false,true,true,1000,false,/Engine/BasicShapes/Cylinder.Cylinder,"(X=5.0,Y=5.0,Z=0.08)","(R=0.85,G=0.85,B=0.9,A=1.0)",0.5,false
+diff --git a/Content/Data/Resources.csv b/Content/Data/Resources.csv
+index 9fa85c8..14a2ee6 100644
+--- a/Content/Data/Resources.csv
++++ b/Content/Data/Resources.csv
+@@ -1,5 +1,5 @@
+----,DisplayName,Type,Amount,bBlocksMovement,Mesh,MeshScale,Tint
+-Tree,Tree,Wood,100,true,/Engine/BasicShapes/Cone.Cone,"(X=1.6,Y=1.6,Z=5.0)","(R=0.10,G=0.38,B=0.12,A=1.0)"
+-BerryBush,Berry Bush,Food,60,false,/Engine/BasicShapes/Sphere.Sphere,"(X=1.4,Y=1.4,Z=1.0)","(R=0.55,G=0.12,B=0.40,A=1.0)"
+-Stone,Stone Outcrop,Stone,150,true,/Engine/BasicShapes/Cube.Cube,"(X=2.0,Y=1.6,Z=1.2)","(R=0.50,G=0.50,B=0.52,A=1.0)"
+-Ore,Ore Deposit,Ore,120,true,/Engine/BasicShapes/Cube.Cube,"(X=1.6,Y=1.6,Z=1.0)","(R=0.62,G=0.36,B=0.18,A=1.0)"
++---,DisplayName,Type,Amount,bBlocksMovement,Mesh,MeshScale,Tint,BundlesPerTrip,HarvestSeconds,MaxGatherers,RegrowSeconds,RegrowAmount,bDestroyWhenDepleted
++Tree,Tree,Wood,4,true,/Engine/BasicShapes/Cone.Cone,"(X=1.6,Y=1.6,Z=5.0)","(R=0.10,G=0.38,B=0.12,A=1.0)",1,4,2,90,1,false
++BerryBush,Berry Bush,Food,6,false,/Engine/BasicShapes/Sphere.Sphere,"(X=1.4,Y=1.4,Z=1.0)","(R=0.55,G=0.12,B=0.40,A=1.0)",1,3,2,60,1,false
++Stone,Stone Outcrop,Stone,12,true,/Engine/BasicShapes/Cube.Cube,"(X=2.0,Y=1.6,Z=1.2)","(R=0.50,G=0.50,B=0.52,A=1.0)",1,5,3,0,0,true
++Ore,Ore Deposit,Ore,8,true,/Engine/BasicShapes/Cube.Cube,"(X=1.6,Y=1.6,Z=1.0)","(R=0.62,G=0.36,B=0.18,A=1.0)",1,6,2,0,0,true
+diff --git a/Source/Shaman/Private/Game/ShamanGameMode.cpp b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+index c7bacc5..4f531d7 100644
+--- a/Source/Shaman/Private/Game/ShamanGameMode.cpp
++++ b/Source/Shaman/Private/Game/ShamanGameMode.cpp
+@@ -405,6 +405,54 @@ void AShamanGameMode::ShamanTribeReport()
+ 	}
+ }
+ 
++void AShamanGameMode::ShamanEconomyReport()
++{
++	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	if (!Tribes) return;
++	for (int32 Id = 0; Id < Tribes->GetNumTribes(); ++Id)
++	{
++		const UTribeComponent* TC = Tribes->GetTribeComponent(Id);
++		if (!TC) continue;
++		int32 Gathering = 0, Carrying = 0;
++		for (const UTribeMemberComponent* M : TC->GetFollowers())
++		{
++			if (M->GetSimState() == EUnitSimState::Gathering) ++Gathering;
++			if (M->IsCarrying()) ++Carrying;
++		}
++		const FString Msg = FString::Printf(TEXT("Tribe %d stockpile: %s   gathering %d, carrying %d"), Id, *TC->GetStockpile().ToString(), Gathering, Carrying);
++		UE_LOG(LogShaman, Log, TEXT("%s"), *Msg);
++		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, Tribes->GetTribeColor(Id).ToFColor(true), Msg);
++	}
++	int32 Nodes[4] = { 0, 0, 0, 0 }, Bundles[4] = { 0, 0, 0, 0 };
++	for (TActorIterator<AResourceNode> It(GetWorld()); It; ++It)
++	{
++		if (It->IsPendingKillPending()) continue;
++		const int32 T = FMath::Clamp((int32)It->GetResourceType(), 0, 3);
++		++Nodes[T];
++		Bundles[T] += It->Remaining;
++	}
++	const FString World = FString::Printf(TEXT("World nodes: wood %d (%d bundles), food %d (%d), stone %d (%d), ore %d (%d)"),
++		Nodes[(int32)EResourceType::Wood], Bundles[(int32)EResourceType::Wood], Nodes[(int32)EResourceType::Food], Bundles[(int32)EResourceType::Food],
++		Nodes[(int32)EResourceType::Stone], Bundles[(int32)EResourceType::Stone], Nodes[(int32)EResourceType::Ore], Bundles[(int32)EResourceType::Ore]);
++	UE_LOG(LogShaman, Log, TEXT("%s"), *World);
++	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::White, World);
++}
++
++void AShamanGameMode::ShamanGiveResources(int32 Wood, int32 Stone, int32 Ore, int32 Food)
++{
++	const APlayerController* PC = GetWorld()->GetFirstPlayerController();
++	const APawn* Player = PC ? PC->GetPawn() : nullptr;
++	const int32 MyTribe = Player ? FShamanTargetRules::GetTribeOf(Player) : 0;
++	const UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
++	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(MyTribe) : nullptr;
++	if (!TC) return;
++	TC->AddResource(EResourceType::Wood, Wood, TEXT("Console"));
++	TC->AddResource(EResourceType::Stone, Stone, TEXT("Console"));
++	TC->AddResource(EResourceType::Ore, Ore, TEXT("Console"));
++	TC->AddResource(EResourceType::Food, Food, TEXT("Console"));
++	ShamanEconomyReport();
++}
++
+ void AShamanGameMode::ShamanTaskTest(const FString& Action)
+ {
+ 	UTribeSubsystem* Tribes = GetWorld()->GetSubsystem<UTribeSubsystem>();
+diff --git a/Source/Shaman/Private/Player/ShamanPlayerController.cpp b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+index 9ef2556..371511a 100644
+--- a/Source/Shaman/Private/Player/ShamanPlayerController.cpp
++++ b/Source/Shaman/Private/Player/ShamanPlayerController.cpp
+@@ -30,6 +30,8 @@
+ #include "Characters/ShamanGuardRules.h"
+ #include "World/ShamanGuardFlag.h"
+ #include "Buildings/BuildingActor.h"
++#include "World/ResourceNode.h"
++#include "Tribes/TribeEconomy.h"
+ 
+ static TAutoConsoleVariable<int32> CVarShamanDebugSelection(
+ 	TEXT("shaman.DebugSelection"), 0,
+@@ -546,6 +548,7 @@ void AShamanPlayerController::OnCommandPressed()
+ 	}
+ 	if (Flag) { CommandGuardTarget(Units, Flag); return; }
+ 	if (AActor* Building = PickOwnBuilding(Mouse)) { CommandGuardTarget(Units, Building); return; }
++	if (AResourceNode* Node = PickResourceNode(Mouse)) { CommandGather(Units, Node); return; }
+ 	FVector Ground;
+ 	if (!GetGroundUnderScreen(Mouse, Ground))
+ 	{
+@@ -898,6 +901,52 @@ AShamanGuardFlag* AShamanPlayerController::PickGuardFlag(const FVector2D& Screen
+ 	return Best;
+ }
+ 
++AResourceNode* AShamanPlayerController::PickResourceNode(const FVector2D& ScreenPos) const
++{
++	FVector Origin, Dir;
++	if (!DeprojectScreenPositionToWorld(ScreenPos.X, ScreenPos.Y, Origin, Dir)) return nullptr;
++	FHitResult Hit;
++	FCollisionQueryParams Params(TEXT("ShamanRTSPickResource"), true, GetPawn());
++	if (!GetWorld()->LineTraceSingleByChannel(Hit, Origin, Origin + Dir * 500000.f, ECC_Visibility, Params)) return nullptr;
++	AResourceNode* Node = Cast<AResourceNode>(Hit.GetActor());
++	return (Node && !Node->IsPendingKillPending()) ? Node : nullptr;
++}
++
++int32 AShamanPlayerController::CommandGather(const TArray<AShamanUnitBase*>& Units, AResourceNode* Node)
++{
++	if (!Node || Node->IsPendingKillPending()) return 0;
++	RefreshPlayerTribe();
++	const int32 Tribe = GetPlayerTribe();
++	UTribeSubsystem* Tribes = GetWorld() ? GetWorld()->GetSubsystem<UTribeSubsystem>() : nullptr;
++	UTribeComponent* TC = Tribes ? Tribes->GetTribeComponent(Tribe) : nullptr;
++	const FGameplayTag Tag = FGatherRules::TagForResource(Node->GetResourceType());
++	if (!TC || !Tag.IsValid())
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Command] gather: no tribe or Task.Gather tag missing (Config/DefaultGameplayTags.ini)"));
++		return 0;
++	}
++	int32 Ordered = 0, Skipped = 0;
++	for (AShamanUnitBase* U : Units)
++	{
++		if (!FShamanSelectionRules::IsSelectable(U, Tribe) || U->IsShaman()) continue;
++		UTribeMemberComponent* M = U->TribeMember;
++		if (U->GetRow().Role != EUnitRole::Brave || !M) { ++Skipped; continue; } // Populous: only Braves gather
++		if (M->HasTask()) TC->CancelTask(M->GetCurrentTaskId(), TEXT("PlayerCommand"));
++		const int32 Id = TC->CreateTask(Tag, ETribeTaskPriority::High, Node, Node->GetActorLocation(), true, TEXT("PlayerCommand"));
++		const bool bTask = Id != INDEX_NONE && TC->AssignTask(Id, M) && TC->StartTask(Id);
++		FTribeTask T;
++		if (!bTask && Id != INDEX_NONE && TC->GetTask(Id, T) && T.IsOpen()) TC->CancelTask(Id, TEXT("PlayerCommandRefused"));
++		if (!bTask) { ++Skipped; continue; }
++		// When the gathering ends (nothing left nearby) the Brave stays by the last node instead of wandering home.
++		U->SetOrder(EFollowerOrder::HoldPosition, Node->GetActorLocation());
++		++Ordered;
++	}
++	MarkCommand(Node->GetActorLocation(), false);
++	UE_LOG(LogShaman, Log, TEXT("[Command] gather %s at %s: %d Brave(s)%s"), FGatherRules::ResourceName(Node->GetResourceType()), *Node->GetName(),
++		Ordered, Skipped > 0 ? *FString::Printf(TEXT(", %d skipped (only available Braves gather)"), Skipped) : TEXT(""));
++	return Ordered;
++}
++
+ AActor* AShamanPlayerController::PickOwnBuilding(const FVector2D& ScreenPos) const
+ {
+ 	FVector Origin, Dir;
+diff --git a/Source/Shaman/Private/Tests/ShamanEconomyTests.cpp b/Source/Shaman/Private/Tests/ShamanEconomyTests.cpp
+new file mode 100644
+index 0000000..d91a95d
+--- /dev/null
++++ b/Source/Shaman/Private/Tests/ShamanEconomyTests.cpp
+@@ -0,0 +1,404 @@
++#include "Misc/AutomationTest.h"
++
++#if WITH_DEV_AUTOMATION_TESTS
++
++#include "GameplayTagContainer.h"
++#include "TribeComponent.h"
++#include "TribeMemberComponent.h"
++#include "Tribes/TribeEconomy.h"
++#include "Tribes/TribeMana.h"
++#include "Tribes/TribeTaskTypes.h"
++#include "Tribes/TribeTaskExecution.h"
++#include "Characters/ShamanUnitBase.h"
++#include "Characters/ShamanCharacter.h"
++#include "Characters/HealthComponent.h"
++#include "World/ResourceNode.h"
++#include "World/ResourceRow.h"
++#include "Buildings/BuildingRow.h"
++#include "Engine/DataTable.h"
++#include "ShamanTribeTestWorld.h"
++
++/**
++ * Slice 3 milestone 3.1: resources, gathering and the tribe stockpile.
++ *  - Stockpile / ResourceStock / GatherRules: the pure rules (no world).
++ *  - GatherLoop / NextNode / CarrierDeath / CarryHomeFirst / NodeDepletion: FUnitTaskExecutor's gather loop on real
++ *    tribes and production unit rows, with resource nodes given a fixed test row (ApplyRow) so they do not depend on
++ *    DT_Resources. Movement goes through a recording fake movement layer; arrival is produced by teleporting the unit
++ *    and time is passed explicitly. Real UE4 path following is NOT exercised here (in-editor check).
++ *  - ProductionData: DT_Resources / DT_Buildings carry the 3.1 columns. Fails until Resources.csv and Buildings.csv
++ *    are reimported in the editor.
++ * Flat test world throughout.
++ */
++namespace ShamanEconomyTestsPrivate
++{
++	using namespace ShamanTribeTestsPrivate;
++
++	struct FRecordingMover : public IUnitTaskMover
++	{
++		int32 Requests = 0;
++		int32 Stops = 0;
++		FVector LastGoal = FVector::ZeroVector;
++		AActor* LastGoalActor = nullptr;
++		virtual ETaskMoveRequest RequestTaskMove(const FVector& Goal, AActor* GoalActor, float) override { ++Requests; LastGoal = Goal; LastGoalActor = GoalActor; return ETaskMoveRequest::Accepted; }
++		virtual void StopTaskMove() override { ++Stops; }
++		virtual bool IsTaskMoveInProgress() const override { return true; }
++	};
++
++	FResourceRow MakeRow(EResourceType Type, int32 Amount, float HarvestSeconds, int32 MaxGatherers, float RegrowSeconds, bool bDestroyWhenDepleted)
++	{
++		FResourceRow R;
++		R.DisplayName = FText::FromString(TEXT("Test node"));
++		R.Type = Type;
++		R.Amount = Amount;
++		R.BundlesPerTrip = 1;
++		R.HarvestSeconds = HarvestSeconds;
++		R.MaxGatherers = MaxGatherers;
++		R.RegrowSeconds = RegrowSeconds;
++		R.RegrowAmount = 1;
++		R.bDestroyWhenDepleted = bDestroyWhenDepleted;
++		return R;
++	}
++
++	/** Player Shaman, a Campfire (the drop-off) at FireAt and NumBraves Braves (max 2), each with its own executor. */
++	struct FEconomyFixture
++	{
++		FTribeTestWorld W;
++		AShamanCharacter* Shaman = nullptr;
++		ABuildingActor* Fire = nullptr;
++		UTribeComponent* T0 = nullptr;
++		TArray<AShamanUnitBase*> Braves;
++		const FVector FireAt = FVector(0.f, -1000.f, 0.f);
++		double T = 0.0;
++		FRecordingMover Movers[2];
++		FUnitTaskExecutor Execs[2]; // declared after W: unbind before the world goes away
++
++		explicit FEconomyFixture(int32 NumBraves)
++		{
++			Shaman = W.SpawnUnit<AShamanCharacter>(W.Data->ShamanUnitId, 0, FVector(0.f, 0.f, 100.f));
++			Fire = W.SpawnBuilding(W.Data->CampfireBuildingId, 0, FireAt);
++			for (int32 i = 0; i < FMath::Min(NumBraves, 2); ++i)
++			{
++				Braves.Add(W.SpawnUnit<AShamanUnitBase>(W.Data->BraveUnitId, 0, FVector(300.f * (i + 1), 400.f, 100.f)));
++				Execs[i].Bind(Braves[i]->TribeMember, &Movers[i]);
++			}
++			T0 = W.Tribes->GetTribeComponent(0);
++			T = W.World->GetTimeSeconds();
++		}
++		AResourceNode* SpawnNode(FName Id, const FResourceRow& Row, const FVector& Where)
++		{
++			AResourceNode* N = W.World->SpawnActorDeferred<AResourceNode>(AResourceNode::StaticClass(), FTransform(Where), nullptr, nullptr,
++				ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
++			N->ResourceId = Id;
++			N->FinishSpawning(FTransform(Where));
++			if (!N->HasActorBegunPlay()) N->DispatchBeginPlay();
++			N->ApplyRow(Row, true);
++			return N;
++		}
++		int32 OrderGather(int32 BraveIndex, AResourceNode* Node)
++		{
++			UTribeMemberComponent* M = Braves[BraveIndex]->TribeMember;
++			if (M->HasTask()) T0->CancelTask(M->GetCurrentTaskId(), TEXT("Test"));
++			const int32 Id = T0->CreateTask(FGatherRules::TagForResource(Node->GetResourceType()), ETribeTaskPriority::High, Node,
++				Node->GetActorLocation(), true, TEXT("Test"));
++			T0->AssignTask(Id, M);
++			T0->StartTask(Id);
++			return Id;
++		}
++		void Step(double Seconds)
++		{
++			T += Seconds;
++			for (int32 i = 0; i < Braves.Num(); ++i) Execs[i].Update(T);
++		}
++		/** Puts a Brave right beside a spot (well inside every arrival radius). */
++		static void PutAt(AActor* A, const FVector& Where) { A->SetActorLocation(Where + FVector(40.f, 0.f, 100.f), false, nullptr, ETeleportType::TeleportPhysics); }
++		ETribeTaskState StateOf(int32 Id) const { const FTribeTask* Task = T0->FindTask(Id); return Task ? Task->State : ETribeTaskState::Unassigned; }
++		FName ReasonOf(int32 Id) const { const FTribeTask* Task = T0->FindTask(Id); return Task ? Task->EndReason : NAME_None; }
++		int32 Wood() const { return T0->GetResourceAmount(EResourceType::Wood); }
++
++		/** One whole trip for Braves[i] standing anywhere: walk to Node, harvest, carry home, deposit. */
++		void RunTrip(int32 i, AResourceNode* Node)
++		{
++			PutAt(Braves[i], Node->GetActorLocation());
++			Step(0.25);                                           // arrives, takes a slot, starts working
++			Step(FMath::Max(0.25, (double)Node->GetHarvestSeconds() + 0.05)); // work done: carrying
++			PutAt(Braves[i], FireAt);
++			Step(0.25);                                           // delivers
++		}
++	};
++}
++using namespace ShamanEconomyTestsPrivate;
++
++#define SHAMAN_ECONOMY_TEST(Class, Name) IMPLEMENT_SIMPLE_AUTOMATION_TEST(Class, Name, EAutomationTestFlags::ApplicationContextMask | EAutomationTestFlags::ProductFilter)
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyStockpileTest, "Shaman.Economy.Stockpile")
++bool FShamanEconomyStockpileTest::RunTest(const FString& Parameters)
++{
++	FTribeStockpile S;
++	TestEqual(TEXT("Starts empty"), S.Total(), 0);
++	TestEqual(TEXT("Add returns what was added"), S.Add(EResourceType::Wood, 5), 5);
++	TestEqual(TEXT("Negative add is refused"), S.Add(EResourceType::Wood, -3), 0);
++	TestEqual(TEXT("Zero add is refused"), S.Add(EResourceType::Stone, 0), 0);
++	S.Add(EResourceType::Stone, 2);
++	S.Add(EResourceType::Ore, 1);
++	TestTrue(TEXT("Amounts by type"), S.Get(EResourceType::Wood) == 5 && S.Get(EResourceType::Stone) == 2 && S.Get(EResourceType::Ore) == 1
++		&& S.Get(EResourceType::Food) == 0);
++
++	const FResourceCost Hut(3, 0, 0);
++	const FResourceCost Tower(4, 2, 0);
++	const FResourceCost TooMuch(1, 3, 0);
++	TestTrue(TEXT("Can afford a Small Hut"), S.CanAfford(Hut));
++	TestFalse(TEXT("Cannot afford 3 stone with 2"), S.CanAfford(TooMuch));
++	TestFalse(TEXT("Spend is all or nothing"), S.Spend(TooMuch));
++	TestTrue(TEXT("Failed spend changes nothing"), S.Get(EResourceType::Wood) == 5 && S.Get(EResourceType::Stone) == 2);
++	TestTrue(TEXT("Spend a Guard Tower"), S.Spend(Tower));
++	TestTrue(TEXT("Tower taken"), S.Get(EResourceType::Wood) == 1 && S.Get(EResourceType::Stone) == 0 && S.Get(EResourceType::Ore) == 1);
++	TestTrue(TEXT("Free cost always affordable"), S.Spend(FResourceCost()) && FResourceCost().IsFree());
++	FResourceCost Odd; Odd.Wood = -4;
++	TestEqual(TEXT("Negative cost fields count as 0"), Odd.Get(EResourceType::Wood), 0);
++	TestEqual(TEXT("Cost text"), Tower.ToString(), FString(TEXT("4 wood, 2 stone")));
++	TestEqual(TEXT("Free text"), FResourceCost().ToString(), FString(TEXT("free")));
++
++	FTribeStockpile Big;
++	Big.Add(EResourceType::Food, MAX_int32 - 1);
++	TestEqual(TEXT("Saturates instead of overflowing"), Big.Add(EResourceType::Food, 10), 1);
++	TestEqual(TEXT("At the cap"), Big.Get(EResourceType::Food), MAX_int32);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyResourceStockTest, "Shaman.Economy.ResourceStock")
++bool FShamanEconomyResourceStockTest::RunTest(const FString& Parameters)
++{
++	int32 Remaining = 4;
++	TestEqual(TEXT("Take 1"), FResourceStock::Take(Remaining, 1), 1);
++	TestEqual(TEXT("Take more than left takes the rest"), FResourceStock::Take(Remaining, 10), 3);
++	TestEqual(TEXT("Empty"), Remaining, 0);
++	TestEqual(TEXT("Nothing from an empty node"), FResourceStock::Take(Remaining, 1), 0);
++	TestEqual(TEXT("Want <= 0 takes nothing"), FResourceStock::Take(Remaining, 0), 0);
++	TestEqual(TEXT("Regrow 1"), FResourceStock::Regrow(Remaining, 4, 1), 1);
++	TestEqual(TEXT("Regrow stops at the maximum"), FResourceStock::Regrow(Remaining, 2, 5), 1);
++	TestEqual(TEXT("Full: nothing to add"), FResourceStock::Regrow(Remaining, 2, 1), 0);
++	Remaining = -3;
++	TestEqual(TEXT("Negative stock is repaired, not used"), FResourceStock::Take(Remaining, 1), 0);
++	TestEqual(TEXT("...and reads as empty"), Remaining, 0);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyGatherRulesTest, "Shaman.Economy.GatherRules")
++bool FShamanEconomyGatherRulesTest::RunTest(const FString& Parameters)
++{
++	const EResourceType All[] = { EResourceType::Wood, EResourceType::Food, EResourceType::Stone, EResourceType::Ore };
++	for (EResourceType R : All)
++	{
++		const FGameplayTag Tag = FGatherRules::TagForResource(R);
++		EResourceType Back = EResourceType::Wood;
++		if (!TestTrue(FString::Printf(TEXT("Task.Gather tag for %s is registered"), FGatherRules::ResourceName(R)), Tag.IsValid())) return false;
++		TestTrue(TEXT("Tag maps back to its resource"), FGatherRules::ResourceOfTag(Tag, Back) && Back == R);
++		TestTrue(TEXT("Gather tags are executable"), FTribeTaskExecutionRules::KindOf(Tag) == ETaskExecKind::Gather);
++	}
++	EResourceType Dummy;
++	TestFalse(TEXT("Task.MoveTo is not a gather tag"), FGatherRules::ResourceOfTag(FGameplayTag::RequestGameplayTag(TEXT("Task.MoveTo"), false), Dummy));
++	TestFalse(TEXT("Invalid tag"), FGatherRules::ResourceOfTag(FGameplayTag(), Dummy));
++
++	FTribeTask Task;
++	Task.Type = FGatherRules::TagForResource(EResourceType::Wood);
++	TestFalse(TEXT("Gather with neither node nor place is invalid"), FTribeTaskExecutionRules::HasValidTarget(Task, ETaskExecKind::Gather));
++	Task.bHasTargetLocation = true;
++	TestTrue(TEXT("Gather with a search origin is valid"), FTribeTaskExecutionRules::HasValidTarget(Task, ETaskExecKind::Gather));
++
++	auto Cand = [](float FromUnit, float FromOrigin, bool bType, bool bDepleted, bool bSlot)
++	{
++		FGatherNodeCandidate C;
++		C.DistanceFromUnit = FromUnit; C.DistanceFromOrigin = FromOrigin; C.bTypeMatches = bType; C.bDepleted = bDepleted; C.bHasFreeSlot = bSlot;
++		return C;
++	};
++	TArray<FGatherNodeCandidate> C;
++	C.Add(Cand(100.f, 100.f, false, false, true));  // 0: wrong kind
++	C.Add(Cand(150.f, 150.f, true, true, true));    // 1: empty
++	C.Add(Cand(200.f, 200.f, true, false, false));  // 2: full
++	C.Add(Cand(900.f, 400.f, true, false, true));   // 3: usable, far from the unit
++	C.Add(Cand(500.f, 5000.f, true, false, true));  // 4: usable, nearer, but outside the search radius
++	C.Add(Cand(700.f, 700.f, true, false, true));   // 5: usable, nearest within the radius
++	TestEqual(TEXT("Nearest usable node within the radius"), FGatherRules::PickNode(C, 3000.f), 5);
++	TestEqual(TEXT("No radius: nearest usable anywhere"), FGatherRules::PickNode(C, 0.f), 4);
++	C.Add(Cand(700.f, 10.f, true, false, true));    // 6: same distance as 5
++	TestEqual(TEXT("Ties go to the lower index"), FGatherRules::PickNode(C, 3000.f), 5);
++	TestEqual(TEXT("Nothing usable"), FGatherRules::PickNode(TArray<FGatherNodeCandidate>{ Cand(1.f, 1.f, true, true, true) }, 3000.f), (int32)INDEX_NONE);
++
++	// Mana: a gathering Brave counts as working (Populous: 34.6 / min), a gathering Warrior would not.
++	TestTrue(TEXT("Gathering Brave makes working mana"),
++		FTribeManaRules::Classify(false, EUnitRole::Brave, EUnitSimState::Gathering, true) == ETribeManaActivity::Working);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyGatherLoopTest, "Shaman.Economy.GatherLoop")
++bool FShamanEconomyGatherLoopTest::RunTest(const FString& Parameters)
++{
++	FEconomyFixture F(1);
++	if (!TestNotNull(TEXT("Player tribe"), F.T0) || !TestEqual(TEXT("One Brave"), F.Braves.Num(), 1)) return false;
++	TestEqual(TEXT("Tribe starts with an empty stockpile (default config)"), F.T0->GetStockpile().Total(), 0);
++	AResourceNode* Tree = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 3, 4.f, 2, 0.f, false), FVector(2500.f, 400.f, 0.f));
++	UTribeMemberComponent* M = F.Braves[0]->TribeMember;
++	FUnitTaskExecutor& E = F.Execs[0];
++
++	const int32 Id = F.OrderGather(0, Tree);
++	TestTrue(TEXT("Gather task runs"), F.StateOf(Id) == ETribeTaskState::Active && E.HasControl() && E.GetKind() == ETaskExecKind::Gather);
++	TestTrue(TEXT("Walks to the ordered tree"), E.GetGatherPhase() == EGatherPhase::ToNode && F.Movers[0].LastGoalActor == Tree);
++	TestTrue(TEXT("Counts as gathering"), M->GetSimState() == EUnitSimState::Gathering);
++
++	FEconomyFixture::PutAt(F.Braves[0], Tree->GetActorLocation());
++	F.Step(0.25);
++	TestTrue(TEXT("Arrived: working the tree, holding a slot"), E.GetGatherPhase() == EGatherPhase::Harvesting && Tree->GetGathererCount() == 1);
++	F.Step(2.0);
++	TestTrue(TEXT("Still working after 2 of 4 s"), E.GetGatherPhase() == EGatherPhase::Harvesting && !M->IsCarrying());
++	F.Step(2.1);
++	TestTrue(TEXT("Done: carries 1 wood home"), E.GetGatherPhase() == EGatherPhase::ToDropOff && M->IsCarrying()
++		&& M->GetCarriedType() == EResourceType::Wood && M->GetCarriedAmount() == 1);
++	TestEqual(TEXT("Tree lost a bundle"), Tree->Remaining, 2);
++	TestEqual(TEXT("Slot freed while away"), Tree->GetGathererCount(), 0);
++	TestEqual(TEXT("Nothing delivered yet"), F.Wood(), 0);
++	TestTrue(TEXT("Heads for the drop-off"), F.Movers[0].LastGoal.Equals(F.FireAt, 1.f));
++
++	FEconomyFixture::PutAt(F.Braves[0], F.FireAt);
++	F.Step(0.25);
++	TestEqual(TEXT("Delivered 1 wood"), F.Wood(), 1);
++	TestTrue(TEXT("Hands empty, back to the tree"), !M->IsCarrying() && E.GetGatherPhase() == EGatherPhase::ToNode && E.GetGatherTrips() == 1);
++
++	F.RunTrip(0, Tree);
++	F.RunTrip(0, Tree);
++	TestEqual(TEXT("Three trips: 3 wood"), F.Wood(), 3);
++	TestTrue(TEXT("Tree is empty (kept: it does not get removed)"), Tree->IsDepleted() && !Tree->IsPendingKillPending());
++
++	F.Step(0.25);
++	TestTrue(TEXT("Nothing left nearby: the order completes"), F.StateOf(Id) == ETribeTaskState::Completed && F.ReasonOf(Id).IsNone());
++	TestTrue(TEXT("Brave is free again"), !E.HasControl() && !M->HasTask() && M->IsAvailableWorker());
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyNextNodeTest, "Shaman.Economy.NextNode")
++bool FShamanEconomyNextNodeTest::RunTest(const FString& Parameters)
++{
++	FEconomyFixture F(2);
++	if (!TestEqual(TEXT("Two Braves"), F.Braves.Num(), 2)) return false;
++	// One-slot trees: the second Brave sent to tree A takes tree B; a far tree and a stone are ignored.
++	AResourceNode* A = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 2, 1.f, 1, 0.f, false), FVector(2500.f, 400.f, 0.f));
++	AResourceNode* B = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 2, 1.f, 1, 0.f, false), FVector(2500.f, 1400.f, 0.f));
++	AResourceNode* Far = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 2, 1.f, 1, 0.f, false), FVector(20000.f, 400.f, 0.f));
++	AResourceNode* Rock = F.SpawnNode(TEXT("Stone"), MakeRow(EResourceType::Stone, 2, 1.f, 1, 0.f, false), FVector(2600.f, 600.f, 0.f));
++
++	F.OrderGather(0, A);
++	FEconomyFixture::PutAt(F.Braves[0], A->GetActorLocation());
++	F.Step(0.25);
++	TestTrue(TEXT("Brave 0 works tree A"), F.Execs[0].GetGatherPhase() == EGatherPhase::Harvesting && F.Execs[0].GetGatherNode() == A);
++
++	F.OrderGather(1, A);
++	F.Step(0.25);
++	TestTrue(TEXT("Tree A is full: Brave 1 moves on to tree B"), F.Execs[1].GetGatherNode() == B && F.Movers[1].LastGoalActor == B);
++	TestTrue(TEXT("Never the stone or the far tree"), F.Execs[1].GetGatherNode() != Rock && F.Execs[1].GetGatherNode() != Far);
++
++	// Empty both near trees: the next pick finds only the far one, outside NodeSearchRadius.
++	A->Harvest(10);
++	B->Harvest(10);
++	F.Step(1.1); // Brave 0's work ends on an empty tree: back to looking
++	F.Step(0.25);
++	TestTrue(TEXT("Brave 0 finished: nothing left within the search radius"), !F.Execs[0].HasControl() && !F.Braves[0]->TribeMember->HasTask());
++	TestTrue(TEXT("Brave 1 finished too"), !F.Execs[1].HasControl());
++	TestEqual(TEXT("Far tree untouched"), Far->Remaining, 2);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyCarrierDeathTest, "Shaman.Economy.CarrierDeath")
++bool FShamanEconomyCarrierDeathTest::RunTest(const FString& Parameters)
++{
++	FEconomyFixture F(1);
++	AResourceNode* Tree = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 4, 2.f, 1, 0.f, false), FVector(2500.f, 400.f, 0.f));
++	const int32 Id = F.OrderGather(0, Tree);
++	FEconomyFixture::PutAt(F.Braves[0], Tree->GetActorLocation());
++	F.Step(0.25);
++	TestEqual(TEXT("Working: slot held"), Tree->GetGathererCount(), 1);
++
++	F.Braves[0]->Health->Kill(nullptr);
++	TestTrue(TEXT("Death fails the gather task"), F.StateOf(Id) == ETribeTaskState::Failed);
++	TestFalse(TEXT("Executor let go"), F.Execs[0].HasControl());
++	TestEqual(TEXT("Slot freed for others"), Tree->GetGathererCount(), 0);
++	TestEqual(TEXT("Nothing delivered"), F.Wood(), 0);
++	TestEqual(TEXT("Tree keeps its wood (the work was not finished)"), Tree->Remaining, 4);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyCarryHomeFirstTest, "Shaman.Economy.CarryHomeFirst")
++bool FShamanEconomyCarryHomeFirstTest::RunTest(const FString& Parameters)
++{
++	FEconomyFixture F(1);
++	AResourceNode* Tree = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 4, 1.f, 2, 0.f, false), FVector(2500.f, 400.f, 0.f));
++	AResourceNode* Rock = F.SpawnNode(TEXT("Stone"), MakeRow(EResourceType::Stone, 4, 1.f, 2, 0.f, false), FVector(2500.f, -400.f, 0.f));
++	UTribeMemberComponent* M = F.Braves[0]->TribeMember;
++	const int32 First = F.OrderGather(0, Tree);
++	FEconomyFixture::PutAt(F.Braves[0], Tree->GetActorLocation());
++	F.Step(0.25);
++	F.Step(1.1);
++	TestTrue(TEXT("Carrying wood"), M->IsCarrying() && M->GetCarriedType() == EResourceType::Wood);
++
++	// A new order (player command) replaces the task; the bundle stays in hand and goes home first.
++	const int32 Second = F.OrderGather(0, Rock);
++	TestTrue(TEXT("First order cancelled"), F.StateOf(First) == ETribeTaskState::Cancelled);
++	TestTrue(TEXT("Still carrying the wood"), M->IsCarrying() && M->GetCarriedType() == EResourceType::Wood);
++	TestTrue(TEXT("Stone order starts by going home"), F.Execs[0].GetGatherPhase() == EGatherPhase::ToDropOff);
++	FEconomyFixture::PutAt(F.Braves[0], F.FireAt);
++	F.Step(0.25);
++	TestEqual(TEXT("Wood delivered"), F.Wood(), 1);
++	TestTrue(TEXT("Then off to the stone"), F.Execs[0].GetGatherPhase() == EGatherPhase::ToNode && F.Movers[0].LastGoalActor == Rock);
++	F.RunTrip(0, Rock);
++	TestEqual(TEXT("Stone delivered"), F.T0->GetResourceAmount(EResourceType::Stone), 1);
++	TestTrue(TEXT("Stone order still running"), F.StateOf(Second) == ETribeTaskState::Active);
++
++	// A wrong order: a stone tag aimed at a tree fails at once.
++	const int32 Bad = F.T0->CreateTask(FGatherRules::TagForResource(EResourceType::Stone), ETribeTaskPriority::Normal, Tree, Tree->GetActorLocation(), true, TEXT("Test"));
++	F.T0->CancelTask(Second, TEXT("Test"));
++	F.T0->AssignTask(Bad, M);
++	F.T0->StartTask(Bad);
++	TestTrue(TEXT("Mismatched node fails (WrongResource)"), F.StateOf(Bad) == ETribeTaskState::Failed && F.ReasonOf(Bad) == FName(TEXT("WrongResource")));
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyNodeDepletionTest, "Shaman.Economy.NodeDepletion")
++bool FShamanEconomyNodeDepletionTest::RunTest(const FString& Parameters)
++{
++	FEconomyFixture F(0);
++	AResourceNode* Rock = F.SpawnNode(TEXT("Stone"), MakeRow(EResourceType::Stone, 2, 1.f, 1, 0.f, true), FVector(2000.f, 0.f, 0.f));
++	TestEqual(TEXT("First bundle"), Rock->Harvest(1), 1);
++	TestFalse(TEXT("Still standing with 1 left"), Rock->IsPendingKillPending());
++	TestEqual(TEXT("Last bundle"), Rock->Harvest(1), 1);
++	TestTrue(TEXT("Used-up outcrop is removed"), Rock->IsPendingKillPending());
++
++	AResourceNode* Tree = F.SpawnNode(TEXT("Tree"), MakeRow(EResourceType::Wood, 4, 1.f, 2, 90.f, true), FVector(3000.f, 0.f, 0.f));
++	TestEqual(TEXT("Take the whole tree"), Tree->Harvest(10), 4);
++	TestTrue(TEXT("A regrowing tree is never removed"), !Tree->IsPendingKillPending() && Tree->IsDepleted());
++	TestEqual(TEXT("Regrows one bundle per step"), Tree->RegrowStep(), 1);
++	Tree->RegrowStep(); Tree->RegrowStep(); Tree->RegrowStep();
++	TestEqual(TEXT("Back to full"), Tree->Remaining, 4);
++	TestEqual(TEXT("No growth past full"), Tree->RegrowStep(), 0);
++
++	// Regrowth on the world clock: 90 s per bundle.
++	Tree->Harvest(1);
++	F.W.AdvanceTimers(91.f);
++	TestEqual(TEXT("Timer regrew the bundle after 90 s"), Tree->Remaining, 4);
++	return true;
++}
++
++SHAMAN_ECONOMY_TEST(FShamanEconomyProductionDataTest, "Shaman.Economy.ProductionData")
++bool FShamanEconomyProductionDataTest::RunTest(const FString& Parameters)
++{
++	// Fails until Content/Data/Resources.csv and Buildings.csv are reimported (the new 3.1 columns).
++	FTribeTestWorld W;
++	if (!TestNotNull(TEXT("Resource table"), W.Data->ResourceTable) || !TestNotNull(TEXT("Building table"), W.Data->BuildingTable)) return false;
++	const FResourceRow* Tree = W.Data->ResourceTable->FindRow<FResourceRow>(W.Data->TreeResourceId, TEXT("Test"), false);
++	const FResourceRow* Stone = W.Data->ResourceTable->FindRow<FResourceRow>(W.Data->StoneResourceId, TEXT("Test"), false);
++	const FBuildingRow* Fire = W.Data->BuildingTable->FindRow<FBuildingRow>(W.Data->CampfireBuildingId, TEXT("Test"), false);
++	if (!TestNotNull(TEXT("Tree row"), Tree) || !TestNotNull(TEXT("Stone row"), Stone) || !TestNotNull(TEXT("Campfire row"), Fire)) return false;
++	TestTrue(TEXT("Tree: 4 bundles that regrow (reimport Resources.csv)"), Tree->Amount == 4 && Tree->RegrowSeconds > 0.f && !Tree->bDestroyWhenDepleted);
++	TestTrue(TEXT("Stone: finite, removed when used up"), Stone->Amount > 0 && Stone->RegrowSeconds <= 0.f && Stone->bDestroyWhenDepleted);
++	TestTrue(TEXT("Campfire is a drop-off (reimport Buildings.csv)"), Fire->bIsResourceDropOff);
++	return true;
++}
++
++#endif
+diff --git a/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp b/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp
+index dbe8868..488ade5 100644
+--- a/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp
++++ b/Source/Shaman/Private/Tests/ShamanTaskExecutionTests.cpp
+@@ -114,8 +114,9 @@ bool FShamanTaskExecRulesTest::RunTest(const FString& Parameters)
+ 	TestTrue(TEXT("Executable kinds"), R::KindOf(MoveTo) == ETaskExecKind::MoveToLocation && R::KindOf(MoveToActor) == ETaskExecKind::MoveToActor
+ 		&& R::KindOf(Guard) == ETaskExecKind::Guard);
+ 	TestTrue(TEXT("Task.Debug stays bookkeeping-only"), R::KindOf(FExecFixture::Tag(TEXT("Task.Debug"))) == ETaskExecKind::None);
+-	TestTrue(TEXT("Reserved tags are not executed"), R::KindOf(FExecFixture::Tag(TEXT("Task.Gather.Wood"))) == ETaskExecKind::None
+-		&& R::KindOf(FExecFixture::Tag(TEXT("Task.Build"))) == ETaskExecKind::None && R::KindOf(FGameplayTag()) == ETaskExecKind::None);
++	// Slice 3 (3.1): Task.Gather.* became executable (Shaman.Economy.* covers it); Task.Build is still reserved.
++	TestTrue(TEXT("Reserved tags are not executed"), R::KindOf(FExecFixture::Tag(TEXT("Task.Build"))) == ETaskExecKind::None
++		&& R::KindOf(FGameplayTag()) == ETaskExecKind::None);
+ 
+ 	FTribeTaskExecutionConfig C;
+ 	FTribeTask Task;
+diff --git a/Source/Shaman/Private/TribeComponent.cpp b/Source/Shaman/Private/TribeComponent.cpp
+index af2eb76..3a0c0ed 100644
+--- a/Source/Shaman/Private/TribeComponent.cpp
++++ b/Source/Shaman/Private/TribeComponent.cpp
+@@ -5,6 +5,7 @@
+ #include "GameFramework/Actor.h"
+ #include "Engine/World.h"
+ #include "Core/ShamanLog.h"
++#include "Game/ShamanGameData.h"
+ 
+ UTribeComponent::UTribeComponent() { PrimaryComponentTick.bCanEverTick = false; }
+ 
+@@ -14,6 +15,36 @@ void UTribeComponent::BeginPlay()
+ 	if (TribeId < 0) return; // -1 is reserved for unaligned units (Wildmen); such a component stays inactive
+ 	if (UTribeRegistrySubsystem* R = UTribeRegistrySubsystem::Get(this)) R->RegisterTribe(this);
+ 	NotifyChanged();
++	// Slice 3: every tribe starts with the configured stockpile (nothing by default).
++	const FResourceCost& Start = UShamanGameData::Get(this)->Economy.StartingStockpile;
++	const EResourceType All[] = { EResourceType::Wood, EResourceType::Food, EResourceType::Stone, EResourceType::Ore };
++	for (EResourceType T : All) AddResource(T, Start.Get(T), TEXT("StartingStockpile"));
++}
++
++int32 UTribeComponent::AddResource(EResourceType Type, int32 Amount, FName Source)
++{
++	const int32 Added = Stockpile.Add(Type, Amount);
++	if (Added <= 0) return 0;
++	UE_LOG(LogShaman, Log, TEXT("[Economy] tribe %d +%d %s (%s): %s"), TribeId, Added, FGatherRules::ResourceName(Type),
++		Source.IsNone() ? TEXT("?") : *Source.ToString(), *Stockpile.ToString());
++	OnStockpileChanged.Broadcast(TribeId, Type, Stockpile.Get(Type));
++	return Added;
++}
++
++bool UTribeComponent::SpendResources(const FResourceCost& Cost, FName Reason)
++{
++	if (!Stockpile.Spend(Cost))
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Economy] tribe %d cannot afford %s (%s): has %s"), TribeId, *Cost.ToString(),
++			Reason.IsNone() ? TEXT("?") : *Reason.ToString(), *Stockpile.ToString());
++		return false;
++	}
++	UE_LOG(LogShaman, Log, TEXT("[Economy] tribe %d spent %s (%s): %s"), TribeId, *Cost.ToString(),
++		Reason.IsNone() ? TEXT("?") : *Reason.ToString(), *Stockpile.ToString());
++	const EResourceType All[] = { EResourceType::Wood, EResourceType::Food, EResourceType::Stone, EResourceType::Ore };
++	for (EResourceType T : All)
++		if (Cost.Get(T) > 0) OnStockpileChanged.Broadcast(TribeId, T, Stockpile.Get(T));
++	return true;
+ }
+ 
+ void UTribeComponent::EndPlay(const EEndPlayReason::Type Reason)
+diff --git a/Source/Shaman/Private/Tribes/TribeEconomy.cpp b/Source/Shaman/Private/Tribes/TribeEconomy.cpp
+new file mode 100644
+index 0000000..5071ded
+--- /dev/null
++++ b/Source/Shaman/Private/Tribes/TribeEconomy.cpp
+@@ -0,0 +1,172 @@
++#include "Tribes/TribeEconomy.h"
++
++namespace
++{
++	int32 TribeEconomyAtLeastZero(int32 V) { return V > 0 ? V : 0; }
++}
++
++// ---- FResourceCost ---------------------------------------------------------------------------------------------------
++
++int32 FResourceCost::Get(EResourceType Type) const
++{
++	switch (Type)
++	{
++	case EResourceType::Wood:  return TribeEconomyAtLeastZero(Wood);
++	case EResourceType::Food:  return TribeEconomyAtLeastZero(Food);
++	case EResourceType::Stone: return TribeEconomyAtLeastZero(Stone);
++	case EResourceType::Ore:   return TribeEconomyAtLeastZero(Ore);
++	default:                   return 0;
++	}
++}
++
++bool FResourceCost::IsFree() const
++{
++	return Get(EResourceType::Wood) == 0 && Get(EResourceType::Food) == 0 && Get(EResourceType::Stone) == 0 && Get(EResourceType::Ore) == 0;
++}
++
++FString FResourceCost::ToString() const
++{
++	FString Out;
++	const EResourceType Order[] = { EResourceType::Wood, EResourceType::Stone, EResourceType::Ore, EResourceType::Food };
++	for (EResourceType T : Order)
++	{
++		const int32 N = Get(T);
++		if (N <= 0) continue;
++		if (!Out.IsEmpty()) Out += TEXT(", ");
++		Out += FString::Printf(TEXT("%d %s"), N, FGatherRules::ResourceName(T));
++	}
++	return Out.IsEmpty() ? FString(TEXT("free")) : Out;
++}
++
++// ---- FTribeStockpile -------------------------------------------------------------------------------------------------
++
++int32* FTribeStockpile::Find(EResourceType Type)
++{
++	switch (Type)
++	{
++	case EResourceType::Wood:  return &Wood;
++	case EResourceType::Food:  return &Food;
++	case EResourceType::Stone: return &Stone;
++	case EResourceType::Ore:   return &Ore;
++	default:                   return nullptr;
++	}
++}
++
++int32 FTribeStockpile::Get(EResourceType Type) const
++{
++	switch (Type)
++	{
++	case EResourceType::Wood:  return TribeEconomyAtLeastZero(Wood);
++	case EResourceType::Food:  return TribeEconomyAtLeastZero(Food);
++	case EResourceType::Stone: return TribeEconomyAtLeastZero(Stone);
++	case EResourceType::Ore:   return TribeEconomyAtLeastZero(Ore);
++	default:                   return 0;
++	}
++}
++
++int32 FTribeStockpile::Add(EResourceType Type, int32 Amount)
++{
++	int32* Slot = Find(Type);
++	if (!Slot || Amount <= 0) return 0;
++	const int32 Room = MAX_int32 - TribeEconomyAtLeastZero(*Slot);
++	const int32 Added = FMath::Min(Amount, Room);
++	*Slot = TribeEconomyAtLeastZero(*Slot) + Added;
++	return Added;
++}
++
++bool FTribeStockpile::CanAfford(const FResourceCost& Cost) const
++{
++	return Get(EResourceType::Wood) >= Cost.Get(EResourceType::Wood) && Get(EResourceType::Food) >= Cost.Get(EResourceType::Food)
++		&& Get(EResourceType::Stone) >= Cost.Get(EResourceType::Stone) && Get(EResourceType::Ore) >= Cost.Get(EResourceType::Ore);
++}
++
++bool FTribeStockpile::Spend(const FResourceCost& Cost)
++{
++	if (!CanAfford(Cost)) return false;
++	Wood = Get(EResourceType::Wood) - Cost.Get(EResourceType::Wood);
++	Food = Get(EResourceType::Food) - Cost.Get(EResourceType::Food);
++	Stone = Get(EResourceType::Stone) - Cost.Get(EResourceType::Stone);
++	Ore = Get(EResourceType::Ore) - Cost.Get(EResourceType::Ore);
++	return true;
++}
++
++FString FTribeStockpile::ToString() const
++{
++	return FString::Printf(TEXT("Wood %d  Stone %d  Ore %d  Food %d"), Get(EResourceType::Wood), Get(EResourceType::Stone),
++		Get(EResourceType::Ore), Get(EResourceType::Food));
++}
++
++// ---- FResourceStock --------------------------------------------------------------------------------------------------
++
++int32 FResourceStock::Take(int32& Remaining, int32 Want)
++{
++	if (Want <= 0 || Remaining <= 0) { Remaining = TribeEconomyAtLeastZero(Remaining); return 0; }
++	const int32 Taken = FMath::Min(Want, Remaining);
++	Remaining -= Taken;
++	return Taken;
++}
++
++int32 FResourceStock::Regrow(int32& Remaining, int32 Max, int32 Amount)
++{
++	Remaining = TribeEconomyAtLeastZero(Remaining);
++	if (Amount <= 0 || Remaining >= Max) return 0;
++	const int32 Added = FMath::Min(Amount, Max - Remaining);
++	Remaining += Added;
++	return Added;
++}
++
++// ---- FGatherRules ----------------------------------------------------------------------------------------------------
++
++bool FGatherRules::ResourceOfTag(const FGameplayTag& Tag, EResourceType& OutType)
++{
++	if (!Tag.IsValid()) return false;
++	const EResourceType All[] = { EResourceType::Wood, EResourceType::Food, EResourceType::Stone, EResourceType::Ore };
++	for (EResourceType T : All)
++	{
++		const FGameplayTag G = TagForResource(T);
++		if (G.IsValid() && Tag == G) { OutType = T; return true; }
++	}
++	return false;
++}
++
++FGameplayTag FGatherRules::TagForResource(EResourceType Type)
++{
++	static const FGameplayTag Wood = FGameplayTag::RequestGameplayTag(TEXT("Task.Gather.Wood"), false);
++	static const FGameplayTag Food = FGameplayTag::RequestGameplayTag(TEXT("Task.Gather.Food"), false);
++	static const FGameplayTag Stone = FGameplayTag::RequestGameplayTag(TEXT("Task.Gather.Stone"), false);
++	static const FGameplayTag Ore = FGameplayTag::RequestGameplayTag(TEXT("Task.Gather.Ore"), false);
++	switch (Type)
++	{
++	case EResourceType::Wood:  return Wood;
++	case EResourceType::Food:  return Food;
++	case EResourceType::Stone: return Stone;
++	case EResourceType::Ore:   return Ore;
++	default:                   return FGameplayTag();
++	}
++}
++
++int32 FGatherRules::PickNode(const TArray<FGatherNodeCandidate>& Candidates, float MaxDistanceFromOrigin)
++{
++	int32 Best = INDEX_NONE;
++	float BestDistance = TNumericLimits<float>::Max();
++	for (int32 i = 0; i < Candidates.Num(); ++i)
++	{
++		const FGatherNodeCandidate& C = Candidates[i];
++		if (!C.bTypeMatches || C.bDepleted || !C.bHasFreeSlot) continue;
++		if (MaxDistanceFromOrigin > 0.f && C.DistanceFromOrigin > MaxDistanceFromOrigin) continue;
++		if (C.DistanceFromUnit < BestDistance) { BestDistance = C.DistanceFromUnit; Best = i; }
++	}
++	return Best;
++}
++
++const TCHAR* FGatherRules::ResourceName(EResourceType Type)
++{
++	switch (Type)
++	{
++	case EResourceType::Wood:  return TEXT("wood");
++	case EResourceType::Food:  return TEXT("food");
++	case EResourceType::Stone: return TEXT("stone");
++	case EResourceType::Ore:   return TEXT("ore");
++	default:                   return TEXT("?");
++	}
++}
+diff --git a/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+index 3db6d7c..170fddd 100644
+--- a/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
++++ b/Source/Shaman/Private/Tribes/TribeTaskExecution.cpp
+@@ -5,6 +5,11 @@
+ #include "Game/ShamanGameData.h"
+ #include "Terrain/ShamanSpace.h"
+ #include "Core/ShamanLog.h"
++#include "Tribes/TribeEconomy.h"
++#include "Tribes/TribeSubsystem.h"
++#include "Buildings/BuildingActor.h"
++#include "World/ResourceNode.h"
++#include "EngineUtils.h"
+ #include "GameFramework/Actor.h"
+ #include "Engine/World.h"
+ 
+@@ -19,6 +24,8 @@ ETaskExecKind FTribeTaskExecutionRules::KindOf(const FGameplayTag& Type)
+ 	if (MoveTo.IsValid() && Type == MoveTo) return ETaskExecKind::MoveToLocation;
+ 	if (MoveToActor.IsValid() && Type == MoveToActor) return ETaskExecKind::MoveToActor;
+ 	if (Guard.IsValid() && Type == Guard) return ETaskExecKind::Guard;
++	EResourceType Res;
++	if (FGatherRules::ResourceOfTag(Type, Res)) return ETaskExecKind::Gather;
+ 	return ETaskExecKind::None;
+ }
+ 
+@@ -34,6 +41,13 @@ bool FTribeTaskExecutionRules::HasValidTarget(const FTribeTask& Task, ETaskExecK
+ 		const AActor* A = Task.TargetActor.Get();
+ 		return A && !A->IsPendingKillPending();
+ 	}
++	case ETaskExecKind::Gather:
++	{
++		// A node to start at, or at least a place to look for one.
++		const AActor* A = Task.TargetActor.Get();
++		if (A && !A->IsPendingKillPending()) return true;
++		return Task.bHasTargetLocation && !Task.TargetLocation.ContainsNaN() && Task.TargetLocation.GetAbsMax() < 1.0e7f;
++	}
+ 	default:
+ 		return false;
+ 	}
+@@ -45,6 +59,7 @@ float FTribeTaskExecutionRules::AcceptanceFor(const FTribeTask& Task, ETaskExecK
+ 	switch (Kind)
+ 	{
+ 	case ETaskExecKind::MoveToActor: return Config.ActorArrivalRadius;
++	case ETaskExecKind::Gather:      return Config.ActorArrivalRadius;
+ 	case ETaskExecKind::Guard:       return Config.GuardRadius;
+ 	default:                         return Config.ArrivalRadius;
+ 	}
+@@ -119,6 +134,7 @@ const TCHAR* FTribeTaskExecutionRules::KindName(ETaskExecKind Kind)
+ 	case ETaskExecKind::MoveToLocation: return TEXT("MoveTo");
+ 	case ETaskExecKind::MoveToActor:    return TEXT("MoveToActor");
+ 	case ETaskExecKind::Guard:          return TEXT("Guard");
++	case ETaskExecKind::Gather:         return TEXT("Gather");
+ 	default:                            return TEXT("None");
+ 	}
+ }
+@@ -289,6 +305,30 @@ void FUnitTaskExecutor::Begin(int32 InTaskId)
+ 		if (const AActor* Target = T->TargetActor.Get())
+ 			Acceptance += FMath::Clamp(Target->GetSimpleCollisionRadius(), 0.f, 2000.f); // reach the edge of big targets, not their centre
+ 
++	if (Kind == ETaskExecKind::Gather)
++	{
++		// Slice 3: the gather loop picks its own goals (node, then drop-off) every leg.
++		GatherNode = Cast<AResourceNode>(T->TargetActor.Get());
++		GatherGoalActor = nullptr;
++		bHoldingSlot = false;
++		GatherTrips = 0;
++		HarvestEndsAt = 0.0;
++		const bool bTypeKnown = FGatherRules::ResourceOfTag(T->Type, GatherType);
++		const bool bNodeMatches = !GatherNode.IsValid() || GatherNode->GetResourceType() == GatherType;
++		if (!bTypeKnown || !bNodeMatches || !FTribeTaskExecutionRules::HasValidTarget(*T, Kind))
++		{
++			Finish(ETribeTaskState::Failed, bNodeMatches ? FName(TEXT("InvalidTarget")) : FName(TEXT("WrongResource")), ETaskMoveResult::InvalidTarget);
++			return;
++		}
++		GatherOrigin = GatherNode.IsValid() ? GatherNode->GetActorLocation() : T->TargetLocation;
++		Goal = GatherOrigin;
++		GatherPhase = M->IsCarrying() ? EGatherPhase::ToDropOff : EGatherPhase::ToNode; // a load from an earlier trip goes home first
++		UE_LOG(LogShaman, Log, TEXT("[Task] %s started task #%d Gather %s (%s) at %s."), *Unit, InTaskId, FGatherRules::ResourceName(GatherType),
++			FTribeTaskRules::PriorityName(T->Priority), GatherNode.IsValid() ? *GatherNode->GetName() : *GatherOrigin.ToCompactString());
++		Mover->StopTaskMove();
++		Update(Progress.StartTime);
++		return;
++	}
+ 	if (!ResolveGoal(*T, Goal))
+ 	{
+ 		Finish(ETribeTaskState::Failed, TEXT("InvalidTarget"), ETaskMoveResult::InvalidTarget);
+@@ -322,10 +362,17 @@ void FUnitTaskExecutor::Update(double Now)
+ 		const double Paused = FMath::Max(0.0, Now - PausedSince);
+ 		Progress.StartTime += Paused;
+ 		Progress.LastProgressTime += Paused;
++		HarvestEndsAt += Paused; // knocked down mid-harvest: the work resumes where it stopped
+ 		PausedSince = -1.0;
+ 		LastRequestTime = -1000.0; // the movement layer may have dropped the move meanwhile: allow an immediate re-issue
+ 	}
+ 
++	if (Kind == ETaskExecKind::Gather)
++	{
++		UpdateGather(Now);
++		return;
++	}
++
+ 	FVector NewGoal;
+ 	const bool bTargetValid = ResolveGoal(*T, NewGoal);
+ 	if (bTargetValid) Goal = NewGoal;
+@@ -370,7 +417,8 @@ bool FUnitTaskExecutor::IssueMove(double Now)
+ 	LastRequestTime = Now;
+ 	// Ask the movement layer to stop a little inside the arrival radius so arrival is detected reliably.
+ 	const FTribeTask* T = FindRunningTask();
+-	AActor* GoalActor = (Kind == ETaskExecKind::MoveToActor && T) ? T->TargetActor.Get() : nullptr;
++	AActor* GoalActor = (Kind == ETaskExecKind::MoveToActor && T) ? T->TargetActor.Get()
++		: (Kind == ETaskExecKind::Gather ? GatherGoalActor.Get() : nullptr);
+ 	const ETaskMoveRequest Answer = Mover->RequestTaskMove(Goal, GoalActor, Acceptance * 0.75f);
+ 	if (Answer == ETaskMoveRequest::Failed) { Finish(ETribeTaskState::Failed, TEXT("NoPath"), ETaskMoveResult::RequestFailed); return false; }
+ 	if (Answer == ETaskMoveRequest::Unreachable) { Finish(ETribeTaskState::Failed, TEXT("Unreachable"), ETaskMoveResult::Unreachable); return false; }
+@@ -416,6 +464,8 @@ void FUnitTaskExecutor::Finish(ETribeTaskState Final, FName Reason, ETaskMoveRes
+ void FUnitTaskExecutor::Release(bool bStopMovement)
+ {
+ 	const bool bWasRunning = TaskId != INDEX_NONE;
++	ReleaseNodeSlot(); // a gatherer that stops frees its place at the node
++	GatherGoalActor = nullptr;
+ 	TaskId = INDEX_NONE;
+ 	TaskTribe = nullptr;
+ 	Kind = ETaskExecKind::None;
+@@ -428,6 +478,12 @@ void FUnitTaskExecutor::Release(bool bStopMovement)
+ 
+ FString FUnitTaskExecutor::Describe() const
+ {
++	if (HasControl() && Kind == ETaskExecKind::Gather)
++	{
++		static const TCHAR* PhaseNames[] = { TEXT("to node"), TEXT("harvesting"), TEXT("carrying home") };
++		return FString::Printf(TEXT("exec Gather %s #%d: %s, %d trip(s)"), FGatherRules::ResourceName(GatherType), TaskId,
++			PhaseNames[FMath::Clamp((int32)GatherPhase, 0, 2)], GatherTrips);
++	}
+ 	if (HasControl())
+ 		return FString::Printf(TEXT("exec %s #%d: %s"), FTribeTaskExecutionRules::KindName(Kind), TaskId, FTribeTaskExecutionRules::MoveResultName(LastResult));
+ 	if (PendingTaskId != INDEX_NONE) return FString::Printf(TEXT("exec: #%d assigned, waiting for start"), PendingTaskId);
+@@ -436,3 +492,220 @@ FString FUnitTaskExecutor::Describe() const
+ 			LastReason.IsNone() ? TEXT("") : TEXT(" "), LastReason.IsNone() ? TEXT("") : *LastReason.ToString());
+ 	return TEXT("exec: idle");
+ }
++
++// ---- Gather (Slice 3 milestone 3.1) ----------------------------------------------------------------------------------
++
++void FUnitTaskExecutor::EnterGatherPhase(EGatherPhase NewPhase, double Now)
++{
++	GatherPhase = NewPhase;
++	Progress.Reset(Now);
++	bMoveIssued = false;
++	LastRequestedGoal = FVector(FLT_MAX);
++	LastRequestTime = -1000.0;
++	GatherGoalActor = nullptr;
++}
++
++bool FUnitTaskExecutor::IsUsableNode(const AResourceNode* Node) const
++{
++	return Node && !Node->IsPendingKillPending() && !Node->IsDepleted() && Node->GetResourceType() == GatherType
++		&& Node->HasFreeSlotFor(Member.Get());
++}
++
++AResourceNode* FUnitTaskExecutor::FindNextNode() const
++{
++	// Runs only when a node runs out or fills up (not per frame): a plain scan of the world's resource nodes.
++	const UTribeMemberComponent* M = Member.Get();
++	UWorld* W = M ? M->GetWorld() : nullptr;
++	if (!W) return nullptr;
++	const FVector Here = M->GetOwner()->GetActorLocation();
++	TArray<AResourceNode*> Nodes;
++	TArray<FGatherNodeCandidate> Candidates;
++	for (TActorIterator<AResourceNode> It(W); It; ++It)
++	{
++		AResourceNode* N = *It;
++		if (!N || N->IsPendingKillPending()) continue;
++		FGatherNodeCandidate C;
++		C.DistanceFromUnit = FShamanSpace::HorizontalDistance(M, Here, N->GetActorLocation());
++		C.DistanceFromOrigin = FShamanSpace::HorizontalDistance(M, GatherOrigin, N->GetActorLocation());
++		C.bTypeMatches = N->GetResourceType() == GatherType;
++		C.bDepleted = N->IsDepleted();
++		C.bHasFreeSlot = N->HasFreeSlotFor(M);
++		Candidates.Add(C);
++		Nodes.Add(N);
++	}
++	const int32 Pick = FGatherRules::PickNode(Candidates, UShamanGameData::Get(M)->Economy.NodeSearchRadius);
++	return Pick == INDEX_NONE ? nullptr : Nodes[Pick];
++}
++
++bool FUnitTaskExecutor::ResolveDropOff(FVector& OutLocation, float& OutAcceptance)
++{
++	const UTribeMemberComponent* M = Member.Get();
++	const UWorld* W = M ? M->GetWorld() : nullptr;
++	const UTribeSubsystem* Tribes = W ? W->GetSubsystem<UTribeSubsystem>() : nullptr;
++	if (!Tribes) return false;
++	const FVector Here = M->GetOwner()->GetActorLocation();
++	const FTribeTaskExecutionConfig& C = Config();
++	ABuildingActor* Best = nullptr;
++	float BestDist = TNumericLimits<float>::Max();
++	for (ABuildingActor* B : Tribes->GetBuildings(M->TribeId))
++	{
++		if (!B || B->IsPendingKillPending() || !B->IsResourceDropOff()) continue;
++		const float D = FShamanSpace::HorizontalDistance(M, Here, B->GetActorLocation());
++		if (D < BestDist) { BestDist = D; Best = B; }
++	}
++	if (Best)
++	{
++		OutLocation = Best->GetActorLocation();
++		OutAcceptance = C.ActorArrivalRadius + FMath::Clamp(Best->GetSimpleCollisionRadius(), 0.f, 2000.f);
++		GatherGoalActor = Best;
++		return true;
++	}
++	// No drop-off building (e.g. the table has no bIsResourceDropOff column yet): the settlement anchor (Campfire, else circle).
++	if (!Tribes->GetSettlementAnchor(M->TribeId, OutLocation)) return false;
++	OutAcceptance = C.ActorArrivalRadius;
++	GatherGoalActor = nullptr;
++	return true;
++}
++
++void FUnitTaskExecutor::ReleaseNodeSlot()
++{
++	if (bHoldingSlot)
++		if (AResourceNode* N = GatherNode.Get()) N->ReleaseSlot(Member.Get());
++	bHoldingSlot = false;
++}
++
++void FUnitTaskExecutor::DepositCarried()
++{
++	UTribeMemberComponent* M = Member.Get();
++	UTribeComponent* Tribe = TaskTribe.Get();
++	if (!M || !Tribe || !M->IsCarrying()) return;
++	const EResourceType Type = M->GetCarriedType();
++	const int32 Amount = M->GetCarriedAmount();
++	M->ClearCarried();
++	Tribe->AddResource(Type, Amount, FName(*GetNameSafe(M->GetOwner())));
++	++GatherTrips;
++}
++
++AResourceNode* FUnitTaskExecutor::GetGatherNode() const
++{
++	return GatherNode.Get();
++}
++
++void FUnitTaskExecutor::ContinueGather(double Now)
++{
++	if (GatherDepth >= 3 || !HasControl() || Kind != ETaskExecKind::Gather || !Member.IsValid()) return;
++	++GatherDepth;
++	UpdateGather(Now);
++	--GatherDepth;
++}
++
++void FUnitTaskExecutor::UpdateGather(double Now)
++{
++	UTribeMemberComponent* M = Member.Get();
++	const AActor* Owner = M->GetOwner();
++	const FTribeTaskExecutionConfig& C = Config();
++	M->SetTaskActivity(EUnitSimState::Gathering); // the whole trip is Brave work (mana: working rate)
++
++	// A bundle in hand always goes home before anything else.
++	if (GatherPhase == EGatherPhase::ToNode && M->IsCarrying()) EnterGatherPhase(EGatherPhase::ToDropOff, Now);
++
++	switch (GatherPhase)
++	{
++	case EGatherPhase::ToDropOff:
++	{
++		FVector DropAt;
++		float DropAcceptance = C.ActorArrivalRadius;
++		if (!ResolveDropOff(DropAt, DropAcceptance))
++		{
++			Finish(ETribeTaskState::Failed, TEXT("NoDropOff"), ETaskMoveResult::InvalidTarget);
++			return;
++		}
++		Goal = DropAt;
++		Acceptance = DropAcceptance;
++		const float Dist = FShamanSpace::HorizontalDistance(M, Owner->GetActorLocation(), Goal);
++		const FTaskStepResult S = FTribeTaskExecutionRules::Step(ETaskExecKind::MoveToLocation, Progress, Dist, Acceptance, true, Now, C);
++		if (S.Action == ETaskStepAction::Complete)
++		{
++			Mover->StopTaskMove();
++			DepositCarried();
++			LastResult = ETaskMoveResult::Arrived;
++			EnterGatherPhase(EGatherPhase::ToNode, Now);
++			ContinueGather(Now);
++			return;
++		}
++		if (S.Action == ETaskStepAction::Fail) { Finish(ETribeTaskState::Failed, S.Reason, S.Result); return; }
++		IssueMove(Now);
++		return;
++	}
++	case EGatherPhase::ToNode:
++	{
++		AResourceNode* Node = GatherNode.Get();
++		if (!IsUsableNode(Node))
++		{
++			Node = FindNextNode();
++			const bool bChanged = Node != GatherNode.Get();
++			GatherNode = Node;
++			if (!Node)
++			{
++				UE_LOG(LogShaman, Log, TEXT("[Task] %s task #%d: no %s left within %.0f uu of the order."), *GetNameSafe(Owner), TaskId,
++					FGatherRules::ResourceName(GatherType), UShamanGameData::Get(M)->Economy.NodeSearchRadius);
++				Finish(ETribeTaskState::Completed, TEXT("NothingLeft"), ETaskMoveResult::Arrived);
++				return;
++			}
++			if (bChanged) EnterGatherPhase(EGatherPhase::ToNode, Now);
++		}
++		GatherGoalActor = Node;
++		Goal = Node->GetActorLocation();
++		Acceptance = C.ActorArrivalRadius + FMath::Clamp(Node->GetSimpleCollisionRadius(), 0.f, 2000.f);
++		const float Dist = FShamanSpace::HorizontalDistance(M, Owner->GetActorLocation(), Goal);
++		const FTaskStepResult S = FTribeTaskExecutionRules::Step(ETaskExecKind::MoveToLocation, Progress, Dist, Acceptance, true, Now, C);
++		if (S.Action == ETaskStepAction::Complete)
++		{
++			if (!Node->ReserveSlot(M))
++			{
++				GatherNode = nullptr; // filled up while we walked: pick another next decision
++				return;
++			}
++			bHoldingSlot = true;
++			Mover->StopTaskMove();
++			EnterGatherPhase(EGatherPhase::Harvesting, Now);
++			GatherGoalActor = Node;
++			HarvestEndsAt = Now + Node->GetHarvestSeconds();
++			LastResult = ETaskMoveResult::OnStation;
++			return;
++		}
++		if (S.Action == ETaskStepAction::Fail) { Finish(ETribeTaskState::Failed, S.Reason, S.Result); return; }
++		IssueMove(Now);
++		return;
++	}
++	case EGatherPhase::Harvesting:
++	default:
++	{
++		AResourceNode* Node = GatherNode.Get();
++		if (!Node || Node->IsPendingKillPending() || Node->IsDepleted())
++		{
++			ReleaseNodeSlot();
++			GatherNode = nullptr;
++			EnterGatherPhase(EGatherPhase::ToNode, Now);
++			ContinueGather(Now);
++			return;
++		}
++		Progress.LastProgressTime = Now; // working in place is not being stuck
++		if (Now < HarvestEndsAt) return;
++		ReleaseNodeSlot(); // before Harvest: the last bundle of a stone outcrop removes the node
++		const int32 Got = Node->Harvest(Node->GetBundlesPerTrip());
++		if (Got > 0)
++		{
++			M->SetCarried(GatherType, Got);
++			EnterGatherPhase(EGatherPhase::ToDropOff, Now);
++		}
++		else
++		{
++			GatherNode = nullptr;
++			EnterGatherPhase(EGatherPhase::ToNode, Now);
++		}
++		ContinueGather(Now);
++		return;
++	}
++	}
++}
+diff --git a/Source/Shaman/Private/UI/ShamanHUD.cpp b/Source/Shaman/Private/UI/ShamanHUD.cpp
+index efa9480..0487c89 100644
+--- a/Source/Shaman/Private/UI/ShamanHUD.cpp
++++ b/Source/Shaman/Private/UI/ShamanHUD.cpp
+@@ -112,6 +112,8 @@ void AShamanHUD::DrawHUD()
+ 		BY += 22.f * UI;
+ 	}
+ 	DrawLine(FString::Printf(TEXT("Followers %d / %d   (more followers = faster mana & rebirth)"), Followers, Cap), BX, BY, FLinearColor::White, 0.85f * UI);
++	if (MyTribeComp) // Slice 3: what the tribe has gathered
++		DrawLine(FString::Printf(TEXT("Stockpile:  %s"), *MyTribeComp->GetStockpile().ToString()), BX, BY + 20.f * UI, FLinearColor(0.95f, 0.85f, 0.6f), 0.8f * UI);
+ 
+ 	if (!S->Spells->SpellTable)
+ 		DrawLine(TEXT("No spell data loaded: import Content/Data/Spells.csv as a DataTable (row type SpellRow)"), SW * 0.5f, SH - 120.f * UI, FLinearColor(1.f, 0.3f, 0.3f), 1.f * UI, true);
+@@ -237,7 +239,7 @@ void AShamanHUD::DrawControlOverlay(const AShamanPlayerController* PC, float SW,
+ 	DrawLine(bRTS ? TEXT("RTS MODE") : TEXT("SHAMAN MODE"), SW * 0.5f, 10.f * UI,
+ 		bRTS ? FLinearColor(1.f, 0.85f, 0.25f) : FLinearColor(0.55f, 0.85f, 1.f), 1.4f * UI, true);
+ 	DrawLine(bRTS
+-		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move (on Shaman / flag / your building: guard it)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
++		? TEXT("Enter: Shaman mode   LMB: select / drag box (Shift adds)   RMB: move (on Shaman / flag / your building: guard it; on a tree, stone, ore or bush: gather)   Spell panel: LMB select, RMB charge   WASD: pan   Q/E or MMB drag: rotate   Wheel: zoom   F: focus   Home: Shaman   Backspace: clear")
+ 		: TEXT("Enter: RTS mode"), SW * 0.5f, 40.f * UI, FLinearColor(1.f, 1.f, 1.f, 0.65f), 0.7f * UI, true);
+ 	if (bRTS)
+ 		DrawLine(TEXT("G: guard Shaman   P: plant flag   Del: remove flag   Ctrl+RMB flags: patrol   Ctrl+Alt+RMB ground: patrol (double-click: guard spot)"),
+diff --git a/Source/Shaman/Private/World/ResourceNode.cpp b/Source/Shaman/Private/World/ResourceNode.cpp
+index 593b2a5..1fbabd9 100644
+--- a/Source/Shaman/Private/World/ResourceNode.cpp
++++ b/Source/Shaman/Private/World/ResourceNode.cpp
+@@ -2,9 +2,13 @@
+ #include "Game/ShamanGameData.h"
+ #include "Core/ShamanVisuals.h"
+ #include "Core/ShamanLog.h"
++#include "Tribes/TribeEconomy.h"
++#include "TribeMemberComponent.h"
+ #include "Components/StaticMeshComponent.h"
+ #include "Engine/DataTable.h"
+ #include "Engine/StaticMesh.h"
++#include "Engine/World.h"
++#include "TimerManager.h"
+ #include "UObject/ConstructorHelpers.h"
+ 
+ #define LOCTEXT_NAMESPACE "ShamanResources"
+@@ -30,20 +34,116 @@ void AResourceNode::BeginPlay()
+ 	else
+ 		if (ShamanLog::FirstTime(TEXT("ResourceRow:") + ResourceId.ToString()))
+ 			UE_LOG(LogShaman, Warning, TEXT("Resource row '%s' not found; using defaults (logged once)."), *ResourceId.ToString());
+-	Remaining = Row.Amount;
+-	ShamanVisuals::ApplyMesh(Mesh, Row.Mesh, FallbackMesh, Row.MeshScale, Row.Tint);
++	Remaining = GetMaxAmount();
+ 	if (!Row.bBlocksMovement)
+ 	{
+ 		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+ 		Mesh->SetCanEverAffectNavigation(false);
+ 	}
++	UpdateVisual();
++}
++
++void AResourceNode::EndPlay(const EEndPlayReason::Type Reason)
++{
++	if (UWorld* W = GetWorld()) W->GetTimerManager().ClearTimer(RegrowTimer);
++	Gatherers.Reset();
++	Super::EndPlay(Reason);
++}
++
++void AResourceNode::ApplyRow(const FResourceRow& NewRow, bool bRefill)
++{
++	Row = NewRow;
++	if (bRefill) Remaining = GetMaxAmount();
++	Remaining = FMath::Clamp(Remaining, 0, GetMaxAmount());
++	UpdateVisual();
++	UpdateRegrowTimer();
++}
++
++void AResourceNode::PruneGatherers() const
++{
++	Gatherers.RemoveAll([](const TWeakObjectPtr<UTribeMemberComponent>& G)
++	{
++		const UTribeMemberComponent* M = G.Get();
++		return !M || !M->IsAlive();
++	});
++}
++
++int32 AResourceNode::GetGathererCount() const
++{
++	PruneGatherers();
++	return Gatherers.Num();
++}
++
++bool AResourceNode::HasFreeSlotFor(const UTribeMemberComponent* Member) const
++{
++	PruneGatherers();
++	for (const TWeakObjectPtr<UTribeMemberComponent>& G : Gatherers)
++		if (G.Get() == Member) return true;
++	return Gatherers.Num() < GetMaxGatherers();
++}
++
++bool AResourceNode::ReserveSlot(UTribeMemberComponent* Member)
++{
++	if (!Member || IsDepleted() || IsPendingKillPending() || !HasFreeSlotFor(Member)) return false;
++	for (const TWeakObjectPtr<UTribeMemberComponent>& G : Gatherers)
++		if (G.Get() == Member) return true;
++	Gatherers.Add(Member);
++	return true;
++}
++
++void AResourceNode::ReleaseSlot(const UTribeMemberComponent* Member)
++{
++	Gatherers.RemoveAll([Member](const TWeakObjectPtr<UTribeMemberComponent>& G) { return !G.IsValid() || G.Get() == Member; });
++}
++
++int32 AResourceNode::Harvest(int32 Want)
++{
++	const int32 Taken = FResourceStock::Take(Remaining, Want);
++	if (Taken <= 0) return 0;
++	UpdateVisual();
++	if (IsDepleted() && !CanRegrow() && Row.bDestroyWhenDepleted)
++	{
++		UE_LOG(LogShaman, Log, TEXT("[Economy] %s is used up and removed."), *GetName());
++		Gatherers.Reset();
++		Destroy();
++		return Taken;
++	}
++	UpdateRegrowTimer();
++	return Taken;
++}
++
++int32 AResourceNode::RegrowStep()
++{
++	const int32 Added = FResourceStock::Regrow(Remaining, GetMaxAmount(), Row.RegrowAmount);
++	if (Added > 0) UpdateVisual();
++	UpdateRegrowTimer();
++	return Added;
++}
++
++void AResourceNode::UpdateRegrowTimer()
++{
++	UWorld* W = GetWorld();
++	if (!W) return;
++	FTimerManager& TM = W->GetTimerManager();
++	const bool bWants = CanRegrow() && Remaining < GetMaxAmount() && !IsPendingKillPending();
++	if (bWants && !TM.IsTimerActive(RegrowTimer))
++		TM.SetTimer(RegrowTimer, this, &AResourceNode::RegrowRepeat, Row.RegrowSeconds, true);
++	else if (!bWants && TM.IsTimerActive(RegrowTimer))
++		TM.ClearTimer(RegrowTimer);
++}
++
++void AResourceNode::UpdateVisual()
++{
++	// Shrinks toward 45% of its size as it empties, so a tired forest reads at a glance.
++	const float Max = (float)FMath::Max(1, GetMaxAmount());
++	const float Fill = FMath::Clamp((float)Remaining / Max, 0.f, 1.f);
++	ShamanVisuals::ApplyMesh(Mesh, Row.Mesh, FallbackMesh, Row.MeshScale * FMath::Lerp(0.45f, 1.f, Fill), Row.Tint);
+ }
+ 
+ FText AResourceNode::GetInteractionText(const AActor*) const
+ {
+-	static const FText TypeNames[] = { LOCTEXT("Wood", "wood"), LOCTEXT("Food", "food"), LOCTEXT("Stone", "stone"), LOCTEXT("Ore", "ore") };
+-	const int32 TypeIdx = FMath::Clamp((int32)Row.Type, 0, 3);
+-	return FText::Format(LOCTEXT("Res", "{0}: {1} {2} (gathering arrives in Phase 2)"), Row.DisplayName, FText::AsNumber(Remaining), TypeNames[TypeIdx]);
++	return FText::Format(LOCTEXT("Res", "{0}: {1} / {2} {3} (RTS: select Braves, right-click to gather)"), Row.DisplayName,
++		FText::AsNumber(Remaining), FText::AsNumber(GetMaxAmount()), FText::FromString(FGatherRules::ResourceName(Row.Type)));
+ }
+ 
+ #undef LOCTEXT_NAMESPACE
+diff --git a/Source/Shaman/Public/Buildings/BuildingActor.h b/Source/Shaman/Public/Buildings/BuildingActor.h
+index 4f80893..a07a00a 100644
+--- a/Source/Shaman/Public/Buildings/BuildingActor.h
++++ b/Source/Shaman/Public/Buildings/BuildingActor.h
+@@ -27,6 +27,7 @@ public:
+ 	const FBuildingRow& GetRow() const { return Row; }
+ 	UFUNCTION(BlueprintCallable) bool IsReincarnationSite() const { return Row.bIsReincarnationSite; }
+ 	UFUNCTION(BlueprintCallable) bool IsGatheringPoint() const { return Row.bIsGatheringPoint; }
++	UFUNCTION(BlueprintCallable) bool IsResourceDropOff() const { return Row.bIsResourceDropOff; }
+ 	UFUNCTION(BlueprintCallable) int32 GetPopulationCapacity() const { return Row.PopulationCapacity; }
+ 	/** Where a reborn Shaman appears (just beside the circle so it does not stand inside the mesh). */
+ 	UFUNCTION(BlueprintCallable) FVector GetRebirthLocation() const;
+diff --git a/Source/Shaman/Public/Buildings/BuildingRow.h b/Source/Shaman/Public/Buildings/BuildingRow.h
+index 87799a8..05af1e7 100644
+--- a/Source/Shaman/Public/Buildings/BuildingRow.h
++++ b/Source/Shaman/Public/Buildings/BuildingRow.h
+@@ -17,6 +17,8 @@ struct SHAMAN_API FBuildingRow : public FTableRowBase
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 PopulationCapacity = 0;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bIsReincarnationSite = false;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bIsGatheringPoint = false;   // Campfire: interacting calls followers here
++	/** Braves bring gathered resources here (Slice 3 milestone 3.1). With none, the settlement anchor is used. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bIsResourceDropOff = false;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bTerrainLocked = false;      // spells may never modify terrain under it
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bInvulnerable = false;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float MaxHealth = 500.f;
+diff --git a/Source/Shaman/Public/Game/ShamanGameData.h b/Source/Shaman/Public/Game/ShamanGameData.h
+index 8f50758..abf84ea 100644
+--- a/Source/Shaman/Public/Game/ShamanGameData.h
++++ b/Source/Shaman/Public/Game/ShamanGameData.h
+@@ -5,6 +5,7 @@
+ #include "Tribes/TribeDefinitions.h"
+ #include "Tribes/TribeTaskExecution.h"
+ #include "Tribes/TribeMana.h"
++#include "Tribes/TribeEconomy.h"
+ #include "ShamanGameData.generated.h"
+ 
+ class UDataTable;
+@@ -55,6 +56,8 @@ public:
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes") FLinearColor WildmenColor = FLinearColor(0.55f, 0.42f, 0.28f, 1.f);
+ 	/** Phase 2.2: arrival radii and failure timeouts for executed tasks (move / move to actor / guard). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes|Tasks") FTribeTaskExecutionConfig TaskExecution;
++	/** Slice 3: gathering (next-node search) and the stockpile every tribe starts with. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Tribes|Economy") FTribeEconomyConfig Economy;
+ 
+ 	/** Spells every Shaman starts with (spec: TAKA / Blast only). */
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Spells") TArray<FName> StartingSpells;
+diff --git a/Source/Shaman/Public/Game/ShamanGameMode.h b/Source/Shaman/Public/Game/ShamanGameMode.h
+index dbf5632..1d80703 100644
+--- a/Source/Shaman/Public/Game/ShamanGameMode.h
++++ b/Source/Shaman/Public/Game/ShamanGameMode.h
+@@ -58,6 +58,10 @@ public:
+ 	 * The last created task is the one Assign/Start/Go/Complete/Fail/Cancel/Info act on.
+ 	 */
+ 	UFUNCTION(Exec) void ShamanTaskTest(const FString& Action);
++	/** Slice 3: each tribe's stockpile, gatherers at work and resource nodes left in the world. */
++	UFUNCTION(Exec) void ShamanEconomyReport();
++	/** Developer: adds resources to the player's tribe, e.g. "ShamanGiveResources 10 5 2 0" (wood stone ore food). */
++	UFUNCTION(Exec) void ShamanGiveResources(int32 Wood, int32 Stone, int32 Ore, int32 Food);
+ 	/** Developer test: moves the player's Brave nearest to the player into tribe NewTribeId (membership transfer). */
+ 	UFUNCTION(Exec) void ShamanTribeTransfer(int32 NewTribeId);
+ 
+diff --git a/Source/Shaman/Public/Player/ShamanPlayerController.h b/Source/Shaman/Public/Player/ShamanPlayerController.h
+index 791f0bc..a3ac89b 100644
+--- a/Source/Shaman/Public/Player/ShamanPlayerController.h
++++ b/Source/Shaman/Public/Player/ShamanPlayerController.h
+@@ -8,6 +8,7 @@
+ class AShamanRTSCamera;
+ class AShamanUnitBase;
+ class AShamanGuardFlag;
++class AResourceNode;
+ class UShamanSelectionComponent;
+ class UInputComponent;
+ 
+@@ -85,6 +86,10 @@ public:
+ 	int32 CommandGuardSpot(const TArray<AShamanUnitBase*>& Units, const FVector& Spot);
+ 	/** Walk Points in a loop; each Brave starts at the point nearest to it. Returns how many. */
+ 	int32 CommandPatrol(const TArray<AShamanUnitBase*>& Units, const TArray<FVector>& Points);
++	/** RMB on a tree, stone outcrop, ore deposit or berry bush (Slice 3): each selected Brave gets a Task.Gather.* for
++	 *  that node and keeps gathering (nearby nodes of the same kind once it runs out) until given another order.
++	 *  Other unit types (Warriors, the Shaman) are skipped. Returns how many Braves got the order. */
++	int32 CommandGather(const TArray<AShamanUnitBase*>& Units, AResourceNode* Node);
+ 
+ 	/** Patrol route being built with Ctrl(+Alt)+RMB: adds a point and re-issues the patrol to Units. Returns false when
+ 	 *  the route is full (MaxPatrolPoints). The route closes when Ctrl is released (or CloseRoute). */
+@@ -138,6 +143,8 @@ protected:
+ 	AShamanGuardFlag* PickGuardFlag(const FVector2D& ScreenPos) const;
+ 	/** One of the player's buildings under a screen position (Visibility trace). */
+ 	AActor* PickOwnBuilding(const FVector2D& ScreenPos) const;
++	/** A resource node under a screen position (Visibility trace). */
++	AResourceNode* PickResourceNode(const FVector2D& ScreenPos) const;
+ 	/** Selectable, non-Shaman units of the player's tribe, task cancelled (a player order replaces it). */
+ 	TArray<AShamanUnitBase*> TakeBravesForOrder(const TArray<AShamanUnitBase*>& Units);
+ 	/** Gives Braves a guard order with evenly spread slots (ordered by their angle around the centre: no crossing). */
+diff --git a/Source/Shaman/Public/TribeComponent.h b/Source/Shaman/Public/TribeComponent.h
+index a1674bf..374e39a 100644
+--- a/Source/Shaman/Public/TribeComponent.h
++++ b/Source/Shaman/Public/TribeComponent.h
+@@ -3,6 +3,7 @@
+ #include "Components/ActorComponent.h"
+ #include "TribeTypes.h"
+ #include "Tribes/TribeTaskTypes.h"
++#include "Tribes/TribeEconomy.h"
+ #include "TribeComponent.generated.h"
+ 
+ class UTribeMemberComponent;
+@@ -10,6 +11,7 @@ class UTribeMemberComponent;
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTribeFollowersChanged, int32, TribeId, int32, FollowerCount);
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnTribeTaskChanged, int32, TribeId, int32, TaskId, ETribeTaskState, NewState);
+ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeWorkersChanged, int32, TribeId);
++DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnTribeStockpileChanged, int32, TribeId, EResourceType, Type, int32, NewAmount);
+ 
+ /**
+  * Smallest tribe: identity, follower roster and population capacity. Put one on each tribe's Shaman (BP_Shaman).
+@@ -20,7 +22,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTribeWorkersChanged, int32, Tribe
+  * fail / cancel) and answers worker-pool queries. Phase 2.2: every state change of a held task is also relayed to the
+  * assignee (UTribeMemberComponent::OnTaskStateChanged), which is how the unit's executor learns to start or stop. Leaving the roster (death, conversion, tribe change, destruction)
+  * fails the member's task, so no task can be held by a unit that is no longer a living follower of this tribe.
+- * Food, housing, growth etc. arrive with later Phase 2 milestones.
++ * Slice 3 milestone 3.1: the tribe also owns its resource stockpile (wood, food, stone, ore). Braves add to it when they
++ * deliver a gathered bundle; construction and training spend from it in later milestones (all or nothing).
++ * Housing, growth, happiness etc. arrive with later Slice 3 milestones.
+  */
+ UCLASS(ClassGroup=(Shaman), meta=(BlueprintSpawnableComponent))
+ class SHAMAN_API UTribeComponent : public UActorComponent
+@@ -91,6 +95,18 @@ public:
+ 	/** Ended tasks kept for inspection (debug, tests); older ones are forgotten. */
+ 	UPROPERTY(EditAnywhere, Category="Tribe|Simulation", meta=(ClampMin="0")) int32 MaxEndedTasksKept = 64;
+ 
++	// ---- Stockpile (Slice 3 milestone 3.1) -------------------------------------------------------------------------
++	/** Bundles of Type the tribe holds. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") int32 GetResourceAmount(EResourceType Type) const { return Stockpile.Get(Type); }
++	const FTribeStockpile& GetStockpile() const { return Stockpile; }
++	/** Adds delivered resources. Returns what was added (0 for Amount <= 0). Source is for the log. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") int32 AddResource(EResourceType Type, int32 Amount, FName Source);
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") bool CanAfford(const FResourceCost& Cost) const { return Stockpile.CanAfford(Cost); }
++	/** Takes Cost if all of it is in stock (all or nothing). Reason is for the log. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") bool SpendResources(const FResourceCost& Cost, FName Reason);
++	/** Fired once per resource type whose amount changed. */
++	UPROPERTY(BlueprintAssignable, Category="Tribe|Economy") FOnTribeStockpileChanged OnStockpileChanged;
++
+ 	/** The tribe an actor acts for: its own UTribeComponent, else the tribe of its UTribeMemberComponent. */
+ 	UFUNCTION(BlueprintCallable, Category="Tribe") static UTribeComponent* FindTribeFor(const AActor* Actor);
+ 
+@@ -106,6 +122,7 @@ private:
+ 	void ForgetOldEndedTasks();
+ 	float Now() const;
+ 	TArray<TWeakObjectPtr<UTribeMemberComponent>> Followers;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Economy") FTribeStockpile Stockpile;
+ 	TMap<int32, FTribeTask> Tasks;
+ 	TArray<int32> EndedTaskOrder;
+ 	int32 NextTaskId = 1;
+diff --git a/Source/Shaman/Public/TribeMemberComponent.h b/Source/Shaman/Public/TribeMemberComponent.h
+index 66393df..328a826 100644
+--- a/Source/Shaman/Public/TribeMemberComponent.h
++++ b/Source/Shaman/Public/TribeMemberComponent.h
+@@ -2,6 +2,7 @@
+ #include "CoreMinimal.h"
+ #include "Components/ActorComponent.h"
+ #include "TribeTypes.h"
++#include "ShamanTypes.h"
+ #include "Tribes/TribeTaskTypes.h"
+ #include "TribeMemberComponent.generated.h"
+ 
+@@ -80,6 +81,15 @@ public:
+ 	/** Fired by the owning tribe for the task this unit holds; the unit's FUnitTaskExecutor listens (Phase 2.2). */
+ 	FOnMemberTaskStateChanged OnTaskStateChanged;
+ 
++	// ---- Carried resources (Slice 3 milestone 3.1) ----------------------------------------------------------------
++	/** The unit carries a gathered bundle home. Kept across task changes (the next gather trip delivers it first);
++	 *  lost when the unit dies. */
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") bool IsCarrying() const { return CarriedAmount > 0; }
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") EResourceType GetCarriedType() const { return CarriedType; }
++	UFUNCTION(BlueprintCallable, Category="Tribe|Economy") int32 GetCarriedAmount() const { return CarriedAmount; }
++	void SetCarried(EResourceType Type, int32 Amount) { CarriedType = Type; CarriedAmount = FMath::Max(0, Amount); }
++	void ClearCarried() { CarriedAmount = 0; }
++
+ 	/** Bookkeeping hooks for UTribeComponent only. */
+ 	void SetCurrentTaskId(int32 TaskId) { CurrentTaskId = TaskId; }
+ 	void NotifyTaskState(int32 TaskId, ETribeTaskState NewState) { OnTaskStateChanged.Broadcast(this, TaskId, NewState); }
+@@ -99,4 +109,6 @@ private:
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") int32 CurrentTaskId = INDEX_NONE;
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState Activity = EUnitSimState::Idle;
+ 	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Simulation") EUnitSimState TaskActivity = EUnitSimState::Working;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Economy") EResourceType CarriedType = EResourceType::Wood;
++	UPROPERTY(VisibleInstanceOnly, Category="Tribe|Economy") int32 CarriedAmount = 0;
+ };
+diff --git a/Source/Shaman/Public/Tribes/TribeEconomy.h b/Source/Shaman/Public/Tribes/TribeEconomy.h
+new file mode 100644
+index 0000000..ebd5f39
+--- /dev/null
++++ b/Source/Shaman/Public/Tribes/TribeEconomy.h
+@@ -0,0 +1,110 @@
++#pragma once
++#include "CoreMinimal.h"
++#include "GameplayTagContainer.h"
++#include "ShamanTypes.h"
++#include "TribeEconomy.generated.h"
++
++/**
++ * Slice 3, milestone 3.1: the tribe economy's shared vocabulary. Kept free of actors so every rule here is pure and
++ * unit-tested on its own (Shaman.Economy.*):
++ *   - FResourceCost: what something costs (buildings and training use it from milestone 3.2 on).
++ *   - FTribeStockpile: what a tribe holds. Owned by UTribeComponent; nothing else stores resources.
++ *   - FResourceStock: harvest / regrow arithmetic of one resource node.
++ *   - FGatherRules: gather task tags and the choice of the next node when the ordered one runs out.
++ *   - FTribeEconomyConfig: tuning (UShamanGameData::Economy).
++ * Quantities are bundles: one Brave trip carries FResourceRow::BundlesPerTrip of them (1 by default, as in Populous).
++ */
++
++/** A price in bundles. Every field defaults to 0 (free). */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FResourceCost
++{
++	GENERATED_BODY()
++
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy", meta=(ClampMin="0")) int32 Wood = 0;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy", meta=(ClampMin="0")) int32 Food = 0;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy", meta=(ClampMin="0")) int32 Stone = 0;
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy", meta=(ClampMin="0")) int32 Ore = 0;
++
++	FResourceCost() = default;
++	FResourceCost(int32 InWood, int32 InStone, int32 InOre, int32 InFood = 0) : Wood(InWood), Food(InFood), Stone(InStone), Ore(InOre) {}
++
++	/** Amount of one resource (negative fields count as 0). */
++	int32 Get(EResourceType Type) const;
++	bool IsFree() const;
++	/** "3 wood, 2 stone" ("free" when nothing is charged). */
++	FString ToString() const;
++};
++
++/** Resources a tribe holds. Amounts never go negative; spending is all or nothing. */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FTribeStockpile
++{
++	GENERATED_BODY()
++
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Economy") int32 Wood = 0;
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Economy") int32 Food = 0;
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Economy") int32 Stone = 0;
++	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Economy") int32 Ore = 0;
++
++	int32 Get(EResourceType Type) const;
++	/** Adds Amount (> 0) of Type. Returns what was added (0 for Amount <= 0). Saturates instead of overflowing. */
++	int32 Add(EResourceType Type, int32 Amount);
++	bool CanAfford(const FResourceCost& Cost) const;
++	/** Takes Cost if every part of it is in stock; otherwise changes nothing and returns false. */
++	bool Spend(const FResourceCost& Cost);
++	int32 Total() const { return Wood + Food + Stone + Ore; }
++	/** "Wood 3  Stone 0  Ore 1  Food 2". */
++	FString ToString() const;
++
++private:
++	int32* Find(EResourceType Type);
++};
++
++/** Harvest and regrow arithmetic of a resource node (AResourceNode keeps the state, this keeps the rules). */
++struct SHAMAN_API FResourceStock
++{
++	/** Takes up to Want (> 0) from Remaining. Returns what was taken; Remaining never goes below 0. */
++	static int32 Take(int32& Remaining, int32 Want);
++	/** Adds up to Amount (> 0) without exceeding Max. Returns what was added. */
++	static int32 Regrow(int32& Remaining, int32 Max, int32 Amount);
++};
++
++/** One node as the next-node choice sees it (FGatherRules::PickNode). */
++struct SHAMAN_API FGatherNodeCandidate
++{
++	/** Distance from the gatherer (nearest wins). */
++	float DistanceFromUnit = 0.f;
++	/** Distance from where the order was given (must be within the search radius). */
++	float DistanceFromOrigin = 0.f;
++	bool bTypeMatches = false;
++	bool bDepleted = false;
++	bool bHasFreeSlot = false;
++};
++
++struct SHAMAN_API FGatherRules
++{
++	/** Task.Gather.Wood / Food / Stone / Ore -> the resource it gathers. False for any other tag. */
++	static bool ResourceOfTag(const FGameplayTag& Tag, EResourceType& OutType);
++	/** The gather task tag for a resource (invalid if the tag is not registered). */
++	static FGameplayTag TagForResource(EResourceType Type);
++	/** Index of the node a gatherer should go to next: the right type, not depleted, with a free slot, within
++	 *  MaxDistanceFromOrigin of the order (<= 0: any distance); the nearest to the unit wins, ties go to the lower
++	 *  index (deterministic). INDEX_NONE when none qualifies. */
++	static int32 PickNode(const TArray<FGatherNodeCandidate>& Candidates, float MaxDistanceFromOrigin);
++	/** "wood", "food", "stone", "ore". */
++	static const TCHAR* ResourceName(EResourceType Type);
++};
++
++/** Economy tuning (DA_ShamanGameData > Economy). Node yields, harvest times and regrowth live in DT_Resources. */
++USTRUCT(BlueprintType)
++struct SHAMAN_API FTribeEconomyConfig
++{
++	GENERATED_BODY()
++
++	/** When the node a Brave was sent to runs out (or its slots are full), the Brave moves on to the nearest node of
++	 *  the same kind within this distance of the original order. Nothing in range: the gather order completes. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy", meta=(ClampMin="0")) float NodeSearchRadius = 3000.f;
++	/** What every tribe holds at level start (0 everywhere by default: Braves must gather everything). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Economy") FResourceCost StartingStockpile;
++};
+diff --git a/Source/Shaman/Public/Tribes/TribeTaskExecution.h b/Source/Shaman/Public/Tribes/TribeTaskExecution.h
+index d85bfe4..0a982da 100644
+--- a/Source/Shaman/Public/Tribes/TribeTaskExecution.h
++++ b/Source/Shaman/Public/Tribes/TribeTaskExecution.h
+@@ -2,10 +2,13 @@
+ #include "CoreMinimal.h"
+ #include "GameplayTagContainer.h"
+ #include "Tribes/TribeTaskTypes.h"
++#include "ShamanTypes.h"
+ #include "TribeTaskExecution.generated.h"
+ 
+ class UTribeComponent;
+ class UTribeMemberComponent;
++class AResourceNode;
++class AActor;
+ 
+ /**
+  * Phase 2.2: task execution. The tribe's task book (UTribeComponent) stays the single owner of task state; this file
+@@ -15,8 +18,9 @@ class UTribeMemberComponent;
+  *     planet-surface movement). No second movement system.
+  *   - FUnitTaskExecutor: per-unit glue. Listens to its member's task events, asks the mover to move, and reports the
+  *     outcome back to the task book (Complete / Fail). It never changes task state directly.
+- * Only Task.MoveTo, Task.MoveToActor and Task.Guard are executable; every other type (Task.Debug, reserved gather /
+- * build tags) remains bookkeeping-only.
++ * Executable: Task.MoveTo, Task.MoveToActor, Task.Guard (Phase 2.2) and Task.Gather.Wood / Food / Stone / Ore (Slice 3
++ * milestone 3.1: walk to a node, work it, carry the bundle to the nearest drop-off, repeat). Every other type
++ * (Task.Debug, reserved build tags) remains bookkeeping-only.
+  */
+ 
+ /** Executable task kinds (from the task's Task.* tag). */
+@@ -26,7 +30,17 @@ enum class ETaskExecKind : uint8
+ 	None,            // not executable here: bookkeeping only
+ 	MoveToLocation,  // Task.MoveTo: go to TargetLocation, complete on arrival
+ 	MoveToActor,     // Task.MoveToActor: go to TargetActor, complete within reach, fail if it disappears
+-	Guard            // Task.Guard: go to TargetLocation and stay there until cancelled
++	Guard,           // Task.Guard: go to TargetLocation and stay there until cancelled
++	Gather           // Task.Gather.*: gather from TargetActor (a resource node; TargetLocation = search origin) until cancelled or nothing is left
++};
++
++/** Where a gathering unit is in its trip (Task.Gather.*). */
++UENUM(BlueprintType)
++enum class EGatherPhase : uint8
++{
++	ToNode,      // walking to a node of the ordered kind
++	Harvesting,  // working at the node (holds one of its slots)
++	ToDropOff    // carrying a bundle to the nearest drop-off (Campfire, else the settlement anchor)
+ };
+ 
+ /** What the executor last saw happen to its movement (debug / inspection). */
+@@ -97,7 +111,7 @@ struct SHAMAN_API FTaskStepResult
+ struct SHAMAN_API FTribeTaskExecutionRules
+ {
+ 	static ETaskExecKind KindOf(const FGameplayTag& Type);
+-	/** The task carries what its kind needs (finite location / live actor). */
++	/** The task carries what its kind needs (finite location / live actor; Gather: a live node or a finite search origin). */
+ 	static bool HasValidTarget(const FTribeTask& Task, ETaskExecKind Kind);
+ 	static float AcceptanceFor(const FTribeTask& Task, ETaskExecKind Kind, const FTribeTaskExecutionConfig& Config);
+ 	/** One decision step. Distance = ground distance to the goal; bTargetValid = false when a MoveToActor target is gone. */
+@@ -155,6 +169,10 @@ public:
+ 	FName GetLastReason() const { return LastReason; }
+ 	int32 GetLastTaskId() const { return LastTaskId; }
+ 	FVector GetGoal() const { return Goal; }
++	// Gather inspection (Task.Gather.*)
++	EGatherPhase GetGatherPhase() const { return GatherPhase; }
++	int32 GetGatherTrips() const { return GatherTrips; }
++	AResourceNode* GetGatherNode() const;
+ 	bool IsOnStation() const { return HasControl() && Progress.bOnStation; }
+ 	FString Describe() const;
+ 
+@@ -166,6 +184,17 @@ private:
+ 	/** Forget the running task locally (stops task-driven movement). Never touches the task book. */
+ 	void Release(bool bStopMovement);
+ 	bool ResolveGoal(const FTribeTask& Task, FVector& OutGoal) const;
++	// Gather (Slice 3 milestone 3.1)
++	void UpdateGather(double Now);
++	/** Run the next leg in the same decision (a few legs at most), so a unit never stands idle for a tick between legs. */
++	void ContinueGather(double Now);
++	void EnterGatherPhase(EGatherPhase NewPhase, double Now);
++	bool IsUsableNode(const AResourceNode* Node) const;
++	AResourceNode* FindNextNode() const;
++	/** Nearest drop-off building of the unit's tribe, else the settlement anchor. False if the tribe has neither. */
++	bool ResolveDropOff(FVector& OutLocation, float& OutAcceptance);
++	void ReleaseNodeSlot();
++	void DepositCarried();
+ 	bool IssueMove(double Now);
+ 	const FTribeTask* FindRunningTask() const;
+ 	const FTribeTaskExecutionConfig& Config() const;
+@@ -187,6 +216,16 @@ private:
+ 	double LastRequestTime = -1000.0;
+ 	bool bMoveIssued = false;
+ 
++	EGatherPhase GatherPhase = EGatherPhase::ToNode;
++	EResourceType GatherType = EResourceType::Wood;
++	TWeakObjectPtr<AResourceNode> GatherNode;
++	TWeakObjectPtr<AActor> GatherGoalActor; // node or drop-off building the current leg walks to (navmesh: its edge)
++	FVector GatherOrigin = FVector::ZeroVector;
++	double HarvestEndsAt = 0.0;
++	bool bHoldingSlot = false;
++	int32 GatherTrips = 0;
++	int32 GatherDepth = 0;
++
+ 	// Inspection (survives the end of a task)
+ 	ETaskMoveResult LastResult = ETaskMoveResult::None;
+ 	FName LastReason;
+diff --git a/Source/Shaman/Public/Tribes/TribeTaskTypes.h b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+index 78a6e15..dc45030 100644
+--- a/Source/Shaman/Public/Tribes/TribeTaskTypes.h
++++ b/Source/Shaman/Public/Tribes/TribeTaskTypes.h
+@@ -50,7 +50,7 @@ enum class EUnitSimState : uint8
+ 	Moving,      // executing a move (Phase 2.2)
+ 	Working,     // holds an Assigned/Active task
+ 	Building,    // reserved
+-	Gathering,   // reserved
++	Gathering,   // executing a gather task (Slice 3 milestone 3.1): walking, working and carrying home
+ 	Eating,      // reserved
+ 	Drinking,    // reserved
+ 	Sleeping,    // reserved
+diff --git a/Source/Shaman/Public/World/ResourceNode.h b/Source/Shaman/Public/World/ResourceNode.h
+index 2a3520a..0ced8dc 100644
+--- a/Source/Shaman/Public/World/ResourceNode.h
++++ b/Source/Shaman/Public/World/ResourceNode.h
+@@ -6,8 +6,16 @@
+ #include "ResourceNode.generated.h"
+ 
+ class UStaticMeshComponent;
++class UTribeMemberComponent;
+ 
+-/** Data-driven resource node (tree, berry bush, stone, ore). Phase 1: placed and inspectable; Phase 2 adds gathering. */
++/**
++ * Data-driven resource node (tree, berry bush, stone, ore). Slice 3 milestone 3.1: Braves gather from it.
++ *  - Gatherer slots: at most FResourceRow::MaxGatherers units work it at once (ReserveSlot / ReleaseSlot).
++ *  - Harvest: takes bundles (FResourceStock rules). The mesh shrinks as it empties.
++ *  - Regrowth: RegrowAmount every RegrowSeconds until full (trees, bushes). A node that never regrows is removed once
++ *    empty (bDestroyWhenDepleted).
++ * Gathering itself (walking, working, carrying home) is the unit's task executor (FUnitTaskExecutor, Task.Gather.*).
++ */
+ UCLASS()
+ class SHAMAN_API AResourceNode : public AActor, public IShamanInteractable
+ {
+@@ -18,15 +26,50 @@ public:
+ 	UPROPERTY(VisibleAnywhere) USceneComponent* Root;
+ 	UPROPERTY(VisibleAnywhere) UStaticMeshComponent* Mesh;
+ 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ExposeOnSpawn=true)) FName ResourceId;
++	/** Bundles left. */
+ 	UPROPERTY(BlueprintReadOnly) int32 Remaining = 0;
+ 
+ 	const FResourceRow& GetRow() const { return Row; }
++	UFUNCTION(BlueprintCallable, Category="Resource") EResourceType GetResourceType() const { return Row.Type; }
++	UFUNCTION(BlueprintCallable, Category="Resource") int32 GetMaxAmount() const { return FMath::Max(0, Row.Amount); }
++	UFUNCTION(BlueprintCallable, Category="Resource") bool IsDepleted() const { return Remaining <= 0; }
++	UFUNCTION(BlueprintCallable, Category="Resource") float GetHarvestSeconds() const { return FMath::Max(0.f, Row.HarvestSeconds); }
++	UFUNCTION(BlueprintCallable, Category="Resource") int32 GetBundlesPerTrip() const { return FMath::Max(1, Row.BundlesPerTrip); }
++	UFUNCTION(BlueprintCallable, Category="Resource") int32 GetMaxGatherers() const { return FMath::Max(1, Row.MaxGatherers); }
++	UFUNCTION(BlueprintCallable, Category="Resource") bool CanRegrow() const { return Row.RegrowSeconds > 0.f && Row.RegrowAmount > 0; }
++
++	/** Units holding a slot right now (dead / destroyed holders are dropped first). */
++	int32 GetGathererCount() const;
++	/** Member could take a slot: one is free, or Member already holds one. */
++	bool HasFreeSlotFor(const UTribeMemberComponent* Member) const;
++	/** Takes a slot for Member (idempotent). False when the node is full or depleted. */
++	bool ReserveSlot(UTribeMemberComponent* Member);
++	void ReleaseSlot(const UTribeMemberComponent* Member);
++
++	/** Takes up to Want bundles. Starts regrowth, or removes the node once empty when it never regrows. */
++	int32 Harvest(int32 Want);
++	/** One regrowth step (the timer calls it; tests call it directly). Returns bundles added. */
++	int32 RegrowStep();
++
++	/** Replace the row (tests, scripted nodes). bRefill sets Remaining to the row's Amount. */
++	void ApplyRow(const FResourceRow& NewRow, bool bRefill);
+ 
+ 	virtual FText GetInteractionText(const AActor* Interactor) const override;
+ 	virtual void Interact(AActor* Interactor) override {}
+ 
+ protected:
+ 	virtual void BeginPlay() override;
++	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
++
+ 	UPROPERTY() UStaticMesh* FallbackMesh = nullptr;
+ 	FResourceRow Row;
++
++private:
++	void UpdateVisual();
++	void UpdateRegrowTimer();
++	void RegrowRepeat() { RegrowStep(); }
++	void PruneGatherers() const;
++
++	mutable TArray<TWeakObjectPtr<UTribeMemberComponent>> Gatherers;
++	FTimerHandle RegrowTimer;
+ };
+diff --git a/Source/Shaman/Public/World/ResourceRow.h b/Source/Shaman/Public/World/ResourceRow.h
+index 77576bc..2e09a56 100644
+--- a/Source/Shaman/Public/World/ResourceRow.h
++++ b/Source/Shaman/Public/World/ResourceRow.h
+@@ -6,7 +6,8 @@
+ 
+ class UStaticMesh;
+ 
+-/** One row per resource node in DT_Resources (Content/Data/Resources.csv). Gathering arrives in Phase 2. */
++/** One row per resource node in DT_Resources (Content/Data/Resources.csv). Amount is in bundles (one Brave trip
++ *  carries BundlesPerTrip); Slice 3 milestone 3.1 adds the gathering columns below. */
+ USTRUCT(BlueprintType)
+ struct SHAMAN_API FResourceRow : public FTableRowBase
+ {
+@@ -15,6 +16,18 @@ struct SHAMAN_API FResourceRow : public FTableRowBase
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FText DisplayName;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) EResourceType Type = EResourceType::Wood;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) int32 Amount = 100;
++	/** Bundles one Brave takes per trip. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="1")) int32 BundlesPerTrip = 1;
++	/** Seconds a Brave works at the node for one trip. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) float HarvestSeconds = 4.f;
++	/** Braves that can work the node at the same time; others go to the next node. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="1")) int32 MaxGatherers = 2;
++	/** Seconds per regrowth step while below Amount (0 = never regrows). */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) float RegrowSeconds = 0.f;
++	/** Bundles added per regrowth step. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0")) int32 RegrowAmount = 1;
++	/** A node that does not regrow is removed from the world once empty. */
++	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bDestroyWhenDepleted = true;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bBlocksMovement = true;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TSoftObjectPtr<UStaticMesh> Mesh;
+ 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FVector MeshScale = FVector(1.f, 1.f, 1.f);

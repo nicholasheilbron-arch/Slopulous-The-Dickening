@@ -47,9 +47,29 @@ public:
 	UFUNCTION(BlueprintCallable) float GetDrownRemaining() const { return FMath::Max(0.f, Row.DrownTime - DrownTimer); }
 
 	// Orders
+	/** Any standing order. Clears guard / patrol data (a guard or patrol order is given with the functions below). */
 	UFUNCTION(BlueprintCallable) void SetOrder(EFollowerOrder NewOrder, FVector Location);
 	EFollowerOrder GetOrder() const { return Order; }
 	FVector GetOrderLocation() const { return OrderLocation; }
+
+	// RTS guard / patrol orders (see EFollowerOrder). Slot / SlotCount spread a group evenly around the ring.
+	/** GuardShaman (Target ignored, the tribe's Shaman is looked up live), GuardTarget (Target required) or GuardSpot. */
+	void SetGuardOrder(EFollowerOrder GuardKind, AActor* Target, const FVector& Centre, float RingRadius, int32 Slot, int32 SlotCount);
+	/** Walk Points in a loop starting at StartIndex. One point = guard that spot. */
+	void SetPatrolOrder(const TArray<FVector>& Points, int32 StartIndex);
+	bool IsGuardOrder() const { return Order == EFollowerOrder::GuardShaman || Order == EFollowerOrder::GuardTarget || Order == EFollowerOrder::GuardSpot; }
+	AActor* GetOrderTarget() const { return OrderTarget.Get(); }
+	float GetGuardRadius() const { return GuardRadius; }
+	int32 GetGuardSlot() const { return GuardSlot; }
+	int32 GetGuardSlotCount() const { return GuardSlotCount; }
+	const TArray<FVector>& GetPatrolPoints() const { return PatrolPoints; }
+	int32 GetPatrolIndex() const { return PatrolIndex; }
+	void AdvancePatrol();
+	/**
+	 * Centre of the current guard order (false when the order is not a guard order or the Shaman to guard is dead).
+	 * A GuardTarget whose actor is gone (flag removed, building destroyed) becomes a GuardSpot at its last position.
+	 */
+	bool ResolveGuardCentre(FVector& OutCentre);
 	FVector GetHomeLocation() const { return HomeLocation; }
 
 	// Combat
@@ -102,6 +122,12 @@ protected:
 	FUnitRow Row;
 	EFollowerOrder Order = EFollowerOrder::Wander;
 	FVector OrderLocation = FVector::ZeroVector;
+	TWeakObjectPtr<AActor> OrderTarget;
+	float GuardRadius = 250.f;
+	int32 GuardSlot = 0;
+	int32 GuardSlotCount = 1;
+	TArray<FVector> PatrolPoints;
+	int32 PatrolIndex = 0;
 	FVector HomeLocation = FVector::ZeroVector;
 	double LastMeleeTime = -1000.0;
 	float DrownTimer = 0.f;

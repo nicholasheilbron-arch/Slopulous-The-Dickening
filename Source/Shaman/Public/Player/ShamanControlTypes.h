@@ -64,6 +64,15 @@ struct SHAMAN_API FShamanSelectionSettings
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="40")) float FormationSpacing = 140.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor MoveMarkerColor = FLinearColor(0.3f, 1.f, 0.4f, 1.f);
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor GuardMarkerColor = FLinearColor(1.f, 0.85f, 0.1f, 1.f);
+	/** Guard rings (uu): around the Shaman, around a ground spot, outside a building's footprint; spacing between guards
+	 *  (the ring widens for big groups). Flags use AShamanGuardFlag::GuardRadius. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="50")) float GuardShamanRadius = 280.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="50")) float GuardSpotRadius = 180.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="0")) float GuardBuildingMargin = 150.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="40")) float GuardSpacing = 110.f;
+	/** Screen pick tolerance for guard flags (thin poles), plus 15% of the flag's on-screen height. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands", meta=(ClampMin="1")) float FlagPickRadiusPx = 14.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Commands") FLinearColor PatrolColor = FLinearColor(0.35f, 0.9f, 1.f, 1.f);
 };
 
 /**

@@ -9,7 +9,9 @@ class AShamanUnitBase;
 /**
  * Phase 1 unit brain: a small C++ state machine (no Behavior Tree assets needed).
  *   1. If hostile units are within AggroRadius and the leash allows it: engage (Shamans try spells first, then melee).
- *   2. Otherwise follow the standing order: FollowShaman / HoldPosition / GuardHome / Wander.
+ *   2. Otherwise follow the standing order: FollowShaman / HoldPosition / GuardHome / Wander, or an RTS guard / patrol
+ *      order (GuardShaman / GuardTarget / GuardSpot: walk circles around the centre, see FShamanGuardRules; Patrol: walk
+ *      the loop). Guards and patrols only chase enemies within GuardLeashRadius of what they protect.
  * Uses the navmesh when present and falls back to straight-line moves when it is not.
  * On planets (no navmesh possible) it asks FShamanSurfaceNavigation for a path and steers along the surface
  * every frame; decisions still run 4x per second.
@@ -52,8 +54,15 @@ protected:
 	void Engage(AShamanUnitBase* U, AActor* T);
 	void FollowOrders(AShamanUnitBase* U);
 	bool TryCastAt(AShamanUnitBase* U, AActor* T);
-	void MoveToward(const FVector& Dest, float Acceptance);
+	/** RepathDistance: a move already under way is only redirected once Dest moved this far (guards walking a ring use a
+	 *  short one so they follow the moving ring point smoothly). */
+	void MoveToward(const FVector& Dest, float Acceptance, float RepathDistance = 120.f);
 	FVector GetLeashAnchor(AShamanUnitBase* U) const;
+	float GetLeashRadius(const AShamanUnitBase* U) const;
+	/** One step of walking the guard ring around Centre. */
+	void WalkGuardRing(AShamanUnitBase* U, const FVector& Centre, float Radius, int32 Slot, int32 Count);
+	/** FollowShaman / GuardShaman while the Shaman is dead: wait at the Reincarnation Circle. */
+	void WaitForShaman(AShamanUnitBase* U);
 	void Think(AShamanUnitBase* U);
 	void SteerOnSurface(AShamanUnitBase* U);
 
